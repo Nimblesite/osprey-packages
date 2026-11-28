@@ -72,6 +72,23 @@ DO $$ BEGIN
   THEN RAISE EXCEPTION 'worker job or identity boundary'; END IF;
 END $$;
 SELECT pg_temp.require_denied('SELECT principal_id FROM release_reviewers'), pg_temp.require_denied('SELECT principal_id FROM browser_sessions');
+-- A previously failed low ordinal cannot monopolize an unkeyed worker.
+SAVEPOINT queue_order;
+RESET SESSION AUTHORIZATION;
+INSERT INTO scan_claims VALUES
+  (md5('1')::uuid,gen_random_uuid(),statement_timestamp()-interval '1 minute'),
+  (md5('2')::uuid,gen_random_uuid(),statement_timestamp()-interval '2 minutes');
+SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
+DO $$ BEGIN
+  IF registry.claim_pending_scan(NULL)::jsonb->>'id' IS DISTINCT FROM md5('3')::uuid::text THEN
+    RAISE EXCEPTION 'an expired lease was retried ahead of an unattempted version';
+  END IF;
+  IF registry.claim_pending_scan(NULL)::jsonb->>'id' IS DISTINCT FROM md5('2')::uuid::text THEN
+    RAISE EXCEPTION 'the oldest expired lease was skipped';
+  END IF;
+END $$;
+ROLLBACK TO queue_order;
+RELEASE SAVEPOINT queue_order;
 SELECT registry.claim_pending_scan(md5('1')::uuid)::jsonb->>'ticket' AS ticket_one \gset
 SELECT registry.claim_pending_scan(md5('2')::uuid)::jsonb->>'ticket' AS ticket_two \gset
 DO $$ BEGIN

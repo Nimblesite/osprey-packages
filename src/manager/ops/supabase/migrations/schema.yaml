@@ -815,11 +815,11 @@ functions:
     executeRoles: [registry_scan_worker]
     body: >-
       WITH candidate AS (
-      SELECT j.id FROM registry.review_submissions j
+      SELECT j.id FROM registry.review_submissions j LEFT JOIN registry.scan_claims prior ON prior.submission_id=j.id
       WHERE (requested IS NULL OR j.id=requested)
       AND NOT EXISTS (SELECT FROM registry.review_scans s WHERE s.submission_id=j.id)
-      AND NOT EXISTS (SELECT FROM registry.scan_claims c WHERE c.submission_id=j.id AND c.expires_at>statement_timestamp())
-      ORDER BY j.epoch,j.ordinal,j.id LIMIT 1),
+      AND (prior.expires_at IS NULL OR prior.expires_at<=statement_timestamp())
+      ORDER BY prior.expires_at NULLS FIRST,j.epoch,j.ordinal,j.id LIMIT 1),
       claimed AS (
       INSERT INTO registry.scan_claims AS c (submission_id,ticket,expires_at)
       SELECT id,gen_random_uuid(),statement_timestamp()+interval '5 minutes' FROM candidate
