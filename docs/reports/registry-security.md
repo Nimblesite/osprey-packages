@@ -32,6 +32,10 @@ Transport fixtures verified the precondition and retry decisions. A local concur
 
 **Fixed on feature branch · [PACKAGE-HOSTED-PUBLISH-FLOW].** The GitHub adapter fetched each blob before the release assembler enforced the 50 MiB limit. An oversized tree could therefore consume network requests and worker memory before refusal. The collector now checks declared sizes, modes, blob types and object IDs before fetching blobs, and checks each response against its declared length. A missing tree array fails the collection. The transport regression uses two 30 MB declarations and a fixture that distinguishes a fetch attempt from an immediate refusal.
 
+## A matching agent revision did not establish the required execution mode
+
+**Fixed on feature branch · [PACKAGE-SECURITY-SCAN-VERDICT].** A transport fixture returned an accepted verdict under a deliberately pinned sandbox-embodied configuration. The worker had verified the response digest and relied on operator review for mode validation. It now checks the configuration ID, disembodied mode and an explicitly empty tools array before opening a session and before returning a verdict. The provider’s tool-manifest check remains in place. There is no evidence this configuration was used in production.
+
 ## Production observations
 
 A TLS-verified anonymous GET returned 200 for the plural hostname’s homepage and catalog API, 401 for the session endpoint, and 404 for the website’s release page. The singular hostname failed DNS resolution from the test host. These observations establish availability and guest-session behavior only. No production publication or private package access was exercised.

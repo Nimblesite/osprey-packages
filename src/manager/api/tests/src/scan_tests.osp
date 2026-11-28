@@ -6,6 +6,7 @@ import registry::ReleaseFiles
 import registry::Bundle
 import registry::Json
 import registry::JsonRead
+import registry::Sha256
 import registry::Canonical
 
 module ScanTests {
@@ -24,7 +25,7 @@ module ScanTests {
         Error => false
     }
 
-    fn scan(body, status, source, config) = {
+    fn pinnedScan(body, status, source, config, revision) = {
         handle Supabase::Provider {
             request method base path headers payload =>
             if base != "https://api.nimblesite.ai" || !contains(headers, "X-API-Key: fixture") { reply(400, "") }
@@ -35,7 +36,15 @@ module ScanTests {
             else if endsWith(path, "/prompt") && contains(payload, "REVIEW_THIS_BYTE") { reply(status, body) }
             else { reply(400, "") }
         }
-        PublicationScan::nap(session, "sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765", "fixture", source)
+        PublicationScan::nap(session, revision, "fixture", source)
+    }
+
+    fn scan(body, status, source, config) = pinnedScan(body, status, source, config, "sha256:" + Sha256::ofString(configBody))
+
+    fn unsafePins(accepted, bytes) = {
+        let configs = [replace(configBody, "disembodied", "sandbox-embodied") ?: "", replace(configBody, "[]", "[{}]") ?: "",
+            replace(configBody, "tools_config", "other") ?: "", replace(configBody, session, "22222222-2222-4222-8222-222222222222") ?: ""]
+        foldList(configs, true, fn(ok, config) => (pinnedScan(accepted, 200, bytes, config, "sha256:" + Sha256::ofString(config)) ?: "pending") == "pending" && ok)
     }
 
     fn receipt(release: Release::Served, path, bytes, answer, status) =
@@ -46,6 +55,7 @@ module ScanTests {
         let failures = "[\"unsafe dependency\",\"undeclared source\"]"
         checkAll("frozen submission, strict scan verdict and retryable failures", [
                 receipt(release, dir, bytes, accepted, 200) == "accepted",
+                unsafePins(accepted, bytes),
                 receipt(release, dir, bytes, provider(failures, "end_turn", session), 200) == failures,
                 foldList(["[]", "[1]", "[\" \"]", "accepted!", "{}"], true, fn(ok, verdict) =>
                     receipt(release, dir, bytes, provider(verdict, "end_turn", session), 200) == "pending" && ok),

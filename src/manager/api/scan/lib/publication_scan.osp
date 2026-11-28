@@ -62,9 +62,17 @@ module PublicationScan {
     fn submit(configId, apiKey, session, source) = if !Bytes::canonicalUuid(session) { refused() }
     else { andThen(prompt(session, source), fn(payload) => andThen(post(configId, apiKey, "prompt", payload), fn(doc) => response(doc, session))) }
 
+    fn toolFree(doc, configId) = field(doc, "id") == configId && field(doc, "agent_type") == "disembodied"
+    && match JsonRead::field(doc, "tools_config") {
+        Json::Arr { items } => isEmpty(items)
+        _ => false
+    }
+
     fn checkRevision(configId, apiKey, revision) = andThen(perform Supabase::Provider.request("GET", "https://api.nimblesite.ai",
             "/api/v1/configs/" + configId, "X-API-Key: " + apiKey, ""), fn(reply) =>
-        if reply.status == 200 && Digests::format(Sha256::digest(Bytes::ofString(reply.body))) == revision { Success { value: true } } else { refused() })
+        if reply.status == 200 && Digests::format(Sha256::digest(Bytes::ofString(reply.body))) == revision {
+            andThen(parsed(reply.body), fn(doc) => if toolFree(doc, configId) { Success { value: true } } else { refused() })
+        } else { refused() })
 
     fn turn(configId, apiKey, source) = andThen(post(configId, apiKey, "new", "{\"cwd\":\"/\",\"mcpServers\":[]}"),
         fn(doc) => submit(configId, apiKey, field(doc, "sessionId"), source))

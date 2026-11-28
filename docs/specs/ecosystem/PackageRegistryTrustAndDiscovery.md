@@ -472,7 +472,7 @@ Forced RLS on scan receipts requires the exact configuration UUID and digest sel
 
 Before opening a quarantined bundle, the worker must match its mounted configuration UUID and digest against the database operator’s selection for the job. Missing or mismatched configuration leaves the source in quarantine.
 
-The worker must compare the SHA-256 of the NAP configuration response with the reviewed revision before opening a session and again before recording a verdict. A failed read or a changed revision leaves the version pending.
+The worker must compare the SHA-256 of the NAP configuration response with the reviewed revision before opening a session and again before recording a verdict. On both reads the response must identify the selected configuration, declare disembodied mode and contain an empty tools array. A failed read, changed revision or incompatible configuration leaves the version pending.
 
 Every source-carrying prompt must pin NAP’s empty tool manifest through `_meta.nap.toolManifestSha256`. A changed tool contract leaves the job pending.
 
