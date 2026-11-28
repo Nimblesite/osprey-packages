@@ -25,13 +25,16 @@ module Project {
     /// A local checkout named by an overlay, relative to `dir`.
     export fn localDirAt(dir, path) = pathAt(dir, path)
 
+    /// A lock document at `path`, decoded, or the OS reason / its first rejection code.
+    fn decodedAt(path) = andThen(perform Host::Files.read(path), fn(value) => Lockfile::decode(value))
+
     /// The decoded development lock at `dir`, or the OS reason / its first rejection code.
-    export fn readLocalLockAt(dir) = andThen(perform Host::Files.read(localLockPathAt(dir)), fn(value) => Lockfile::decode(value))
+    export fn readLocalLockAt(dir) = decodedAt(localLockPathAt(dir))
 
     // `Package.release` and `Override.path` are shared names; typed receivers (issue #273).
     /// Where a locked package's tree lives: the local checkout when the lock
     /// overrides its key, else its installed directory ([PACKAGE-LOCAL-OVERRIDE]).
-    export fn treeDirAt(project, lock: Lockfile::Lock, pkg: Lockfile::Package) = match Lockfile::overrideFor(lock.overrides, pkg.release.key) {
+    export fn treeDirAt(project, lock: Lockfile::Lock, pkg: Lockfile::Package) = match Lockfile::overrideOf(lock, Lockfile::keyOf(pkg)) {
         Success { value } => localDirAt(project, value.path)
         Error => Fetch::installDirAt(project, pkg.release)
     }
@@ -46,7 +49,7 @@ module Project {
     export fn readAt(dir) = andThen(manifestTextAt(dir), fn(value) => Manifest::accepted(Manifest::parse(value)))
 
     /// The decoded folder lock at `dir`, or the OS reason / its first rejection code.
-    export fn readLockAt(dir) = andThen(perform Host::Files.read(lockPathAt(dir)), fn(value) => Lockfile::decode(value))
+    export fn readLockAt(dir) = decodedAt(lockPathAt(dir))
 
     /// The parsed manifest, or the OS reason / `Manifest::describe(problem)`.
     export fn read() = readAt("")

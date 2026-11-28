@@ -25,7 +25,7 @@ module Png {
 
     fn kindHex(name) = Bytes::hex(Bytes::ofString(name))
 
-    fn allowed(kind) = foldList(["IHDR", "PLTE", "tRNS", "IDAT", "IEND"], false, fn(ok, name) => ok || kind == kindHex(name))
+    fn allowed(kind) = Order::anyString(["IHDR", "PLTE", "tRNS", "IDAT", "IEND"], fn(name) => kind == kindHex(name))
 
     fn dimensionCode(width, height) = if width == 0 || height == 0 || width > maxSide || height > maxSide { "asset.png-dimensions" }
         else if width * height > maxPixels { "asset.png-pixels" }

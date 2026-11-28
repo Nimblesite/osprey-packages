@@ -1,10 +1,14 @@
 namespace registry_cli;
+import registry::ManifestModel
+import registry::Maybe
 import registry::Names
 
-/// The line edits `add`, `remove` and `update --breaking` make to
-/// `osprey.toml`: one `"@scope/name" = { epoch = N, min_release = M }` line
-/// under `[dependencies]` per dependency, added, removed or retargeted, with
-/// every other line of the manifest kept byte for byte ([PACKAGE-MANIFEST]).
+/// The manifest helpers of the commands that edit or read `osprey.toml`
+/// ([PACKAGE-MANIFEST]): the line edits `add`, `remove` and `update --breaking`
+/// make, and the `[package]` key `use` and `publish` read. One dependency
+/// line, `"@scope/name" = { epoch = N, min_release = M }` under
+/// `[dependencies]` per dependency, added, removed or retargeted, with
+/// every other line of the manifest kept byte for byte.
 module ManifestEdit {
     let header = "[dependencies]"
     let newline = "\n"
@@ -16,7 +20,10 @@ module ManifestEdit {
     fn isEdge(line, key) = startsWith(trim(line), keyText(key))
 
     /// Whether a dependency line for `key` is present in any dependency table.
-    export fn hasEdge(text, key) = foldList(linesOf(text), false, fn(found, line) => found || isEdge(line, key))
+    export fn hasEdge(text, key) = Folds::any(linesOf(text), fn(line) => isEdge(line, key))
+
+    /// The key the manifest's `[package]` declares, or `code` when it declares none.
+    export fn publicationKey(mf: ManifestModel::Manifest, code) = Maybe::fold(mf.publication, Error { message: code }, fn(p) => Success { value: p.package })
 
     /// The canonical dependency line.
     export fn edgeLine(key, epoch, floor) = "${keyText(key)} = { epoch = ${epoch}, min_release = ${floor} }"

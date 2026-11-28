@@ -54,6 +54,8 @@ module Lockfile {
     export fn overridesOf(lock: Lock) = lock.overrides
     /// One locked package's release.
     export fn releaseOf(p: Package) = p.release
+    /// One locked package's key.
+    export fn keyOf(p: Package) = p.release.key
     /// One locked package's Runtime/Build edges.
     export fn edgesOf(p: Package) = p.dependencies
     /// The root's dependency edges.
@@ -66,19 +68,37 @@ module Lockfile {
     export fn overridePathOf(o: Override) = o.path
 
     /// The override of `key` among `overrides`, if the lock takes it locally.
-    export fn overrideFor(overrides, key) = Checked::firstMatch(overrides, fn(o: Override) => Names::same(o.package, key), "none")
+    export fn overrideFor(overrides, key) = Folds::byKey(overrides, overrideKey, key, "none")
+
+    /// The package pinned for `key` in `lock`, if one is.
+    export fn packageIn(lock: Lock, key) = packageFor(packagesOf(lock), key)
+
+    /// The override of `key` in `lock`, if the lock takes it locally.
+    export fn overrideOf(lock: Lock, key) = overrideFor(overridesOf(lock), key)
+
+    /// Whether `lock` takes `key` from a local checkout.
+    export fn overridden(lock: Lock, key) = Checked::succeeded(overrideOf(lock, key))
 
     // `ReleaseId` shares `key`, `epoch`, `ordinal` and `digest` with other
     // records; issue #273 needs the receiver spelled out.
+    /// `@scope/name e1.r2`: the slot a release occupies, digest aside.
+    export fn spot(id: Identity::ReleaseId) = "${Names::display(id.key)} e${id.epoch}.r${id.ordinal}"
+
     /// `@scope/name e1.r2 sha256:…`: the release spelling of every line the
     /// lock-consuming commands print ([PACKAGE-FOLDER-REGISTRY]).
-    export fn compact(id: Identity::ReleaseId) = "${Names::display(id.key)} e${id.epoch}.r${id.ordinal} ${id.digest}"
+    export fn compact(id: Identity::ReleaseId) = "${spot(id)} ${id.digest}"
 
     /// The package no lock has: the `?:` fallback of package lookups.
     export fn blankPackage() = Package { release: Identity::blank(), dependencies: [], surface: [] }
 
     /// The package pinned for `key` among `packages`, if one is.
-    export fn packageFor(packages, key) = Checked::firstMatch(packages, fn(p: Package) => Names::same(p.release.key, key), "none")
+    export fn packageFor(packages, key) = Folds::byKey(packages, keyOf, key, "none")
+
+    /// The release `lock` pins for `key`, when it has one.
+    export fn releaseIn(lock: Lock, key) = match packageIn(lock, key) {
+        Error => Maybe::none()
+        Success { value } => Maybe::some(releaseOf(value))
+    }
 
     let formatValue = 0
     let formatCode = "lock.format"
@@ -175,13 +195,13 @@ module Lockfile {
     /// A key only when scope and name pass [PACKAGE-NAMES]; anything else is
     /// `lock.shape`, so no lock string reaches a filesystem path
     /// ([PACKAGE-HARDENING] C3).
-    fn keyOf(scope, name) = if Names::scopeCode(scope) == "" && Names::nameCode(name) == "" {
+    fn checkedKey(scope, name) = if Names::scopeCode(scope) == "" && Names::nameCode(name) == "" {
         Success { value: Names::Key { scope: scope, name: name } }
     } else { Error { message: shapeCode } }
 
-    fn readName(object, scope) = textField(object, "name", fn(value) => keyOf(scope, value))
+    fn readName(object, scope) = textField(object, "name", fn(value) => checkedKey(scope, value))
 
-    fn parsedDigest(text) = Checked::orElseCode(Digests::parse(text), shapeCode, fn(value) => Success { value: value })
+    fn parsedDigest(text) = Checked::mapError(Digests::parse(text), fn(_reason) => shapeCode)
 
     /// A member that must be a well-formed `sha256:` envelope ([PACKAGE-HARDENING] C3).
     fn digestMember(object, key) = textField(object, key, parsedDigest)
@@ -258,7 +278,7 @@ module Lockfile {
 
     fn packageWithSurface(pkg, release, deps) = andThen(surfaceOf(pkg), fn(value) => Success { value: Package { release: release, dependencies: deps, surface: value } })
 
-    fn packageKeyText(p: Package) = Names::display(p.release.key)
+    fn packageKeyText(p) = Names::display(keyOf(p))
 
     fn keysUnique(packages) = Order::strictlyAscending(listSort(mapList(packages, packageKeyText)))
 
@@ -273,14 +293,14 @@ module Lockfile {
 
     fn overrideDigest(object, key, path, epoch) = andThen(digestMember(object, manifestDigestKey), fn(value) => Success { value: Override { package: key, path: path, epoch: epoch, manifestDigest: value } })
 
-    fn overrideOf(object) = readKeyed(object, fn(o, key) => overridePath(o, key))
+    fn readOverride(object) = readKeyed(object, fn(o, key) => overridePath(o, key))
 
     /// `overrides` is optional: absent means none; present, it is an array of
     /// well-formed overrides sorted by key.
     fn overridesFrom(root) = {
         let value = JsonRead::field(root, "overrides")
         if Json::isNull(value) { Success { value: [] } } else { match value {
-            Json::Arr { items } => Checked::collectAll(items, overrideOf)
+            Json::Arr { items } => Checked::collectAll(items, readOverride)
             _ => Error { message: shapeCode }
         } }
     }
@@ -307,10 +327,7 @@ module Lockfile {
     /// `lock.format`, `lock.shape`, `lock.duplicate-key` or `lock.order`.
     export fn decode(text) = Checked::orElseCode(Json::parse(text), shapeCode, decodeValue)
 
-    fn decodeValue(root) = match formatOf(root) {
-        Error { message } => Error { message: message }
-        Success => decodePackages(root)
-    }
+    fn decodeValue(root) = andThen(formatOf(root), fn(_format) => decodePackages(root))
 
     fn decodePackages(root) = andThen(JsonRead::requiredItems(root, "packages", shapeCode), fn(items) => andThen(Checked::collectAll(items, packageOf), fn(packages) => decodeRoot(root, packages)))
 

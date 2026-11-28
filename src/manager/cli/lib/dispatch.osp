@@ -36,24 +36,34 @@ module Dispatch {
     /// The same report as one canonical JSON line (`--json <command> …`).
     fn jsonOf(report) = Reports::Report { status: report.status, lines: [Reports::json(report)] }
 
-    /// Route one argument vector to its command.
-    export fn run(args) -> Reports::Report = match listGet(args, 0) ?: "help" {
-        "--json" => jsonOf(run(Flags::tail(args)))
-        "help" => Reports::success(usage)
-        "doctor" => Doctor::report()
-        "package" => packageCommand(Flags::tail(args))
-        "add" => Add::run(Flags::tail(args))
-        "remove" => Remove::run(Flags::tail(args))
-        "update" => Update::run(Flags::tail(args))
-        "use" => Use::run(Flags::tail(args))
-        "publish" => Publish::run(Flags::tail(args))
-        "fetch" => fetchOrInstall(Flags::tail(args))
-        "lock" => Lock::run(Flags::tail(args))
-        "verify" => Verify::run(Flags::tail(args))
-        "docs" => Build::docs(Flags::tail(args))
-        "build" => Build::run(Flags::tail(args))
-        "tree" => Tree::run(Flags::tail(args))
-        "why" => Why::run(Flags::tail(args))
-        command => other(command)
+    fn help(_rest) = Reports::success(usage)
+
+    fn doctor(_rest) = Doctor::report()
+
+    /// The routing table: the function each command word hands the rest of
+    /// the command line to. A command the specification lists but this build
+    /// lacks answers through `other`, like a word it does not know.
+    fn handlerOf(command) = match command {
+        "--json" => fn(rest) => jsonOf(run(rest))
+        "help" => help
+        "doctor" => doctor
+        "package" => packageCommand
+        "add" => Add::run
+        "remove" => Remove::run
+        "update" => Update::run
+        "use" => Use::run
+        "publish" => Publish::run
+        "fetch" => fetchOrInstall
+        "lock" => Lock::run
+        "verify" => Verify::run
+        "docs" => Build::docs
+        "build" => Build::run
+        "tree" => Tree::run
+        "why" => Why::run
+        word => fn(_rest) => other(word)
     }
+
+    /// Route one argument vector to its command: the first word names the
+    /// command, the words after it are that command's own arguments.
+    export fn run(args) = handlerOf(listGet(args, 0) ?: "help")(Flags::tail(args))
 }

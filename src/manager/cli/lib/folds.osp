@@ -1,0 +1,31 @@
+namespace registry_cli;
+import registry::Checked
+import registry::Names
+
+/// The list folds the commands share because the standard library lacks
+/// them: the largest measure, any and every, the flattening map, and a fold
+/// that stops at its first failure. One definition each, so no command
+/// carries its own copy.
+module Folds {
+    /// The largest `measure` over `items`, 0 when there are none.
+    export fn largest(items, measure) = foldList(items, 0, fn(best, item) => if measure(item) > best { measure(item) } else { best })
+
+    /// Whether some item of `items` passes `ok`: the presence test of a lookup.
+    export fn any(items, ok) = Checked::succeeded(Checked::firstMatch(items, ok, "none"))
+
+    /// Whether every item of `items` passes `ok`.
+    export fn all(items, ok) = !any(items, fn(item) => !ok(item))
+
+    /// The item of `items` whose `keyOf` is `key`, else `code`.
+    export fn byKey(items, keyOf, key, code) = Checked::firstMatch(items, fn(item) => Names::same(keyOf(item), key), code)
+
+    /// `items` each mapped by `toParts`, the parts concatenated in order.
+    export fn flatMap(items, toParts) = foldList(items, [], fn(acc, item) => listConcat(acc, toParts(item)))
+
+    /// `foldList` over a `Result` accumulator that stops at its first
+    /// failure: `step` only ever sees the success so far.
+    export fn collect(items, first, step) = foldList(items, first, fn(acc, item) => match acc {
+        Error => acc
+        Success { value } => step(value, item)
+    })
+}

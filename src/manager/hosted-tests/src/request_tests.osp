@@ -9,6 +9,7 @@ import registry::Maybe
 module RequestTests {
     let v1Packages = "/v1/packages"
     let contentLengthRefusal = "400:req.content-length"
+    let hostRefusal = "421:req.host"
 
     fn policy() = HostedRequest::Policy {
         allowedOrigin: "https://packages.example.test",
@@ -54,10 +55,10 @@ module RequestTests {
         let cases = [
             { method: "GET", uri: "/v1/health", headers: "X-Edge-Host: api.example.test", body: "", expected: "403:req.edge-secret" },
             { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: wrong\r\nX-Edge-Host: api.example.test", body: "", expected: "403:req.edge-secret" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nX-Edge-Host: run.app", body: "", expected: "421:req.host" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge", body: "", expected: "421:req.host" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test", body: "", expected: "421:req.host" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test\r\nX-Edge-Host: evil.example.test", body: "", expected: "421:req.host" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nX-Edge-Host: run.app", body: "", expected: hostRefusal },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge", body: "", expected: hostRefusal },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test", body: "", expected: hostRefusal },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test\r\nX-Edge-Host: evil.example.test", body: "", expected: hostRefusal },
             { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: registry-abc-ts.a.run.app\r\nX-Edge-Host: API.Example.Test", body: "", expected: "admitted" },
             { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nX-Edge-Host: api.example.test\r\nx-edge-host: api.example.test", body: "", expected: "400:req.duplicate-header" }
         ]

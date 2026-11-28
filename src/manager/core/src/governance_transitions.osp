@@ -21,7 +21,7 @@ module GovernanceTransitions {
             organizations: listAppend(registry.organizations,
                 Governance::Organization { id: id, orgHandle: orgHandle, governanceEpoch: 1 }),
             memberships: listAppend(registry.memberships,
-                Governance::Membership { id: founderMembership, org: id, principal: founder, role: Governance::Custodian, status: Governance::MemberActive, authorityEpoch: 1 })
+                membershipRow(founderMembership, id, founder, Governance::Custodian))
         } }
     }
 
@@ -39,8 +39,7 @@ module GovernanceTransitions {
         use _ <- andThen(distinctProofs(proofA, proofB))
         use _ <- andThen(humanMember(registry, m))
         use _ <- andThen(custodianQuorum(registry, org, target, proofA, proofB))
-        Success { value: Governance::replaceMembership(registry,
-            m { role: Governance::Custodian, authorityEpoch: m.authorityEpoch + 1 }) }
+        updatedMembership(registry, m, Governance::Custodian, m.status)
     }
 
     /// Revoking a membership [PACKAGE-OWNERSHIP-MODEL]: a custodian's signed
@@ -54,8 +53,7 @@ module GovernanceTransitions {
         use _ <- andThen(custodianProof(registry, m.org, Governance::revocationStatement(m.org, target), proof))
         use _ <- andThen(notLastCustodian(registry, m))
         use _ <- andThen(administersNothing(registry, m))
-        Success { value: Governance::replaceMembership(registry,
-            m { status: Governance::Revoked, authorityEpoch: m.authorityEpoch + 1 }) }
+        updatedMembership(registry, m, m.role, Governance::Revoked)
     }
 
     /// Accepting organization membership [PACKAGE-OWNERSHIP-MODEL]: a
@@ -71,7 +69,7 @@ module GovernanceTransitions {
         use _ <- andThen(Governance::requireProof(acceptanceProof, principal, membership,
             Governance::membershipAcceptanceStatement(org, principal, membership)))
         Success { value: registry { memberships: listAppend(registry.memberships,
-            Governance::Membership { id: membership, org: org, principal: principal, role: Governance::Member, status: Governance::MemberActive, authorityEpoch: 1 }) } }
+            membershipRow(membership, org, principal, Governance::Member)) } }
     }
 
     /// Principal-level suspension [PACKAGE-OWNERSHIP-ADMIN]: membership rows
@@ -116,15 +114,17 @@ module GovernanceTransitions {
     /// Deprecation keeps old releases verifiable and the key permanent
     /// [PACKAGE-OWNERSHIP-MAINTENANCE]; only the administrator decides it.
     export fn deprecate(registry, id, proof) =
-        adminDecision(registry, id, proof, fn(pkg) => Governance::deprecateStatement(pkg.key, pkg.authorityEpoch),
-            fn(pkg) => Governance::replacePackage(registry, pkg { status: Governance::Deprecated }))
+        statusDecision(registry, id, proof, Governance::deprecateStatement, Governance::Deprecated)
 
     /// Tombstoning freezes the key forever: the row, its orgHandle and every
     /// historical release stay, and the leaf never becomes available again
     /// [PACKAGE-NAMES-NO-SITTING].
     export fn tombstone(registry, id, proof) =
-        adminDecision(registry, id, proof, fn(pkg) => Governance::tombstoneStatement(pkg.key, pkg.authorityEpoch),
-            fn(pkg) => Governance::replacePackage(registry, pkg { status: Governance::Tombstoned }))
+        statusDecision(registry, id, proof, Governance::tombstoneStatement, Governance::Tombstoned)
+
+    fn statusDecision(registry, id, proof, statementOf, status) =
+        adminDecision(registry, id, proof, fn(pkg) => statementOf(pkg.key, pkg.authorityEpoch),
+            fn(pkg) => Governance::replacePackage(registry, pkg { status: status }))
 
     /// A writable package and the current administrator's fresh proof of
     /// `statementOf(pkg)`; the transition's effect is `apply(pkg)`.
@@ -149,11 +149,14 @@ module GovernanceTransitions {
         Success { value: recorded(registry, pkg, m, grantId, membership, permission, expiresAt) }
     }
 
+    fn grantRow(pkg, memberEpoch, grantId, membership, permission, expiresAt) =
+        Governance::Grant { id: grantId, package: pkg.id, membership: membership, permission: permission,
+            grantor: pkg.admin, packageEpoch: pkg.authorityEpoch, memberEpoch: memberEpoch,
+            expiresAt: expiresAt, status: Governance::GrantActive }
+
     /// The new grant row appended to the registry.
     fn recorded(registry, pkg, m, grantId, membership, permission, expiresAt) = registry { grants: listAppend(registry.grants,
-        Governance::Grant { id: grantId, package: pkg.id, membership: membership, permission: permission,
-            grantor: pkg.admin, packageEpoch: pkg.authorityEpoch, memberEpoch: m.authorityEpoch,
-            expiresAt: expiresAt, status: Governance::GrantActive }) }
+        grantRow(pkg, m.authorityEpoch, grantId, membership, permission, expiresAt)) }
 
     /// The administrator can revoke one grant immediately
     /// [PACKAGE-OWNERSHIP-PERMISSIONS]; the row remains auditable.
@@ -212,6 +215,12 @@ module GovernanceTransitions {
         code => Error { message: code }
     }
 
+    fn membershipRow(id, org, principal, role) = Governance::Membership {
+        id: id, org: org, principal: principal, role: role, status: Governance::MemberActive, authorityEpoch: 1 }
+
+    fn updatedMembership(registry, m, role, status) = Success { value: Governance::replaceMembership(registry,
+        m { role: role, status: status, authorityEpoch: m.authorityEpoch + 1 }) }
+
     fn humanFounder(registry, founder) = {
         use p <- andThen(Governance::principalOf(registry, founder))
         use _ <- andThen(Governance::livePrincipal(p))
@@ -247,24 +256,17 @@ module GovernanceTransitions {
     fn otherCustodians(registry, m: Governance::Membership) = filterList(registry.memberships, fn(x) =>
         Governance::isCustodian(x) && Governance::isActive(x) && x.org == m.org && x.id != m.id)
 
-    fn notLastCustodian(registry, m) = match Governance::isCustodian(m) && length(otherCustodians(registry, m)) == 0 {
-        true => Error { message: "governance.org.last-custodian" }
-        false => Success { value: m }
-    }
+    fn notLastCustodian(registry, m) = Governance::unique(m,
+        Governance::isCustodian(m) && length(otherCustodians(registry, m)) == 0, "governance.org.last-custodian")
 
     fn administers(registry, m: Governance::Membership) =
         length(filterList(registry.packages, fn(p: Governance::Package) => p.admin == m.id)) > 0
 
-    fn administersNothing(registry, m) = match administers(registry, m) {
-        true => Error { message: "governance.membership.administers-package" }
-        false => Success { value: m }
-    }
+    fn administersNothing(registry, m) =
+        Governance::unique(m, administers(registry, m), "governance.membership.administers-package")
 
-    fn noActiveMembership(registry, org, principal) = match length(filterList(registry.memberships, fn(m) =>
-        m.org == org && m.principal == principal && Governance::isActive(m))) {
-        0 => Success { value: principal }
-        _ => Error { message: "governance.membership.already-active" }
-    }
+    fn noActiveMembership(registry, org, principal) = Governance::unique(principal, length(filterList(registry.memberships, fn(m) =>
+        m.org == org && m.principal == principal && Governance::isActive(m))) > 0, "governance.membership.already-active")
 
     fn administeredBy(registry, pkg: Governance::Package, principal) = foldList(registry.memberships, false, fn(found, m: Governance::Membership) =>
         found || (m.id == pkg.admin && m.principal == principal))
@@ -275,12 +277,9 @@ module GovernanceTransitions {
     /// status including tombstones. Another organization's same leaf stays
     /// free.
     fn keyChecks(registry, o: Governance::Organization, key: Names::Key, id) = match Names::scopeCode(key.scope) + Names::nameCode(key.name) {
-        "" => match key.scope == o.orgHandle {
-            false => Error { message: "governance.package.org-handle-mismatch" }
-            true => match Maybe::isPresent(Governance::packageByName(registry, o.id, key.name)) {
-                true => Error { message: "governance.package.duplicate-name" }
-                false => Success { value: id }
-            }
+        "" => {
+            use _ <- andThen(Governance::required(key.scope == o.orgHandle, id, "governance.package.org-handle-mismatch"))
+            Governance::unique(id, Maybe::isPresent(Governance::packageByName(registry, o.id, key.name)), "governance.package.duplicate-name")
         }
         code => Error { message: code }
     }
@@ -289,25 +288,18 @@ module GovernanceTransitions {
     fn subject(registry, pkg: Governance::Package, membership) = activeMemberOfOrg(registry, pkg.org, membership)
 
     fn freshExpiry(expiresAt, now) = Maybe::fold(expiresAt, Success { value: now }, fn(at) =>
-        match at > now {
-            true => Success { value: at }
-            false => Error { message: "governance.permission.expiry-past" }
-        })
+        Governance::required(at > now, at, "governance.permission.expiry-past"))
 
     fn unusedGrantId(registry, id) = match Governance::grantOf(registry, id) {
         Success => Error { message: "governance.grant.id-taken" }
         Error => Success { value: id }
     }
 
-    fn unduplicated(registry, id, membership, permission) = match length(liveSlot(registry, id, membership, permission)) {
-        0 => Success { value: membership }
-        _ => Error { message: "governance.permission.duplicate" }
-    }
+    fn unduplicated(registry, id, membership, permission) = Governance::unique(membership,
+        length(liveSlot(registry, id, membership, permission)) > 0, "governance.permission.duplicate")
 
-    fn soleActive(registry, old: Governance::Grant) = match length(liveSlot(registry, old.package, old.membership, old.permission)) {
-        1 => Success { value: old }
-        _ => Error { message: "governance.permission.duplicate" }
-    }
+    fn soleActive(registry, old: Governance::Grant) = Governance::required(
+        length(liveSlot(registry, old.package, old.membership, old.permission)) == 1, old, "governance.permission.duplicate")
 
     /// The live grants of one (package, membership, permission) slot.
     fn liveSlot(registry, id, membership, permission) = filterList(registry.grants, fn(g) =>
@@ -315,9 +307,8 @@ module GovernanceTransitions {
 
     fn renewed(registry, pkg: Governance::Package, old, newGrantId, expiresAt) = {
         let retired = Governance::replaceGrant(registry, old { status: Governance::GrantRevoked })
-        let decision = Governance::Grant { id: newGrantId, package: old.package, membership: old.membership, permission: old.permission,
-            grantor: pkg.admin, packageEpoch: pkg.authorityEpoch, memberEpoch: freshMemberEpoch(retired, old.membership), expiresAt: expiresAt, status: Governance::GrantActive }
-        retired { grants: listAppend(retired.grants, decision) }
+        retired { grants: listAppend(retired.grants,
+            grantRow(pkg, freshMemberEpoch(retired, old.membership), newGrantId, old.membership, old.permission, expiresAt)) }
     }
 
     fn freshMemberEpoch(registry, membership) = match Governance::membershipOf(registry, membership) {
@@ -328,20 +319,11 @@ module GovernanceTransitions {
     fn liveGrant(registry, pkg: Governance::Package, m: Governance::Membership, permission) =
         foundGrant(liveSlot(registry, pkg.id, m.id, permission))
 
-    fn foundGrant(grants) = match listGet(grants, 0) {
-        Success { value } => Success { value: value }
-        Error => Error { message: "governance.permission.missing" }
-    }
+    fn foundGrant(grants) = Checked::mapError(listGet(grants, 0), fn(_) => "governance.permission.missing")
 
-    fn currentEpochs(g: Governance::Grant, pkg: Governance::Package, m: Governance::Membership) =
-        match g.packageEpoch == pkg.authorityEpoch && g.memberEpoch == m.authorityEpoch {
-            true => Success { value: g }
-            false => Error { message: "governance.epoch.stale" }
-        }
+    fn currentEpochs(g: Governance::Grant, pkg: Governance::Package, m: Governance::Membership) = Governance::required(
+        g.packageEpoch == pkg.authorityEpoch && g.memberEpoch == m.authorityEpoch, g, "governance.epoch.stale")
 
     fn unexpired(g: Governance::Grant, now) = Maybe::fold(g.expiresAt, Success { value: g }, fn(at) =>
-        match at >= now {
-            true => Success { value: g }
-            false => Error { message: "governance.permission.expired" }
-        })
+        Governance::required(at >= now, g, "governance.permission.expired"))
 }

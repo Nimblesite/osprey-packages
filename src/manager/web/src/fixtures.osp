@@ -59,12 +59,15 @@ module WebFixtures {
         grantor: atlasAdmin, packageEpoch: 1, memberEpoch: 1,
         expiresAt: Maybe::some(expiresAt), status: Governance::GrantActive }
 
+    fn memberAccess(principal, membership, orgHandle, grants) = Model::Access {
+        viewer: Model::Member { principal: principal, membership: membership, orgHandle: orgHandle, memberEpoch: 1 },
+        grants: grants }
+
     /// The administrator of @atlas/util holding only edit-metadata: the
     /// admin-without-publish case [PACKAGE-OWNERSHIP-ADMIN] requires the
     /// website to warn about.
-    export fn adminWithoutPublish() = Model::Access {
-        viewer: Model::Member { principal: "prin-admin-1", membership: atlasAdmin, orgHandle: "atlas", memberEpoch: 1 },
-        grants: [grant("g-1", atlasAdmin, Governance::EditMetadata, now() + 1000000)] }
+    export fn adminWithoutPublish() = memberAccess("prin-admin-1", atlasAdmin, "atlas",
+        [grant("g-1", atlasAdmin, Governance::EditMetadata, now() + 1000000)])
 
     /// The same administrator, holding the explicit publishing grant too.
     export fn adminWithPublish() = {
@@ -73,15 +76,11 @@ module WebFixtures {
     }
 
     /// A fellow member who holds the publishing grant but not the seat.
-    export fn publisher() = Model::Access {
-        viewer: Model::Member { principal: "prin-pub-1", membership: "mem-pub-1", orgHandle: "atlas", memberEpoch: 1 },
-        grants: [publisherGrant()] }
+    export fn publisher() = memberAccess("prin-pub-1", "mem-pub-1", "atlas", [publisherGrant()])
 
     /// A member of the other organization: a legitimate viewer who is
     /// nonetheless outside this package's organization.
-    export fn outsider() = Model::Access {
-        viewer: Model::Member { principal: "prin-out-1", membership: "mem-out-1", orgHandle: "border", memberEpoch: 1 },
-        grants: [] }
+    export fn outsider() = memberAccess("prin-out-1", "mem-out-1", "border", [])
 
     /// No actor at all.
     export fn anonymous() = Model::Access { viewer: Model::Anonymous, grants: [] }
@@ -143,6 +142,10 @@ module WebFixtures {
         Model::Hidden { reason } => check(name, true, verify(reason))
         Model::Shown { _ } => check(name, "hidden screen", "shown")
     }
+
+    /// One missing evidence result names its package and underlying reason.
+    export fn hidesEvidence(name, view, package, evidenceReason) = hides(name, view,
+        fn(reason) => startsWith(reason, "web.evidence-unavailable") && contains(reason, package) && contains(reason, evidenceReason))
 
     /// The screen must be hidden and answer `expected`.
     export fn hidesExpecting(name, view, expected) = match view {

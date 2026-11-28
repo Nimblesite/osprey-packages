@@ -6,11 +6,12 @@ namespace registry_web;
 module AvailabilityTests {
     /// The same leaf name is taken in one organization and free in the
     /// other, and each answer names its own organization.
+    fn scopedAnswer(org, taken, expectation) = WebFixtures::showing(Availability::render(org, "util", taken),
+        fn(html) => contains(html, expectation) && contains(html, "scoped to @${org} only"))
+
     fn scopedAnswers() = checkAll("web: availability scoped per org", [
-        WebFixtures::showing(Availability::render("atlas", "util", true),
-            fn(html) => contains(html, "already taken within @atlas") && contains(html, "scoped to @atlas only")),
-        WebFixtures::showing(Availability::render("border", "util", false),
-            fn(html) => contains(html, "available under @border") && contains(html, "scoped to @border only"))
+        scopedAnswer("atlas", true, "already taken within @atlas"),
+        scopedAnswer("border", false, "available under @border")
     ])
 
     /// No rendering may claim anything about the leaf name globally.

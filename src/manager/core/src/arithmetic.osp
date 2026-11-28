@@ -54,10 +54,7 @@ module Arithmetic {
     /// generic sort inside this namespace trips issue #278 today.
     export fn percentile(p, durations) = match length(durations) {
         0 => Error { message: "evidence.unknown" }
-        count => match listGet(listSort(durations), percentileIndex(p, count)) {
-            Success { value } => Success { value: value }
-            Error => Error { message: "evidence.unknown" }
-        }
+        count => Checked::mapError(listGet(listSort(durations), percentileIndex(p, count)), fn(_reason) => "evidence.unknown")
     }
 
     /// Whole days in a non-negative millisecond duration, rounded up.

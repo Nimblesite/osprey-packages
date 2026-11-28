@@ -56,12 +56,15 @@ module Packages
 
     collect (items, parseItem) = foldList (items, Success(value = []), \(parsed, item) => appendParsed (parsed, parseItem, item))
 
-    /// The array member `key` parsed one item at a time by `parseItem`.
-    listAt (doc, key, parseItem) = match jsonField doc key
-        Error _ => failure "Package data is missing ${key}"
+    /// The array member `key` of the document named `label`.
+    arrayAt (doc, key, label, parse) = match jsonField doc key
+        Error _ => failure "${label} is missing ${key}"
         Success value => match value
-            JsonArray items => collect (items, parseItem)
-            _ => failure "Package data has a non-list ${key}"
+            JsonArray items => parse items
+            _ => failure "${label} has a non-list ${key}"
+
+    /// The array member `key` parsed one item at a time by `parseItem`.
+    listAt (doc, key, parseItem) = arrayAt (doc, key, "Package data", \items => collect (items, parseItem))
 
     keyListAt (doc, key) = listAt (doc, key, keyText)
 
@@ -91,11 +94,7 @@ module Packages
 
     keyOf item = item.entryIdentity.entryKey
 
-    packagesField doc = match jsonField doc "packages"
-        Error _ => failure "Package graph is missing packages"
-        Success value => match value
-            JsonArray items => entries items
-            _ => failure "Package graph has a non-list packages"
+    packagesField doc = arrayAt (doc, "packages", "Package graph", entries)
 
     checkedGraph (project, packages, direct, findings) = match Lists::distinct (mapList (packages, \item => keyOf item))
         false => failure "Package graph repeats a package key"
@@ -116,11 +115,7 @@ module Packages
         true => failure "Catalog package has no releases"
         false => Success(value = versions)
 
-    catalogVersion doc = match jsonField doc "releases"
-        Error _ => failure "Catalog package is missing releases"
-        Success value => match value
-            JsonArray items => andThen (releases items, \versions => nonEmptyVersions versions)
-            _ => failure "Catalog package has a non-list releases"
+    catalogVersion doc = arrayAt (doc, "releases", "Catalog package", \items => andThen (releases items, \versions => nonEmptyVersions versions))
 
     catalogFindings doc = match Doc::has (doc, "findings")
         false => Success(value = [])
@@ -132,11 +127,7 @@ module Packages
     catalogEntry doc = andThen (Fields::stringField (doc, "key", dataLabel), \text =>
         andThen (canonical text, \key => catalogEntryAt (doc, key)))
 
-    catalog doc = match jsonField doc "packages"
-        Error _ => failure "Registry catalog is missing packages"
-        Success value => match value
-            JsonArray items => collect (items, catalogEntry)
-            _ => failure "Registry catalog has a non-list packages"
+    catalog doc = arrayAt (doc, "packages", "Registry catalog", \items => collect (items, catalogEntry))
 
     latestVersion item = match listGet item.catalogVersions (satSub (length item.catalogVersions) 1)
         Success version => version

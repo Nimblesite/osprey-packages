@@ -11,26 +11,26 @@ module BrowseTests {
 
     fn catalog() = [WebFixtures::warnedAtlasUtil(), WebFixtures::warnedBorderUtil(), WebFixtures::cleanAtlasUtil()]
 
-    fn orgBesideEveryResult() = WebFixtures::showsTexts("web: browse shows org identity", Browse::render(catalog(), ""),
-        ["@atlas/util", "Organization: @atlas", borderUtil, "Organization: @border"], [])
+    fn catalogTexts(name, wanted) = WebFixtures::showsTexts(name, Browse::render(catalog(), ""), wanted, [])
+
+    fn orgBesideEveryResult() = catalogTexts("web: browse shows org identity",
+        ["@atlas/util", "Organization: @atlas", borderUtil, "Organization: @border"])
 
     /// No false negatives: each warning, and each explicit no-warnings
     /// statement, is present in the rendered listing.
-    fn warningsSurface() = WebFixtures::showsTexts("web: browse surfaces warnings", Browse::render(catalog(), ""),
-        ["OSA-2026-0001", "executes code", "OSB-2026-0007", "No known security warnings."], [])
+    fn warningsSurface() = catalogTexts("web: browse surfaces warnings",
+        ["OSA-2026-0001", "executes code", "OSB-2026-0007", "No known security warnings."])
 
     /// Two organizations may share one leaf name; each result keeps its own
     /// identity and its own warnings.
-    fn sameLeafAcrossOrgs() = WebFixtures::showsTexts("web: browse keeps same leaf names distinct", Browse::render(catalog(), ""),
-        ["id=\"-atlas-util-h\"", "id=\"-border-util-h\"", "@atlas/util", borderUtil], [])
+    fn sameLeafAcrossOrgs() = catalogTexts("web: browse keeps same leaf names distinct",
+        ["id=\"-atlas-util-h\"", "id=\"-border-util-h\"", "@atlas/util", borderUtil])
 
     /// One package without evidence hides the entire screen, naming the
     /// package and the reason — never a partial listing.
-    fn missingEvidenceHidesAll() = WebFixtures::hides("web: browse hides all when evidence unavailable",
+    fn missingEvidenceHidesAll() = WebFixtures::hidesEvidence("web: browse hides all when evidence unavailable",
         Browse::render(listAppend(catalog(), WebFixtures::orphanWithoutEvidence()), ""),
-        fn(reason) => startsWith(reason, "web.evidence-unavailable") &&
-            contains(reason, "@atlas/orphan") &&
-            contains(reason, "registry.status-service-unreachable"))
+        "@atlas/orphan", "registry.status-service-unreachable")
 
     fn queryFilters() = WebFixtures::shows("web: browse query filters", Browse::render(catalog(), "border"),
         fn(html) => contains(html, borderUtil) && !contains(html, "@atlas/util"))

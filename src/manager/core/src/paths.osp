@@ -32,8 +32,6 @@ module Paths {
         else if deviceStem(segment) { "path.device-stem" }
         else { "" }
 
-    fn firstSegmentCode(segments) = foldList(segments, "", fn(code, segment) => if code == "" { segmentCode(segment) } else { code })
-
     fn shapeCode(path) = if path == "" { "path.empty" }
         else if startsWith(path, "/") { "path.absolute" }
         else if hasByte(path, fn(b) => b == 92) { "path.backslash" }
@@ -41,7 +39,7 @@ module Paths {
         else if hasByte(path, fn(b) => b >= 128) { "path.non-ascii" }
         else if endsWith(path, "/") { "path.trailing-separator" }
         else if byteLength(path) > maxPath { "path.length" }
-        else { firstSegmentCode(split(path, "/") ?: [path]) }
+        else { Order::firstText(mapList(split(path, "/") ?: [path], segmentCode)) }
 
     /// The path itself when it satisfies the grammar, else its first reason code.
     export fn validate(path) = match shapeCode(path) {
@@ -75,8 +73,8 @@ module Paths {
         legalDocument(folded, licenseStems) || startsWith(folded, "licenses/")
     }
 
-    fn legalDocument(path, stems) = foldList(stems, false, fn(found, stem) => found
-        || foldList(legalSuffixes, false, fn(matched, suffix) => matched || path == "${stem}${suffix}"))
+    fn legalDocument(path, stems) = Order::anyString(stems, fn(stem) =>
+        Order::anyString(legalSuffixes, fn(suffix) => path == "${stem}${suffix}"))
 
     /// Retain supplied documents; never infer licenses from API references.
     /// Implements [PACKAGE-LICENSE-DISTRIBUTION].

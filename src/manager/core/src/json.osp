@@ -209,18 +209,24 @@ module Json {
         }
     }
 
-    fn nextMember(text, j, depth, seen) = {
+    /// The byte after an element at `j`: a comma continues with `onComma` at
+    /// the next position, `close` ends the container through `onClose`, text
+    /// that ended is `json.unexpected-end` and any other byte is
+    /// `json.unexpected-token`. Trailing commas never parse.
+    fn afterElement(text, j, close, onComma, onClose) = {
         let b = byteAt(text, j) ?: 0
         if j >= byteLength(text) {
             endErr(text)
         } else if b == commaByte {
-            parseMembers(text, skipWs(text, j + 1), depth, seen)
-        } else if b == closeObject {
-            closedObject(j, seen)
+            onComma(skipWs(text, j + 1))
+        } else if b == close {
+            onClose(j)
         } else {
             err(unexpectedToken, j)
         }
     }
+
+    fn nextMember(text, j, depth, seen) = afterElement(text, j, closeObject, fn(next) => parseMembers(text, next, depth, seen), fn(j) => closedObject(j, seen))
 
     fn parseArray(text, i, depth) = nested(depth, i, fn(next) => parseItems(text, skipWs(text, i + 1), next, []))
 
@@ -237,18 +243,7 @@ module Json {
 
     fn parseItem(text, j, depth, items) = andThen(parseValue(text, j, depth), fn(value) => nextItem(text, skipWs(text, value.next), depth, listAppend(items, value.value)))
 
-    fn nextItem(text, j, depth, items) = {
-        let b = byteAt(text, j) ?: 0
-        if j >= byteLength(text) {
-            endErr(text)
-        } else if b == commaByte {
-            parseItems(text, skipWs(text, j + 1), depth, items)
-        } else if b == closeArray {
-            closedArray(j, items)
-        } else {
-            err(unexpectedToken, j)
-        }
-    }
+    fn nextItem(text, j, depth, items) = afterElement(text, j, closeArray, fn(next) => parseItems(text, next, depth, items), fn(j) => closedArray(j, items))
 
     /// The strict RFC 8259 parse of `text`, or the code and byte offset of
     /// its first problem. Implements [PACKAGE-PUBLISH].

@@ -67,7 +67,7 @@ module GovernanceHandover {
         use t <- andThen(liveTransferOf(registry, transferId))
         use pkg <- andThen(Governance::packageOf(registry, t.package))
         use _ <- andThen(Governance::requireAdmin(registry, pkg, proof, Governance::cancelStatement(transferId)))
-        Success { value: Governance::replaceTransfer(registry, t { status: Governance::Cancelled }) }
+        withStatus(registry, t, Governance::Cancelled)
     }
 
     /// The intended recipient declines a live proposal; the evidence row stays.
@@ -75,17 +75,15 @@ module GovernanceHandover {
         use t <- andThen(liveTransferOf(registry, transferId))
         use actor <- andThen(recipientPrincipal(registry, t.proposed))
         use _ <- andThen(Governance::requireProof(proof, actor, t.proposed, Governance::declineStatement(transferId)))
-        Success { value: Governance::replaceTransfer(registry, t { status: Governance::Declined }) }
+        withStatus(registry, t, Governance::Declined)
     }
 
     /// Mark a live proposal expired once its window has passed; the row
     /// stays as evidence and can never replace a newer admin.
     export fn expireHandover(registry, transferId, now) = {
         use t <- andThen(liveTransferOf(registry, transferId))
-        match now > t.expiresAt {
-            true => Success { value: Governance::replaceTransfer(registry, t { status: Governance::Expired }) }
-            false => Error { message: "governance.transfer.not-expired" }
-        }
+        use _ <- andThen(Governance::required(now > t.expiresAt, t, "governance.transfer.not-expired"))
+        withStatus(registry, t, Governance::Expired)
     }
 
     /// The canonical 24-hour hold of [PACKAGE-OWNERSHIP-ADMIN].
@@ -109,10 +107,7 @@ module GovernanceHandover {
         }
     }
 
-    fn liveAcceptingHuman(p, proof) = {
-        use _ <- andThen(Governance::liveHuman(p))
-        Governance::requireHumanCeremony(proof)
-    }
+    fn liveAcceptingHuman(p, proof) = andThen(Governance::liveHuman(p), fn(_) => Governance::requireHumanCeremony(proof))
 
     fn liveTransfer(t) = Governance::required(Governance::isLiveTransfer(t), t, "governance.transfer.not-pending")
 
@@ -123,16 +118,18 @@ module GovernanceHandover {
 
     /// `t` once `decidedAt` is inside the hold window: not before it opens,
     /// not after the proposal expires.
-    fn withinHold(t: Governance::Transfer, decidedAt) = {
-        use _ <- andThen(Governance::required(decidedAt >= t.notBefore, t, "governance.transfer.hold"))
-        Governance::required(decidedAt <= t.expiresAt, t, "governance.transfer.expired")
-    }
+    fn withinHold(t: Governance::Transfer, decidedAt) = checkPair(
+        Governance::required(decidedAt >= t.notBefore, t, "governance.transfer.hold"),
+        Governance::required(decidedAt <= t.expiresAt, t, "governance.transfer.expired"))
 
     /// `t` while the package still has the admin and epoch it was proposed under.
-    fn stillCurrent(t: Governance::Transfer, pkg: Governance::Package) = {
-        use _ <- andThen(Governance::required(pkg.admin == t.current, t, "governance.transfer.stale-admin"))
-        Governance::required(pkg.authorityEpoch == t.expectedEpoch, t, "governance.transfer.stale-epoch")
-    }
+    fn stillCurrent(t: Governance::Transfer, pkg: Governance::Package) = checkPair(
+        Governance::required(pkg.admin == t.current, t, "governance.transfer.stale-admin"),
+        Governance::required(pkg.authorityEpoch == t.expectedEpoch, t, "governance.transfer.stale-epoch"))
+
+    fn checkPair(first, second) = andThen(first, fn(_) => second)
+
+    fn withStatus(registry, t, status) = Success { value: Governance::replaceTransfer(registry, t { status: status }) }
 
     fn completed(registry, pkg, t) = {
         let handedOver = Governance::replacePackage(registry,

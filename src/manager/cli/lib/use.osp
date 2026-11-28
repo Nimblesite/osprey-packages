@@ -33,10 +33,8 @@ module Use {
 
     // ---- the key of a checkout and its place in the graph ----
 
-    fn keyOfLocal(mf: ManifestModel::Manifest) = Maybe::fold(mf.publication, Error { message: noPackageCode }, fn(p) => Success { value: p.package })
-
     /// The package key a checkout's `[package]` declares, or `use.no-package`.
-    export fn localKey(project, path) = andThen(perform Host::Files.read("${Project::localDirAt(project, path)}/osprey.toml"), fn(value) => andThen(Manifest::accepted(Manifest::parse(value)), fn(value) => keyOfLocal(value)))
+    export fn localKey(project, path) = andThen(perform Host::Files.read("${Project::localDirAt(project, path)}/osprey.toml"), fn(value) => andThen(Manifest::accepted(Manifest::parse(value)), fn(value) => ManifestEdit::publicationKey(value, noPackageCode)))
 
     fn lockedKeys(project) = match Overlay::activeLockAt(project) {
         Success { value } => mapList(mapList(Lockfile::packagesOf(value), Lockfile::releaseOf), fn(id) => id.key)
@@ -49,13 +47,7 @@ module Use {
     // ---- the baseline ----
 
     /// The lock's published node for `key`, if the lock has one that is not itself local.
-    fn publishedIn(lock, key) = match Lockfile::packageFor(Lockfile::packagesOf(lock), key) {
-        Error => Maybe::none()
-        Success { value } => match Lockfile::overrideFor(Lockfile::overridesOf(lock), key) {
-            Success => Maybe::none()
-            Error => Maybe::some(Lockfile::releaseOf(value))
-        }
-    }
+    fn publishedIn(lock, key) = if Lockfile::overridden(lock, key) { Maybe::none() } else { Lockfile::releaseIn(lock, key) }
 
     fn baselineFromLock(read, key) = match read {
         Success { value } => publishedIn(value, key)
@@ -103,17 +95,20 @@ module Use {
         committed(s, mappings, Overlay::Mapping { package: key, path: path, epoch: epoch, baseline: baseline }, "use ${Names::display(key)} ${path} e${epoch} ${baselineNote(baseline)}")
     }
 
-    /// Map `key` to the checkout at `path` and relock the development lock;
-    /// `add <path>` calls this after writing the dependency line.
-    export fn mapLocal(base, project, key, path, epochWord) = Reports::checked(Overlay::readAt(project), fn(value) => mapLocalWith(base, project, value, key, path, epochWord))
+    /// The manifest at `s`'s project, then `body` over it.
+    fn manifestAt(s, body) = Reports::checked(Project::readAt(Transaction::projectOf(s)), body)
 
-    fn mapLocalWith(base, project, mappings, key, path, epochWord) = Reports::checked(Project::readAt(project), fn(value) => mapped(settingsFor(base, project), value, mappings, key, path, epochWord))
-
-    fn settingsFor(base, project) = Transaction::Settings { base: base, project: project, acceptRemovals: false, fresh: false, local: true }
+    /// Map `key` to the checkout at `path` and relock the development lock,
+    /// from `s`'s registry and project; `add <path>` calls this after writing
+    /// the dependency line.
+    export fn mapLocal(s, key, path, epochWord) = {
+        let local = Transaction::localOf(s)
+        Reports::checked(Overlay::readAt(Transaction::projectOf(local)), fn(mappings) => manifestAt(local, fn(manifest) => mapped(local, manifest, mappings, key, path, epochWord)))
+    }
 
     fn placed(s, manifest, mappings, key, path, epochWord) = if inGraph(Transaction::projectOf(s), manifest, key) { mapped(s, manifest, mappings, key, path, epochWord) } else { Reports::failure(["${notDependencyCode} ${Names::display(key)}"]) }
 
-    fn withKey(s, mappings, path, epochWord, key) = Reports::checked(Project::readAt(Transaction::projectOf(s)), fn(value) => placed(s, value, mappings, key, path, epochWord))
+    fn withKey(s, mappings, path, epochWord, key) = manifestAt(s, fn(value) => placed(s, value, mappings, key, path, epochWord))
 
     fn usePath(s, mappings, path, epochWord) = Reports::checked(localKey(Transaction::projectOf(s), path), fn(value) => withKey(s, mappings, path, epochWord, value))
 
@@ -147,10 +142,8 @@ module Use {
         else if startsWith(word, "@") { useKey(s, parsed, word, mappings) }
         else { usePath(s, mappings, word, Flags::given(parsed, epochFlag, "")) }
 
-    fn useKey(s, parsed, word, mappings) = match Names::parse(word) {
-        Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => if Flags::has(parsed, publishedFlag) { published(s, mappings, value) } else { Reports::usageFor(usageCode, usageText) }
-    }
+    fn useKey(s, parsed, word, mappings) = Flags::parsedKey(word, usageCode, usageText,
+        fn(value) => if Flags::has(parsed, publishedFlag) { published(s, mappings, value) } else { Reports::usageFor(usageCode, usageText) })
 
     fn withParsed(parsed, word) = Reports::checked(Overlay::readAt(Flags::project(parsed)), fn(value) => withOverlay(Transaction::settingsOf(parsed, false, false, true), parsed, word, value))
 

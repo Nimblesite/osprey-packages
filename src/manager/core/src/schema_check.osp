@@ -24,7 +24,7 @@ module SchemaCheck {
 
     fn err(code, pointer) = Error { message: "${code} at ${pointer}" }
 
-    fn escapeSegment(key) = replace(replace(key, "~", "~0") ?: key, "/", "~1") ?: key
+    fn escapeSegment(key) = Bytes::replaceBoth(key, "~", "~0", "/", "~1")
     fn child(pointer, key) = pointer + "/" + escapeSegment(key)
     fn itemAt(pointer, i) = pointer + "/" + "${i}"
 
@@ -99,9 +99,9 @@ module SchemaCheck {
         _ => false
     }
 
-    fn dateTimeOk(value) = textCodeOk(value, fn(text) => dateTimeCode(text))
+    fn dateTimeOk(value) = textCodeOk(value, dateTimeCode)
 
-    fn uuidOk(value) = textCodeOk(value, fn(text) => uuidCode(text))
+    fn uuidOk(value) = textCodeOk(value, uuidCode)
 
     fn digestOk(value) = match value {
         Json::Str { text } => Checked::succeeded(Digests::parse(text))
@@ -118,8 +118,6 @@ module SchemaCheck {
     fn checked(code, value, pointer) = if code == "" { Success { value: value } } else { err(code, pointer) }
 
     fn validateScalar(name, value, pointer) = checked(scalarCode(name, value), value, pointer)
-
-    fn isBuiltinScalar(name) = name == "String" || name == "Int" || name == "Bool" || name == "DateTime" || name == "Uuid"
 
     fn pathCode(text) = match Paths::validate(text) {
         Success => ""
@@ -140,7 +138,7 @@ module SchemaCheck {
         Success => checked(aliasCode(aliasName, value), value, pointer)
     }
 
-    fn validateNamed(model, name, v, pointer) = if isBuiltinScalar(name) {
+    fn validateNamed(model, name, v, pointer) = if TypeDiagram::isBuiltin(name) {
         validateScalar(name, v, pointer)
     } else {
         match TypeDiagram::lookup(model, name) {
@@ -153,8 +151,10 @@ module SchemaCheck {
         }
     }
 
-    fn isField(fields, name) = foldList(fields, false, fn(found, f) => found || f.name == name)
-    fn isMember(members, name) = foldList(members, false, fn(found, m) => found || m.key == name)
+    fn anyOf(items, ok) = foldList(items, false, fn(found, item) => found || ok(item))
+
+    fn isField(fields, name) = anyOf(fields, fn(f) => f.name == name)
+    fn isMember(members, name) = anyOf(members, fn(m) => m.key == name)
 
     fn isOption(typ) = match typ {
         TypeDiagram::OptionOf { _ } => true

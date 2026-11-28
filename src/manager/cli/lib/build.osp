@@ -57,7 +57,7 @@ module Build {
     // Shared field names need typed receivers (issue #273).
     fn dirOf(pm: PackageManifest) = pm.dir
     fn manifestOf(pm: PackageManifest) = pm.manifest
-    fn keyText(p: Lockfile::Package) = Names::display(p.release.key)
+    fn keyText(p) = Names::display(Lockfile::keyOf(p))
 
     /// `build.manifest @scope/name <code at line:column>`: the one failure
     /// spelling of a package tree whose manifest cannot be used.
@@ -80,31 +80,35 @@ module Build {
     /// Every locked package's manifest in lock order; the first rejection stops the build.
     fn packageManifests(project, lock) = Checked::collectAll(Lockfile::packagesOf(lock), fn(p) => packageManifestIn(project, lock, p))
 
-    fn packageRootsOf(pm) = mapList(manifestOf(pm).sourceRoots, fn(r) => rootPath("${dirOf(pm)}/${r}"))
+    /// Each package's own `listed` entries, in lock order, each entry of a
+    /// package tree rebased like the roots.
+    fn packageSources(pms, listed) = Folds::flatMap(pms, fn(pm) => mapList(listed(manifestOf(pm)), fn(p) => rootPath("${dirOf(pm)}/${p}")))
 
-    fn packageRoots(pms) = foldList(pms, [], fn(acc, pm) => listConcat(acc, packageRootsOf(pm)))
-
-    fn derivedRoots(manifest, pms) = listConcat(mapList(manifest.sourceRoots, rootPath), packageRoots(pms))
-
-    // A flavor's sources: the root's own, then each package's, rebased like the roots.
-    fn packageSources(pms, listed) = foldList(pms, [], fn(acc, pm) => listConcat(acc, mapList(listed(manifestOf(pm)), fn(p) => rootPath("${dirOf(pm)}/${p}"))))
-
+    /// A list the derived manifest takes from the root and every package:
+    /// the root's own entries, then each package's.
     fn flavorSources(manifest, pms, listed) = listConcat(mapList(listed(manifest), rootPath), packageSources(pms, listed))
 
+    /// The source roots of the root and of every locked package, in lock order.
+    fn derivedRoots(manifest, pms) = flavorSources(manifest, pms, sourceRootsOf)
+
+    fn sourceRootsOf(m: ManifestModel::Manifest) = m.sourceRoots
     fn pythonOf(m: ManifestModel::Manifest) = m.pythonSources
     fn typescriptOf(m: ManifestModel::Manifest) = m.typescriptSources
 
-    fn rootsLine(roots) = "source_roots = [${join(mapList(roots, quote), ", ")}]"
-
     fn sourcesLine(key, sources) = "${key} = [${join(mapList(sources, quote), ", ")}]"
 
-    fn namespaceLine(manifest) = Maybe::fold(manifest.defaultNamespace, [], fn(ns) => ["default_namespace = ${quote(ns)}"])
+    fn rootsLine(roots) = sourcesLine("source_roots", roots)
 
-    fn entryLine(manifest) = Maybe::fold(manifest.entry, [], fn(e) => ["entry = ${quote(rootPath(e))}"])
+    /// One `key = "value"` line of an optional `[project]` member.
+    fn optionLine(key, value) = ["${key} = ${quote(value)}"]
+
+    fn namespaceLine(manifest) = Maybe::fold(manifest.defaultNamespace, [], fn(ns) => optionLine("default_namespace", ns))
+
+    fn entryLine(manifest) = Maybe::fold(manifest.entry, [], fn(e) => optionLine("entry", rootPath(e)))
 
     fn flavorText(flavor) = toLowerCase(ManifestModel::flavorName(flavor))
 
-    fn flavorLine(manifest) = Maybe::fold(manifest.flavor, [], fn(f) => ["flavor = ${quote(flavorText(f))}"])
+    fn flavorLine(manifest) = Maybe::fold(manifest.flavor, [], fn(f) => optionLine("flavor", flavorText(f)))
 
     fn boolText(flag) = if flag { "true" } else { "false" }
 
@@ -120,13 +124,17 @@ module Build {
     fn writeDerived(cmd: CommandLine, manifest, pms) = andThen(perform Host::Tree.ensure(Project::pathAt(cmd.project, buildDir)),
         fn(_dir) => andThen(perform Host::Files.write(Project::pathAt(cmd.project, buildManifest), derivedText(manifest, pms)), fn(_written) => Success { value: 0 }))
 
+    /// The compiler and the derived project, each one shell-quoted word ([PACKAGE-HARDENING] C6).
+    fn compilerWord(cmd: CommandLine) = Host::shellWord(cmd.compiler)
+    fn derivedWord(cmd: CommandLine) = Host::shellWord(Project::pathAt(cmd.project, buildDir))
+
     /// The compiler invocation, every variable word shell-quoted ([PACKAGE-HARDENING] C6).
-    fn command(cmd: CommandLine, manifest) = if cmd.docsDir != "" {
-        "${Host::shellWord(cmd.compiler)} --docs ${Host::shellWord(Project::pathAt(cmd.project, buildDir))} --docs-format html --docs-no-builtins --docs-dir ${Host::shellWord(cmd.docsDir)}"
+    fn command(cmd, manifest) = if cmd.docsDir != "" {
+        "${compilerWord(cmd)} --docs ${derivedWord(cmd)} --docs-format html --docs-no-builtins --docs-dir ${Host::shellWord(cmd.docsDir)}"
     } else if cmd.run {
-        "${Host::shellWord(cmd.compiler)} ${Host::shellWord(Project::pathAt(cmd.project, buildDir))} --run"
+        "${compilerWord(cmd)} ${derivedWord(cmd)} --run"
     } else {
-        "${Host::shellWord(cmd.compiler)} build ${Host::shellWord(Project::pathAt(cmd.project, buildDir))} -o ${Host::shellWord(Project::pathAt(cmd.project, buildDir + "/" + manifest.projectName))}"
+        "${compilerWord(cmd)} build ${derivedWord(cmd)} -o ${Host::shellWord(Project::pathAt(cmd.project, buildDir + "/" + manifest.projectName))}"
     }
 
     fn stdoutLines(stdout) = filterList(split(stdout, "\n") ?: [], fn(l) => l != "")
@@ -167,6 +175,5 @@ module Build {
         fn(parsed) => if Flags::given(parsed, "--docs-dir", "") == "" { Reports::usage(["missing --docs-dir"]) } else { build(commandLine(parsed)) })
 
     /// The whole command: verify, then compile; `--run` runs the built program.
-    export fn run(args) = Flags::dispatch(args, [compilerFlag, Flags::projectFlag], [runFlag, releaseFlag], usageCode, usageText,
-        fn(parsed) => build(commandLine(parsed)))
+    export fn run(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [runFlag, releaseFlag], usageCode, usageText, commandLine, build)
 }

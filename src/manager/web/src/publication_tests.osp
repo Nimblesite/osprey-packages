@@ -36,11 +36,9 @@ module PublicationTests {
     }
 
     /// One entry without evidence hides the entire screen with its reason.
-    fn missingEvidenceHidesAll() = WebFixtures::hides("web: publications hide when evidence unavailable",
+    fn missingEvidenceHidesAll() = WebFixtures::hidesEvidence("web: publications hide when evidence unavailable",
         Publications::render(listAppend(board(), WebFixtures::publicationWithoutEvidence()), WebFixtures::publisher()),
-        fn(reason) => startsWith(reason, "web.evidence-unavailable") &&
-            contains(reason, "@atlas/util") &&
-            contains(reason, "registry.evidence-pending"))
+        "@atlas/util", "registry.evidence-pending")
 
     /// Anonymous visitors get no publication information at all.
     fn anonymousHidden() = WebFixtures::hidesExpecting("web: publications member only",

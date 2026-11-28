@@ -31,10 +31,13 @@ module Folder {
         Release::Refused { dir: if dir == "" { path } else { dir }, code: code }
     }
 
+    /// Every path of one forbidden file kind, refused with that kind's code.
+    fn refusedKind(paths, kind) = mapList(paths, fn(p) => refusal(p, Source::kindCode(kind)))
+
     fn refusals(regular, executable, special) = listConcat(listConcat(
         mapList(filterList(regular, fn(p) => releaseDirOf(p) == ""), fn(p) => refusal(p, straySegments)),
-        mapList(executable, fn(p) => refusal(p, Source::kindCode("executable")))),
-        mapList(special, fn(p) => refusal(p, Source::kindCode("special"))))
+        refusedKind(executable, "executable")),
+        refusedKind(special, "special"))
 
     // `Release::Refused` and `Pending` both carry a directory; the receiver is
     // annotated for issue #273.

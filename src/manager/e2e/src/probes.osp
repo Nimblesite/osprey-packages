@@ -95,14 +95,12 @@ module Probes {
 
     fn awaitServer(attempt) = if attempt >= 100 { false } else if healthy() { true } else { retry(attempt) }
 
-    fn rendered(r: Router::Response) = "${r.status} ${r.etag} ${r.body}"
-
-    fn replied(r: Host::Reply) = "${r.status} ${r.etag} ${r.body}"
+    fn replyText(r) = "${r.status} ${r.etag} ${r.body}"
 
     fn exchange(catalog, path) = observation("GET ${path} equals the router byte for byte",
-        rendered(Router::respond(catalog, "GET", path)),
+        replyText(Router::respond(catalog, "GET", path)),
         match perform Host::Web.get(base, path) {
-            Success { value } => replied(value)
+            Success { value } => replyText(value)
             Error { message } => message
         })
 
@@ -153,33 +151,33 @@ module Probes {
         consumerFiles(dir)(fn() => consumerTree(dir)(fn() => consumerProcess(dir)(fn() => runBuild(cwd, args))))
     }
 
-    fn defaultBuild(cwd, args) = defaultBuildAt(cwd, consumerDir(cwd), args)
-
-    /// Actual compiler invocations cover both default forms and both project forms.
-    export fn buildPaths(cwd) = {
-        let bare = defaultBuild(cwd, [])
-        let run = defaultBuild(cwd, ["--run"])
-        let relative = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", "${work}/consumer"])
-        let absolute = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", consumerDir(cwd)])
+    fn buildProbes(cwd, dir, relativeDir, absoluteDir, labels, output) = {
+        let bare = defaultBuildAt(cwd, dir, [])
+        let run = defaultBuildAt(cwd, dir, ["--run"])
+        let relative = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", relativeDir])
+        let absolute = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", absoluteDir])
         [
-            observation("bare build compiles the consumer", "0", "${bare.status}"),
-            observation("bare build --run executes the consumer", consumerLine, firstLine(run)),
-            observation("relative --project executes the consumer", consumerLine, firstLine(relative)),
-            observation("absolute --project executes the consumer", consumerLine, firstLine(absolute))
+            observation(labels.bare, "0", "${bare.status}"),
+            observation(labels.run, output, firstLine(run)),
+            observation(labels.relative, output, firstLine(relative)),
+            observation(labels.absolute, output, firstLine(absolute))
         ]
     }
+
+    /// Actual compiler invocations cover both default forms and both project forms.
+    export fn buildPaths(cwd) = buildProbes(cwd, consumerDir(cwd), "${work}/consumer", consumerDir(cwd),
+        { bare: "bare build compiles the consumer", run: "bare build --run executes the consumer",
+            relative: "relative --project executes the consumer", absolute: "absolute --project executes the consumer" }, consumerLine)
 
     let pythonBuildLine = "Python build paths"
     let pythonBuildDir = ".osprey/e2e/python-paths"
     let pythonBuildManifest = "[project]\nname = \"python-paths\"\nsource_roots = [\"src\"]\npython_sources = [\"src/main.py\"]\ndefault_namespace = \"python_paths\"\nentry = \"src/main.py\"\n"
     let pythonBuildMain = "# osprey: flavor=python\ndef main():\n    return print(\"Python build paths\")\n"
 
-    fn pythonBuildLock() = match Manifest::accepted(Manifest::parse(pythonBuildManifest)) {
-        Error { message } => Error { message: message }
-        Success { value } => match ManifestJson::digest(value) {
-            Error { message } => Error { message: message }
-            Success { value } => Lockfile::encode(Lockfile::release(Lockfile::Root { manifestDigest: value, dependencies: [] }, []))
-        }
+    fn pythonBuildLock() = {
+        use manifest <- andThen(Manifest::accepted(Manifest::parse(pythonBuildManifest)))
+        use digest <- andThen(ManifestJson::digest(manifest))
+        Lockfile::encode(Lockfile::release(Lockfile::Root { manifestDigest: digest, dependencies: [] }, []))
     }
 
     fn pythonBuildFiles(lock) = [
@@ -193,12 +191,10 @@ module Probes {
         Success => perform Host::Files.write("${dir}/${f.relPath}", f.content)
     })
 
-    fn preparePythonBuild(dir) = match perform Host::Tree.ensure("${dir}/src") {
-        Error { message } => Error { message: message }
-        Success => match pythonBuildLock() {
-            Error { message } => Error { message: message }
-            Success { value } => writePythonBuild(dir, value)
-        }
+    fn preparePythonBuild(dir) = {
+        use _ <- andThen(perform Host::Tree.ensure("${dir}/src"))
+        use lock <- andThen(pythonBuildLock())
+        writePythonBuild(dir, lock)
     }
 
     fn setupResult(result) = match result { Success => "0" Error { message } => message }
@@ -207,19 +203,13 @@ module Probes {
         let local = "${cwd}/${pythonBuildDir}"
         let prepared = preparePythonBuild(local)
         let external = preparePythonBuild(outside)
-        let bare = defaultBuildAt(cwd, local, [])
-        let run = defaultBuildAt(cwd, local, ["--run"])
-        let relative = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", pythonBuildDir])
-        let absolute = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", outside])
+        let variants = buildProbes(cwd, local, pythonBuildDir, outside,
+            { bare: "bare Python build", run: "bare Python build --run",
+                relative: "relative Python --project", absolute: "absolute Python project outside cwd" }, pythonBuildLine)
         let cleaned = sh("rm -rf ${Host::shellWord(outside)}")
-        [
-            observation("Python project setup", "0 0", "${setupResult(prepared)} ${setupResult(external)}"),
-            observation("bare Python build", "0", "${bare.status}"),
-            observation("bare Python build --run", pythonBuildLine, firstLine(run)),
-            observation("relative Python --project", pythonBuildLine, firstLine(relative)),
-            observation("absolute Python project outside cwd", pythonBuildLine, firstLine(absolute)),
-            observation("temporary Python project cleanup", "0", "${cleaned.status}")
-        ]
+        listConcat(
+            [observation("Python project setup", "0 0", "${setupResult(prepared)} ${setupResult(external)}")],
+            listConcat(variants, [observation("temporary Python project cleanup", "0", "${cleaned.status}")]))
     }
 
     /// Compile Python entries through every project form, including a fresh external directory.
@@ -278,28 +268,22 @@ module Probes {
 
     fn pythonPinned(dir) = contains(readFile("${dir}/osprey.lock") ?: "", "\"python\":{\"pyprojectDigest\":\"sha256:")
 
-    fn rootPythonFiles(dir) = match perform Host::Tree.walk(dir) {
-        Error { message } => Error { message: message }
-        Success { value } => Install::filesOfWalked(Host::Walk {
+    fn rootPythonFiles(dir) = andThen(perform Host::Tree.walk(dir), fn(value) =>
+        Install::filesOfWalked(Host::Walk {
             regular: filterList(value.regular, fn(path) => !Paths::excluded(path)),
             executable: filterList(value.executable, fn(path) => !Paths::excluded(path)),
             special: filterList(value.special, fn(path) => !Paths::excluded(path))
-        }, dir)
-    }
+        }, dir))
 
-    fn pythonFiles(dir) = match perform Host::Tree.walk("${dir}/.osprey/packages") {
-        Error { message } => Error { message: message }
-        Success { value } => Install::filesOfWalked(value, "${dir}/.osprey/packages")
-    }
-
-    fn comparedPythonFiles(original, after) = match after {
-        Error => false
-        Success { value } => structuralEquals(original, value)
-    }
+    fn pythonFiles(dir) = andThen(perform Host::Tree.walk("${dir}/.osprey/packages"), fn(value) =>
+        Install::filesOfWalked(value, "${dir}/.osprey/packages"))
 
     fn samePythonFiles(before, after) = match before {
         Error => false
-        Success { value } => comparedPythonFiles(value, after)
+        Success { value: original } => match after {
+            Error => false
+            Success { value } => structuralEquals(original, value)
+        }
     }
 
     fn rejectedPythonLink(dir) = {
@@ -363,13 +347,15 @@ module Probes {
         observation("server stops", "false", "${healthy()}")
     }
 
-    fn projects(cwd, catalog) = listConcat(consumer(cwd, catalog), listConcat(buildPaths(cwd), listConcat(pythonBuildPaths(cwd), listConcat(pythonConsumer(cwd), [doctorUv(), stop()]))))
+    fn concatAll(groups) = foldList(groups, [], fn(out, group) => listConcat(out, group))
+
+    fn projects(cwd, catalog) = concatAll([consumer(cwd, catalog), buildPaths(cwd), pythonBuildPaths(cwd), pythonConsumer(cwd), [doctorUv(), stop()]])
 
     fn running(cwd, catalog) = {
         let endpoints = mapList(paths(catalog), fn(p) => exchange(catalog, p))
         let fetches = listConcat(mapList(["@demo/greeting", "@demo/maths@e1", "@demo/report", "@demo/pyadd"], fetched), mapList(Release::servedOf(catalog), fn(s) => fetched(Release::digestOf(s))))
         let files = mapList(Release::servedOf(catalog), installed)
-        listConcat(listConcat(endpoints, fetches), listConcat(files, projects(cwd, catalog)))
+        concatAll([endpoints, fetches, files, projects(cwd, catalog)])
     }
 
     fn catalogOf(cwd) = match Loader::load("${cwd}/${managerDir}/sample-registry") {

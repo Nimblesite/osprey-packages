@@ -29,6 +29,7 @@ module Fetch {
     export let packagesListingPath = "/v1/packages"
     let sourcePrefix = "/v1/releases/"
     let sourceSuffix = "/source"
+    let bundleFlag = "--bundle"
     let okStatus = 200
     let notFoundStatus = 404
     let anyEpoch = -1
@@ -52,18 +53,19 @@ module Fetch {
     /// of one epoch, or the release of one digest.
     type Ask = Newest { key: Names::Key } | InEpoch { key: Names::Key, epoch: int } | ByDigest { digest: string }
 
-    /// A parsed command line: the target word and the registry base URL.
-    type CommandLine = { target: string, base: string }
+    /// A parsed command line: a target to fetch from a registry, or a digest
+    /// to take from an offline bundle.
+    type CommandLine = FromRegistry { target: string, base: string } | FromBundle { digest: string, path: string }
 
-    fn withBase(target, base) = Success { value: CommandLine { target: target, base: base } }
+    fn wordAt(args, i) = listGet(args, i) ?: ""
 
-    /// `<target> [--registry <base-url>]`, the flag only after the target.
+    /// `<target> [--registry <base-url>]` or `<digest> --bundle <file>`: a
+    /// flag, when given, only after the target.
     fn commandLine(args) = match length(args) {
-        1 => withBase(listGet(args, 0) ?: "", defaultRegistry)
-        3 => match (listGet(args, 1) ?: "") == registryFlag {
-            true => withBase(listGet(args, 0) ?: "", listGet(args, 2) ?: "")
-            false => Error { message: usageCode }
-        }
+        1 => Success { value: FromRegistry { target: wordAt(args, 0), base: defaultRegistry } }
+        3 => if wordAt(args, 1) == registryFlag { Success { value: FromRegistry { target: wordAt(args, 0), base: wordAt(args, 2) } } }
+            else if wordAt(args, 1) == bundleFlag { Success { value: FromBundle { digest: wordAt(args, 0), path: wordAt(args, 2) } } }
+            else { Error { message: usageCode } }
         _ => Error { message: usageCode }
     }
 
@@ -135,37 +137,32 @@ module Fetch {
         _ => Error { message: shapeCode }
     }
 
-    /// `{"key":"@s/n","releases":[{"digest","epoch","ordinal"}]}`; any other
-    /// shape is `"fetch.package-shape"`.
-    export fn parseListing(text) = Checked::orElseCode(Json::parse(text), shapeCode, releasesOf)
+    /// A parsed JSON document handed to `ofRoot`; a document that is not
+    /// JSON, or of any other shape, is `"fetch.package-shape"`.
+    fn parsedDocument(text, ofRoot) = Checked::orElseCode(Json::parse(text), shapeCode, ofRoot)
+
+    /// `{"key":"@s/n","releases":[{"digest","epoch","ordinal"}]}`.
+    export fn parseListing(text) = parsedDocument(text, releasesOf)
 
     fn releaseOf(key, row: Row) = Identity::ReleaseId { key: key, epoch: row.epoch, ordinal: row.ordinal, digest: row.digest }
 
     fn keyedRows(key, rows) = andThen(rows, fn(value) => Success { value: mapList(value, fn(row) => releaseOf(key, row)) })
 
-    fn keyOfItem(item) = match JsonRead::requiredText(item, "key", shapeCode) {
-        Error { message } => Error { message: message }
-        Success { value } => match Names::parse(value) {
-            Error => Error { message: shapeCode }
-            Success { value } => Success { value: value }
-        }
-    }
+    /// The `key` member as a package key; one that does not parse is `fetch.package-shape`.
+    fn keyOfItem(item) = andThen(JsonRead::requiredText(item, "key", shapeCode), fn(value) => Checked::mapError(Names::parse(value), fn(_reason) => shapeCode))
 
     /// The releases of one `{"key","releases"}` package item as identities.
     fn packageReleases(item) = andThen(keyOfItem(item), fn(value) => keyedRows(value, releasesOf(item)))
 
-    fn appendPackage(acc, item) = andThen(acc, fn(done) => andThen(packageReleases(item), fn(value) => Success { value: listConcat(done, value) }))
+    fn packagesOf(root) = match JsonRead::field(root, "packages") {
+        Json::Arr { items } => Folds::collect(items, Success { value: [] }, fn(done, item) => andThen(packageReleases(item), fn(value) => Success { value: listConcat(done, value) }))
+        _ => Error { message: shapeCode }
+    }
 
     /// Every release of `{"packages":[{"key","releases":[…]}]}` as identities
     /// in listing order, so `lock` reads the whole registry in one request;
     /// any other shape is `"fetch.package-shape"`.
-    export fn parsePackages(text) = match Json::parse(text) {
-        Error => Error { message: shapeCode }
-        Success { value } => match JsonRead::field(value, "packages") {
-            Json::Arr { items } => foldList(items, Success { value: [] }, appendPackage)
-            _ => Error { message: shapeCode }
-        }
-    }
+    export fn parsePackages(text) = parsedDocument(text, packagesOf)
 
     // `Row` shares `digest`/`epoch`/`ordinal` with `Identity::ReleaseId`;
     // issue #273 needs the receivers spelled out.
@@ -194,7 +191,7 @@ module Fetch {
 
     /// `installDir` under `project`, or the bare cwd path when `project` is
     /// `""` or `"."` ([PACKAGE-HARDENING] C2).
-    export fn installDirAt(project, id) = if isEmpty(project) || project == "." { installDir(id) } else { "${project}/${installDir(id)}" }
+    export fn installDirAt(project, id) = Project::pathAt(project, installDir(id))
 
     // Reading builds `Release::File` (whose fields no other record shares),
     // then `Source::entryOf` maps them non-recursively exactly as
@@ -240,33 +237,21 @@ module Fetch {
         }
     }
 
-    fn put(path, content) = match perform Host::Files.write(path, content) {
-        Error { message } => Error { message: message }
-        Success { value } => if value == byteLength(content) { Success { value: 0 } }
-            else { Error { message: "short write ${path}" } }
-    }
+    fn put(path, content) = andThen(perform Host::Files.write(path, content), fn(written) => if written == byteLength(content) { Success { value: 0 } }
+        else { Error { message: "short write ${path}" } })
 
-    fn writeOne(dir, file) = match ensureParent(dir, file.relPath) {
-        Error { message } => Error { message: message }
-        Success => put("${dir}/${file.relPath}", file.content)
-    }
+    fn writeOne(dir, file) = andThen(ensureParent(dir, file.relPath), fn(_made) => put("${dir}/${file.relPath}", file.content))
 
-    fn writeFileList(dir, files) = foldList(files, Success { value: 0 }, fn(acc, file) => match acc {
-        Error => acc
-        Success => writeOne(dir, file)
-    })
+    fn writeFileList(dir, files) = Folds::collect(files, Success { value: 0 }, fn(_written, file) => writeOne(dir, file))
 
     /// Write every file of a tree under `dir`, creating directories first;
     /// Publication uses this writer; installation also checks the disk layout and digest.
-    export fn writeFiles(dir, files) = match perform Host::Tree.ensure(dir) {
-        Error { message } => Error { message: message }
-        Success => writeFileList(dir, files)
-    }
+    export fn writeFiles(dir, files) = andThen(perform Host::Tree.ensure(dir), fn(_made) => writeFileList(dir, files))
 
     fn unexpected(walk: Host::Walk, fileList) = {
         let expected = mapList(fileList, fn(file: Release::File) => file.relPath)
         !isEmpty(walk.executable) || !isEmpty(walk.special)
-            || foldList(walk.regular, false, fn(found, path) => found || !listContains(expected, path))
+            || Folds::any(walk.regular, fn(path) => !listContains(expected, path))
     }
 
     fn checkedDigest(served: Release::Served, digest) = if digest == served.id.digest { Success { value: served } }
@@ -280,10 +265,10 @@ module Fetch {
         }
     }
 
-    fn writtenTree(dir, served) = match writeFileList(dir, served.files) {
-        Error { message } => Error { message: "${writePrefix}: ${message}" }
-        Success => checkedTree(dir, served)
-    }
+    /// The write step's failure spelling: `fetch.write` and the OS reason.
+    fn writeFailed(message) = "${writePrefix}: ${message}"
+
+    fn writtenTree(dir, served) = andThen(Checked::mapError(writeFileList(dir, served.files), writeFailed), fn(_written) => checkedTree(dir, served))
 
     // A refetch must never claim success from the served bytes alone. Reject
     // conflicting entries before writes, then verify the actual installed tree.
@@ -295,10 +280,7 @@ module Fetch {
 
     fn written(project, served) = {
         let dir = installDirAt(project, served.id)
-        match perform Host::Tree.ensure(dir) {
-            Error { message } => Error { message: "${writePrefix}: ${message}" }
-            Success => installInto(dir, served)
-        }
+        andThen(Checked::mapError(perform Host::Tree.ensure(dir), writeFailed), fn(_made) => installInto(dir, served))
     }
 
     fn verifiedAt(project, body, digest) = andThen(Bundle::verify(body, digest), fn(value) => written(project, value))
@@ -335,16 +317,13 @@ module Fetch {
         InEpoch { key, epoch } => installKey(base, key, epoch)
     }
 
-    fn asked(cmd) = match parseTarget(cmd.target) {
+    fn asked(target, base) = match parseTarget(target) {
         Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => runFetch(cmd.base, value)
+        Success { value } => runFetch(base, value)
     }
 
-    /// The whole command: parse `<target> [--registry <base-url>]`, choose
-    /// the release — newest, newest of one epoch, or the digest's own —
-    /// download and verify its source bundle, and write the tree under
-    /// `.osprey/packages/@scope/name/<digest>/`. Implements
-    /// [PACKAGE-FOLDER-REGISTRY].
+    /// The offline bundle's tree: its manifest must parse, then it is written
+    /// and verified like a fetched one.
     fn offlineTree(served) = andThen(Install::manifestDigestOf(Release::filesOf(served)), fn(_valid) => written("", served))
 
     fn fromBundle(digest, path) = match Digests::parse(digest) {
@@ -352,10 +331,16 @@ module Fetch {
         Success => Reports::checked(andThen(perform Host::Files.read(path), fn(body) => andThen(Bundle::verify(body, digest), offlineTree)), fn(served) => fetchedReport("", served))
     }
 
-    export fn run(args) = if length(args) == 3 && (listGet(args, 1) ?: "") == "--bundle" {
-        fromBundle(listGet(args, 0) ?: "", listGet(args, 2) ?: "")
-    } else { match commandLine(args) {
+    /// The whole command: parse `<target> [--registry <base-url>]` or
+    /// `<digest> --bundle <file>`, choose the release — newest, newest of one
+    /// epoch, or the digest's own — download and verify its source bundle,
+    /// and write the tree under `.osprey/packages/@scope/name/<digest>/`.
+    /// Implements [PACKAGE-FOLDER-REGISTRY].
+    export fn run(args) = match commandLine(args) {
         Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => asked(value)
-    } }
+        Success { value } => match value {
+            FromBundle { digest, path } => fromBundle(digest, path)
+            FromRegistry { target, base } => asked(target, base)
+        }
+    }
 }

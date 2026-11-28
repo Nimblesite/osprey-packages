@@ -240,21 +240,22 @@ module ManifestDeps {
 
     fn assetKind(pairs, span) = andThen(ManifestSections::requiredString(pairs, "kind", "manifest.asset.kind", span), fn(value) => ManifestSections::located(ManifestModel::kindOf(value), ManifestSections::spanOf(pairs, "kind", span)))
 
-    fn assetPath(pairs, kind, span) = match ManifestSections::requiredString(pairs, "path", "manifest.asset.path", span) {
-        Error { message } => Error { message: message }
-        Success { value } => match Paths::validate(value) {
-            Error => fail("manifest.asset.path", ManifestSections::spanOf(pairs, "path", span))
-            Success => if ManifestModel::kindAccepts(kind, value) { Success { value: value } } else { fail("manifest.asset.extension", ManifestSections::spanOf(pairs, "path", span)) }
-        }
+    fn checkedAssetText(pairs, key, code, span, check) = andThen(ManifestSections::requiredString(pairs, key, code, span),
+        fn(value) => check(value, ManifestSections::spanOf(pairs, key, span)))
+
+    fn validAssetPath(kind, value, span) = match Paths::validate(value) {
+        Error => fail("manifest.asset.path", span)
+        Success => if ManifestModel::kindAccepts(kind, value) { Success { value: value } } else { fail("manifest.asset.extension", span) }
     }
 
-    fn assetDigest(pairs, span) = match ManifestSections::requiredString(pairs, "digest", "manifest.asset.digest", span) {
-        Error { message } => Error { message: message }
-        Success { value } => match Digests::parse(value) {
-            Success => Success { value: value }
-            Error { message } => fail(message, ManifestSections::spanOf(pairs, "digest", span))
-        }
+    fn assetPath(pairs, kind, span) = checkedAssetText(pairs, "path", "manifest.asset.path", span, fn(value, at) => validAssetPath(kind, value, at))
+
+    fn validAssetDigest(value, span) = match Digests::parse(value) {
+        Success => Success { value: value }
+        Error { message } => fail(message, span)
     }
+
+    fn assetDigest(pairs, span) = checkedAssetText(pairs, "digest", "manifest.asset.digest", span, validAssetDigest)
 
     fn assetLength(pairs, span) = match ManifestSections::find(pairs, "byte_length") {
         Error => fail("manifest.asset.byte-length", span)

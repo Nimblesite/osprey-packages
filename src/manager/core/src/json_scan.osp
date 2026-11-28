@@ -26,7 +26,6 @@ module JsonScan {
     /// One stable parse reason and its byte offset, shared with structural parsing.
     export fn failure(code, offset) = Error { message: "${code}@${offset}" }
 
-    fn inRange(b, lo, hi) = b >= lo && b <= hi
     fn nextString(i, out) = Success { value: Scan { text: out, next: i } }
 
     /// Decode a string body while keeping call depth logarithmic in input size.
@@ -63,31 +62,40 @@ module JsonScan {
     /// quote and backslash.
     fn plainByte(b) = b >= 32 && b < 128 && b != quote && b != backslash
 
-    fn cont(text, i) = i < byteLength(text) && inRange((byteAt(text, i) ?: 0), 128, 191)
+    fn cont(text, i) = i < byteLength(text) && Bytes::inRange((byteAt(text, i) ?: 0), 128, 191)
 
-    /// Continuation test for a 2+/3+-byte lead, with its second byte bounded.
-    fn tail2(text, i, lo, hi) = inRange((byteAt(text, i + 1) ?: 0), lo, hi) && cont(text, i + 2)
-    fn tail3(text, i, lo, hi) = tail2(text, i, lo, hi) && cont(text, i + 3)
+    /// The bytes the second position of a sequence admits: its lowest and
+    /// highest continuation.
+    type Second = { lo: int, hi: int }
+
+    let anyContinuation = Second { lo: 128, hi: 191 }
+
+    /// The sequence width a lead byte starts: 1 for ASCII and 0 for a byte
+    /// that cannot lead (C0/C1 would be overlong, F5 and above exceed
+    /// U+10FFFF).
+    fn leadWidthOf(b) = if b < 128 { 1 }
+        else if Bytes::inRange(b, 194, 223) { 2 }
+        else if Bytes::inRange(b, 224, 239) { 3 }
+        else if Bytes::inRange(b, 240, 244) { 4 }
+        else { 0 }
+
+    /// The second-byte range after lead `b`: any continuation, narrowed
+    /// where the sequence would be overlong (E0, F0), a surrogate (ED) or
+    /// above U+10FFFF (F4).
+    fn secondRange(b) = if b == 224 { Second { lo: 160, hi: 191 } }
+        else if b == 237 { Second { lo: 128, hi: 159 } }
+        else if b == 240 { Second { lo: 144, hi: 191 } }
+        else if b == 244 { Second { lo: 128, hi: 143 } }
+        else { anyContinuation }
 
     /// UTF-8 bytes of a valid sequence at `i`, or 0 when the bytes are not
     /// well-formed UTF-8 (overlongs, surrogates and C0/C1 leads included).
-    /// True when the two bytes after a 3-byte lead are continuations.
-    fn cont2(text, i) = cont(text, i + 1) && cont(text, i + 2)
-
-    /// True when the three bytes after a 4-byte lead are continuations.
-    fn cont3(text, i) = cont2(text, i) && cont(text, i + 3)
-
     fn leadWidth(text, i) = {
         let b = byteAt(text, i) ?: 0
-        if b < 128 { 1 }
-        else if inRange(b, 194, 223) { if cont(text, i + 1) { 2 } else { 0 } }
-        else if b == 224 { if tail2(text, i, 160, 191) { 3 } else { 0 } }
-        else if inRange(b, 225, 236) || inRange(b, 238, 239) { if cont2(text, i) { 3 } else { 0 } }
-        else if b == 237 { if tail2(text, i, 128, 159) { 3 } else { 0 } }
-        else if b == 240 { if tail3(text, i, 144, 191) { 4 } else { 0 } }
-        else if inRange(b, 241, 243) { if cont3(text, i) { 4 } else { 0 } }
-        else if b == 244 { if tail3(text, i, 128, 143) { 4 } else { 0 } }
-        else { 0 }
+        let width = leadWidthOf(b)
+        let second = secondRange(b)
+        let tails = fold(range(2, width), true, fn(ok, k) => ok && cont(text, i + k))
+        if width < 2 { width } else if Bytes::inRange(byteAt(text, i + 1) ?: 0, second.lo, second.hi) && tails { width } else { 0 }
     }
 
     /// Decode one run, code point or escape without recursing into its successor.
@@ -150,13 +158,10 @@ module JsonScan {
 
     fn hexAt(text, k) = Bytes::hexValue(byteAt(text, k) ?: -1)
 
-    /// Four hex digits at `i` as one value in 0..65535, or -1.
-    fn unit4(text, i) = {
-        let a = hexAt(text, i)
-        let b = hexAt(text, i + 1)
-        let c = hexAt(text, i + 2)
-        let d = hexAt(text, i + 3)
-        if a < 0 || b < 0 || c < 0 || d < 0 { -1 } else { ((a * 16 + b) * 16 + c) * 16 + d }
+    /// The four hex digits from `from` as one value in 0..65535, or -1 for any other byte.
+    fn unit4(text, from) = {
+        let digits = mapList([0, 1, 2, 3], fn(k) => hexAt(text, from + k))
+        if foldList(digits, false, fn(bad, d) => bad || d < 0) { -1 } else { foldList(digits, 0, fn(unit, d) => unit * 16 + d) }
     }
 
     /// End of the hex-digit run in [k, stop): the first non-hex or missing byte.
@@ -169,22 +174,22 @@ module JsonScan {
         failure(badEscape, i)
     }
 
-    fn scanUnicode(text, i, out) = {
-        let end = hexRunEnd(text, i + 2, i + 6)
-        if end < i + 6 {
-            shortHexRun(text, i, end)
-        } else {
-            scanUnit(text, i, out, unit4(text, i + 2))
-        }
+    /// The value of the four hex digits from `from` up to `stop`, or the
+    /// failure for a run that ends before `stop`.
+    fn unitAt(text, i, from, stop) = {
+        let end = hexRunEnd(text, from, stop)
+        if end < stop { shortHexRun(text, i, end) } else { Success { value: unit4(text, from) } }
     }
+
+    fn scanUnicode(text, i, out) = andThen(unitAt(text, i, i + 2, i + 6), fn(cp) => scanUnit(text, i, out, cp))
 
     /// U+0000 cannot inhabit this runtime's NUL-terminated strings, so it is
     /// rejected like the raw control byte it would decode to.
     fn scanUnit(text, i, out, cp) = if cp == nulCp {
         failure(controlCode, i)
-    } else if inRange(cp, highSurrogateLo, highSurrogateHi) {
+    } else if Bytes::inRange(cp, highSurrogateLo, highSurrogateHi) {
         scanPair(text, i, out, cp)
-    } else if inRange(cp, lowSurrogateLo, lowSurrogateHi) {
+    } else if Bytes::inRange(cp, lowSurrogateLo, lowSurrogateHi) {
         failure(badSurrogate, i)
     } else {
         nextString(i + 6, out + (fromCodePoint(cp) ?: ""))
@@ -199,16 +204,7 @@ module JsonScan {
 
     fn pairText(high, low) = fromCodePoint(planeBase + (high - highSurrogateLo) * planeShift + (low - lowSurrogateLo)) ?: ""
 
-    fn joinPair(text, i, out, high) = {
-        let end = hexRunEnd(text, i + 8, i + 12)
-        let low = unit4(text, i + 8)
-        if end < i + 12 {
-            shortHexRun(text, i, end)
-        } else if inRange(low, lowSurrogateLo, lowSurrogateHi) {
-            nextString(i + 12, out + pairText(high, low))
-        } else {
-            failure(badSurrogate, i)
-        }
-    }
+    fn joinPair(text, i, out, high) = andThen(unitAt(text, i, i + 8, i + 12), fn(low) =>
+        if Bytes::inRange(low, lowSurrogateLo, lowSurrogateHi) { nextString(i + 12, out + pairText(high, low)) } else { failure(badSurrogate, i) })
 
 }

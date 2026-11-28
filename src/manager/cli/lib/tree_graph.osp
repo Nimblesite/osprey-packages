@@ -44,17 +44,15 @@ module TreeGraph {
     fn packageLines(lines, keyText) = filterList(lines, fn(line) => detailIn(line) == keyText)
     fn packageFindings(lines, keyText) = codesOf(packageLines(lines, keyText))
 
-    fn presentOf(lines, keyText) = !foldList(lines, false, fn(found, line) =>
-        found || (codeIn(line) == missingCode && detailIn(line) == keyText))
+    fn presentOf(lines, keyText) = !Folds::any(lines, fn(line) => codeIn(line) == missingCode && detailIn(line) == keyText)
 
-    fn isPackageKey(packages, text) = foldList(packages, false, fn(found, p) =>
-        found || Names::display(Identity::keyOf(Lockfile::releaseOf(p))) == text)
+    fn isPackageKey(packages, text) = Folds::any(packages, fn(p) => Names::display(Lockfile::keyOf(p)) == text)
 
     fn globalLines(lines, packages) = filterList(lines, fn(line) => !isPackageKey(packages, detailIn(line)))
 
     fn dependentsOf(packages, key) = Names::distinct(foldList(packages, [], fn(acc, p) =>
-        if !Names::same(Identity::keyOf(Lockfile::releaseOf(p)), key) && Names::includes(edgeKeys(Lockfile::edgesOf(p)), key) {
-            listAppend(acc, Identity::keyOf(Lockfile::releaseOf(p)))
+        if !Names::same(Lockfile::keyOf(p), key) && Names::includes(edgeKeys(Lockfile::edgesOf(p)), key) {
+            listAppend(acc, Lockfile::keyOf(p))
         } else { acc }))
 
     // A local checkout replaces the release's bytes ([PACKAGE-LOCAL-OVERRIDE]), so

@@ -42,11 +42,13 @@ module ManifestSections {
     /// True when pair `key` exists.
     export fn has(pairs, key) = Checked::succeeded(find(pairs, key))
 
-    /// The section `key` run through `of`; a missing section is [].
-    export fn optional(pairs, key, of) = match find(pairs, key) {
-        Error => Success { value: [] }
-        Success { value } => of(value)
+    fn withPair(pairs, key, missing, present) = match find(pairs, key) {
+        Error => missing
+        Success { value } => present(value)
     }
+
+    /// The section `key` run through `of`; a missing section is [].
+    export fn optional(pairs, key, of) = withPair(pairs, key, Success { value: [] }, of)
 
     /// The first pair whose key is not allowed, as `code`.
     export fn unknownKeys(pairs, allowed, code) = foldList(pairs, Success { value: 0 }, fn(acc, pair: Toml::Pair) => match acc {
@@ -67,15 +69,9 @@ module ManifestSections {
     }
 
     /// A required string pair; a missing one fails at `span`.
-    export fn requiredString(pairs, key, code, span) = match find(pairs, key) {
-        Success { value } => stringOf(value, code)
-        Error => fail(code, span)
-    }
+    export fn requiredString(pairs, key, code, span) = withPair(pairs, key, fail(code, span), fn(value) => stringOf(value, code))
 
-    fn optionalString(pairs, key, code) = match find(pairs, key) {
-        Success { value } => Maybe::ofResult(stringOf(value, code))
-        Error => Success { value: Maybe::none() }
-    }
+    fn optionalString(pairs, key, code) = withPair(pairs, key, Success { value: Maybe::none() }, fn(value) => Maybe::ofResult(stringOf(value, code)))
 
     fn stringItems(items, span, code) = Checked::collectAll(items, fn(item) => match item {
         Toml::Str { text } => Success { value: text }
@@ -83,13 +79,10 @@ module ManifestSections {
     })
 
     /// A string array pair, `fallback` when absent.
-    export fn stringList(pairs, key, fallback, code) = match find(pairs, key) {
-        Error => Success { value: fallback }
-        Success { value } => match Toml::valueOf(value) {
-            Toml::Arr { items } => stringItems(items, Toml::pairSpan(value), code)
-            _ => fail(code, Toml::pairSpan(value))
-        }
-    }
+    export fn stringList(pairs, key, fallback, code) = withPair(pairs, key, Success { value: fallback }, fn(value) => match Toml::valueOf(value) {
+        Toml::Arr { items } => stringItems(items, Toml::pairSpan(value), code)
+        _ => fail(code, Toml::pairSpan(value))
+    })
 
     fn allValidPaths(paths) = foldList(paths, true, fn(ok, path) => ok && Checked::succeeded(Paths::validate(path)))
 
@@ -104,24 +97,20 @@ module ManifestSections {
 
     fn roots(pairs, key, fallback, code, span) = rootsWith(fn(_value) => true, pairs, key, fallback, code, span)
 
-    fn flavorOf(pairs) = match optionalString(pairs, "flavor", "manifest.project.flavor") {
+    // The fold's initial result keeps the closure's return type concrete for codegen.
+    fn optionalParsed(pairs, key, code, parse) = match optionalString(pairs, key, code) {
         Error { message } => Error { message: message }
-        // The closure's return type is written so codegen sees a concrete
-        // function type (issue: a still-generic closure value is refused).
-        Success { value } => Maybe::fold(value, Success { value: Maybe::none() }, fn(text) => flavorNamed(text, spanOf(pairs, "flavor", rootSpan())))
+        Success { value } => Maybe::fold(value, Success { value: Maybe::none() }, fn(text) => parse(text, spanOf(pairs, key, rootSpan())))
     }
+
+    fn flavorOf(pairs) = optionalParsed(pairs, "flavor", "manifest.project.flavor", flavorNamed)
 
     fn flavorNamed(text, span) = match ManifestModel::flavorOf(text) {
         Success { value } => Success { value: Maybe::some(value) }
         Error { message } => fail(message, span)
     }
 
-    fn entryOf(pairs) = match optionalString(pairs, "entry", "manifest.project.entry") {
-        Error { message } => Error { message: message }
-        // The closure's return type is written so codegen sees a concrete
-        // function type (issue: a still-generic closure value is refused).
-        Success { value } => Maybe::fold(value, Success { value: Maybe::none() }, fn(text) => entryNamed(text, spanOf(pairs, "entry", rootSpan())))
-    }
+    fn entryOf(pairs) = optionalParsed(pairs, "entry", "manifest.project.entry", entryNamed)
 
     fn entryNamed(text, span) = match Paths::validate(text) {
         Success => Success { value: Maybe::some(text) }
@@ -165,10 +154,10 @@ module ManifestSections {
     }
 
     /// `[project]`: required, with validated roots, entry and flavor.
-    export fn project(root) = match find(pairsOf(root), "project") {
-        Error => fail("manifest.project.missing", rootSpan())
-        Success { value } => sectionBody(value, projectKeys, "manifest.project.unknown-key", projectBody)
-    }
+    fn section(root, key, missing, body) = withPair(pairsOf(root), key, missing, body)
+
+    export fn project(root) = section(root, "project", fail("manifest.project.missing", rootSpan()),
+        fn(value) => sectionBody(value, projectKeys, "manifest.project.unknown-key", projectBody))
 
     fn nonEmpty(pairs, key, code, span) = andThen(requiredString(pairs, key, code, span), fn(value) => if value == "" { fail(code, spanOf(pairs, key, span)) } else { Success { value: value } })
 
@@ -180,36 +169,27 @@ module ManifestSections {
     /// `[discipline]`: a type-discipline package's word and checker
     /// (the compiler's discipline registry). The compiler runs the checker; the
     /// client only refuses a malformed table.
-    export fn discipline(root) = match find(pairsOf(root), "discipline") {
-        Error => Success { value: 0 }
-        Success { value } => sectionBody(value, disciplineKeys, "manifest.discipline.unknown-key", disciplineBody)
-    }
+    export fn discipline(root) = section(root, "discipline", Success { value: 0 },
+        fn(value) => sectionBody(value, disciplineKeys, "manifest.discipline.unknown-key", disciplineBody))
 
-    fn boolOf(pairs, key, fallback, code) = match find(pairs, key) {
-        Error => Success { value: fallback }
-        Success { value } => match Toml::valueOf(value) {
-            Toml::Bool { flag } => Success { value: flag }
-            _ => fail(code, Toml::pairSpan(value))
-        }
-    }
+    fn boolOf(pairs, key, fallback, code) = withPair(pairs, key, Success { value: fallback }, fn(value) => match Toml::valueOf(value) {
+        Toml::Bool { flag } => Success { value: flag }
+        _ => fail(code, Toml::pairSpan(value))
+    })
 
     /// `[modules]`: the wildcard-import policy.
-    export fn modules(root) = match find(pairsOf(root), "modules") {
-        Error => Success { value: false }
-        Success { value } => match unknownKeys(pairsOf(Toml::valueOf(value)), modulesKeys, "manifest.modules.unknown-key") {
+    export fn modules(root) = section(root, "modules", Success { value: false }, fn(value) =>
+        match unknownKeys(pairsOf(Toml::valueOf(value)), modulesKeys, "manifest.modules.unknown-key") {
             Error { message } => Error { message: message }
             Success => modulesBody(pairsOf(Toml::valueOf(value)))
-        }
-    }
+        })
 
     fn modulesBody(pairs) = boolOf(pairs, "allow_wildcard_imports", false, "manifest.modules.allow-wildcard-imports")
 
     /// `[lints]`: every rule's level is one the compiler reads; the compiler
     /// checks the rule names.
-    export fn lints(root) = match find(pairsOf(root), "lints") {
-        Error => Success { value: 0 }
-        Success { value } => foldList(pairsOf(Toml::valueOf(value)), Success { value: 0 }, lintLevel)
-    }
+    export fn lints(root) = section(root, "lints", Success { value: 0 },
+        fn(value) => foldList(pairsOf(Toml::valueOf(value)), Success { value: 0 }, lintLevel))
 
     fn lintLevel(acc, pair) = match acc {
         Error { message } => Error { message: message }
@@ -267,8 +247,6 @@ module ManifestSections {
     fn packageEnd(pairs, span, key, licenseText) = andThen(discovery(pairs, span), fn(value) => Success { value: Maybe::some(ManifestModel::Publication { package: key, licenseExpression: licenseText, discovery: value }) })
 
     /// `[package]`: optional for application roots; complete when present.
-    export fn publication(root) = match find(pairsOf(root), "package") {
-        Error => Success { value: Maybe::none() }
-        Success { value } => sectionBody(value, packageKeys, "manifest.package.unknown-key", packageBody)
-    }
+    export fn publication(root) = section(root, "package", Success { value: Maybe::none() },
+        fn(value) => sectionBody(value, packageKeys, "manifest.package.unknown-key", packageBody))
 }

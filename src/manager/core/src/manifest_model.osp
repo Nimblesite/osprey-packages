@@ -143,9 +143,12 @@ module ManifestModel {
         _ => Error { message: "manifest.project.flavor" }
     }
 
+    /// The file extensions the UTF-8 text asset kind accepts.
+    let textExtensions = [".txt", ".md", ".csv", ".tsv"]
+
     /// The file extension each asset kind accepts, per [PACKAGE-PUBLISH].
     export fn kindAccepts(kind, path) = match kind {
-        Utf8Text => endsWith(path, ".txt") || endsWith(path, ".md") || endsWith(path, ".csv") || endsWith(path, ".tsv")
+        Utf8Text => Order::anyString(textExtensions, fn(ext) => endsWith(path, ext))
         Json => endsWith(path, ".json")
         Png => endsWith(path, ".png")
     }

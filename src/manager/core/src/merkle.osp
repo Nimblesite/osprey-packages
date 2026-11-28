@@ -96,7 +96,7 @@ module Merkle {
         listConcat(consSpans(wrapSub(m, k), wrapSub(n, k), wrapAdd(base, k), false), [cspan(base, k, true)])
     }
 
-    fn withHash(s, hash) = Span { start: s.start, width: s.width, shared: s.shared, hash: hash }
+    fn withHash(s, hash) = s { hash: hash }
 
     fn zipped(spans, proof) = range(0, length(spans)) |> map(fn(i) =>
         withHash(listGet(spans, i) ?: span(0, 0, []), listGet(proof, i) ?: [])) |> toList
@@ -126,10 +126,8 @@ module Merkle {
     /// [PACKAGE-TRUST].
     export fn verifyInclusion(index, size, leaf, proof, expected) = {
         let spans = pathSpans(index, size, 0)
-        match index < 0 || index >= size || length(proof) != length(spans) {
-            true => false
-            false => structuralEquals(treeRoot(0, size, listConcat([span(index, 1, leaf)], zipped(spans, proof))), expected)
-        }
+        let shapeOk = index >= 0 && index < size && length(proof) == length(spans)
+        if shapeOk { structuralEquals(treeRoot(0, size, listConcat([span(index, 1, leaf)], zipped(spans, proof))), expected) } else { false }
     }
 
     /// RFC 9162 section 2.1.4.2: does `proof` tie `firstHash` at size
@@ -138,10 +136,8 @@ module Merkle {
     /// [PACKAGE-TRUST].
     export fn verifyConsistency(first, second, firstHash, secondHash, proof) = {
         let spans = consSpans(first, second, 0, true)
-        match first < 1 || first >= second || length(proof) != length(spans) {
-            true => false
-            false => consistent(spans, first, second, firstHash, secondHash, proof)
-        }
+        let shapeOk = first >= 1 && first < second && length(proof) == length(spans)
+        if shapeOk { consistent(spans, first, second, firstHash, secondHash, proof) } else { false }
     }
 
     fn consistent(spans, first, second, firstHash, secondHash, proof) = {

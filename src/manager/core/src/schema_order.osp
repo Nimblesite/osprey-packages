@@ -8,8 +8,6 @@ namespace registry;
 module SchemaOrder {
     fn child(pointer, key) = "${pointer}/${key}"
 
-    fn firstCode(codes) = foldList(codes, "", fn(found, c) => if found == "" { c } else { found })
-
     fn elementName(ref) = match ref {
         TypeDiagram::Named { name } => name
         _ => ""
@@ -20,7 +18,7 @@ module SchemaOrder {
         _ => []
     }
 
-    fn walkItems(model, element, field, items, pointer) = firstCode(range(0, length(items)) |> map(fn(i) =>
+    fn walkItems(model, element, field, items, pointer) = Order::firstText(range(0, length(items)) |> map(fn(i) =>
         walkTyped(model, element, field, listGet(items, i) ?: Json::Null, child(pointer, "${i}"))) |> toList)
 
     fn walkList(model, element, field, json, pointer) = {
@@ -39,7 +37,7 @@ module SchemaOrder {
         Error => ""
     }
 
-    fn walkFields(model, fields, json, pointer) = firstCode(mapList(fields, fn(f) => walkField(model, f, json, pointer)))
+    fn walkFields(model, fields, json, pointer) = Order::firstText(mapList(fields, fn(f) => walkField(model, f, json, pointer)))
 
     fn variantFields(variants, name) = foldList(variants, [], fn(found, v) => if v.name == name { v.payload } else { found })
 

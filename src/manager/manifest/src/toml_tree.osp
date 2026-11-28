@@ -84,21 +84,20 @@ module TomlTree {
 
     fn insertDeep(table, seg, segs, child, val) = andThen(insertInto(child, dropSeg(segs), val), fn(value) => Success { value: setChildKey(table, seg.name, seg.span, value) })
 
-    fn insertLeaf(table, seg, val) = match table {
+    fn childBranch(table, seg, present, absent) = match table {
         Toml::Table { pairs } => match findPair(pairs, seg.name) >= 0 {
-            true => Error { message: Toml::failSpan(seg.span, "toml.duplicate-key") }
-            false => Success { value: Toml::Table { pairs: listAppend(pairs, Toml::Pair { key: seg.name, value: val, span: seg.span }) } }
+            true => present(pairs, findPair(pairs, seg.name))
+            false => absent(pairs)
         }
         _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
     }
 
-    fn childOrCreate(table, seg) = match table {
-        Toml::Table { pairs } => match findPair(pairs, seg.name) >= 0 {
-            true => childOrExisting(pairs, findPair(pairs, seg.name), seg)
-            false => Success { value: Toml::emptyTable }
-        }
-        _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
-    }
+    fn insertLeaf(table, seg, val) = childBranch(table, seg,
+        fn(_, _) => Error { message: Toml::failSpan(seg.span, "toml.duplicate-key") },
+        fn(pairs) => Success { value: Toml::Table { pairs: listAppend(pairs, Toml::Pair { key: seg.name, value: val, span: seg.span }) } })
+
+    fn childOrCreate(table, seg) = childBranch(table, seg,
+        fn(pairs, i) => childOrExisting(pairs, i, seg), fn(_) => Success { value: Toml::emptyTable })
 
     // `Table =>` cannot be written qualified outside Toml (issue: qualified
     // payload-free variant patterns), so ask Toml::isTable instead.
@@ -169,13 +168,9 @@ module TomlTree {
     /// Append an array element; ordinary arrays and inline tables cannot become header arrays.
     export fn defineArrayTable(doc, segs) = defineHeader(doc, segs, true)
 
-    fn defineLeaf(root, seg) = match root {
-        Toml::Table { pairs } => match findPair(pairs, seg.name) >= 0 {
-            true => defineExisting(pairs, findPair(pairs, seg.name), seg)
-            false => Success { value: Toml::Table { pairs: listAppend(pairs, Toml::Pair { key: seg.name, value: Toml::emptyTable, span: seg.span }) } }
-        }
-        _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
-    }
+    fn defineLeaf(root, seg) = childBranch(root, seg,
+        fn(pairs, i) => defineExisting(pairs, i, seg),
+        fn(pairs) => Success { value: Toml::Table { pairs: listAppend(pairs, Toml::Pair { key: seg.name, value: Toml::emptyTable, span: seg.span }) } })
 
     // `Table =>` cannot be written qualified outside Toml (issue: qualified
     // payload-free variant patterns), so ask Toml::isTable instead.
@@ -184,13 +179,9 @@ module TomlTree {
         false => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
     }
 
-    fn appendArrayLeaf(root, seg) = match root {
-        Toml::Table { pairs } => match findPair(pairs, seg.name) >= 0 {
-            true => appendExisting(pairs, findPair(pairs, seg.name), seg)
-            false => Success { value: ArrDef { root: Toml::Table { pairs: listAppend(pairs, Toml::Pair { key: seg.name, value: Toml::Arr { items: [Toml::emptyTable] }, span: seg.span }) }, index: 0 } }
-        }
-        _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
-    }
+    fn appendArrayLeaf(root, seg) = childBranch(root, seg,
+        fn(pairs, i) => appendExisting(pairs, i, seg),
+        fn(pairs) => Success { value: ArrDef { root: Toml::Table { pairs: listAppend(pairs, Toml::Pair { key: seg.name, value: Toml::Arr { items: [Toml::emptyTable] }, span: seg.span }) }, index: 0 } })
 
     fn appendExisting(pairs, i, seg) = match pairAt(pairs, i).value {
         Toml::Arr { items } => Success { value: ArrDef { root: Toml::Table { pairs: setPair(pairs, seg.name, seg.span, Toml::Arr { items: listAppend(items, Toml::emptyTable) }) }, index: length(items) } }

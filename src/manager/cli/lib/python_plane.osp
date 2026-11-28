@@ -108,7 +108,7 @@ module PythonPlane {
 
     /// One `[tool.uv.sources]` value: a table, or a list of them with markers.
     fn sourceOk(source) = match source {
-        Toml::Arr { items } => foldList(items, true, fn(ok, item) => ok && entryOk(item))
+        Toml::Arr { items } => Folds::all(items, entryOk)
         _ => entryOk(source)
     }
 
@@ -136,19 +136,17 @@ module PythonPlane {
 
     /// Every member over `items`: `root` first, then `next(item)` for each.
     /// The first failure wins and stops the walk.
-    export fn membersOver(items, root, next) = foldList(items, appendMember([], root), fn(acc, item) => match acc {
-        Error => acc
-        Success { value } => appendMember(value, next(item))
-    })
+    export fn membersOver(items, root, next) = Folds::collect(items, appendMember([], root), fn(done, item) => appendMember(done, next(item)))
 
     // ---- composition ----
 
     fn versionText(floor) = {
         let patch = floor % 100
-        if patch == 0 { "${intDiv(floor, 10000)}.${intDiv(floor, 100) % 100}" } else { "${intDiv(floor, 10000)}.${intDiv(floor, 100) % 100}.${patch}" }
+        let majorMinor = "${intDiv(floor, 10000)}.${intDiv(floor, 100) % 100}"
+        if patch == 0 { majorMinor } else { "${majorMinor}.${patch}" }
     }
 
-    fn maxFloor(members) = foldList(members, 0, fn(best, m) => if floorOf(m) > best { floorOf(m) } else { best })
+    fn maxFloor(members) = Folds::largest(members, floorOf)
 
     fn quoted(m) = "\"" + nameOf(m) + "\""
 
@@ -177,7 +175,7 @@ module PythonPlane {
     fn wheelsHashed(pkg) = match Toml::get(pkg, "wheels") {
         Error => true
         Success { value } => match value {
-            Toml::Arr { items } => foldList(items, true, fn(ok, w) => ok && hashed(w))
+            Toml::Arr { items } => Folds::all(items, hashed)
             _ => false
         }
     }
@@ -190,7 +188,7 @@ module PythonPlane {
     fn packagesHashed(root) = match Toml::get(root, "package") {
         Error => true
         Success { value } => match value {
-            Toml::Arr { items } => foldList(items, true, fn(ok, p) => ok && sdistHashed(p) && wheelsHashed(p))
+            Toml::Arr { items } => Folds::all(items, fn(p) => sdistHashed(p) && wheelsHashed(p))
             _ => false
         }
     }
@@ -205,7 +203,7 @@ module PythonPlane {
     /// The plain `sha256:` digest of a generated file.
     export fn digestOf(text) = Digests::format(Sha256::digest(Bytes::ofString(text)))
 
-    fn inDir(project) = if project == "." || project == "" { dir } else { "${project}/${dir}" }
+    fn inDir(project) = Project::pathAt(project, dir)
 
     /// The composed `pyproject.toml` under `project`'s `.osprey/python`.
     export fn pyprojectPath(project) = "${inDir(project)}/${pyprojectName}"
@@ -224,22 +222,13 @@ module PythonPlane {
 
     fn uvLocked(project, paths, text) = {
         let r = uv(project, paths, "lock", true, digestOf(text), "")
-        if statusOf(r) != 0 { failedRun(uvLockFailed, r) } else { match perform Host::Files.read(uvLockPath(project)) {
-            Error => Error { message: uvLockMissing }
-            Success { value } => pinned(text, value)
-        } }
+        if statusOf(r) != 0 { failedRun(uvLockFailed, r) } else { Checked::orElseCode(perform Host::Files.read(uvLockPath(project)), uvLockMissing, fn(value) => pinned(text, value)) }
     }
 
-    fn writtenProject(project, paths, text) = match perform Host::Files.write(pyprojectPath(project), text) {
-        Error { message } => Error { message: message }
-        Success => uvLocked(project, paths, text)
-    }
+    fn writtenProject(project, paths, text) = andThen(perform Host::Files.write(pyprojectPath(project), text), fn(_written) => uvLocked(project, paths, text))
 
     /// `lock`: write the composed project, run `uv lock`, read `uv.lock` and pin both digests.
-    export fn locked(project, members) = match perform Host::Tree.ensure(inDir(project)) {
-        Error { message } => Error { message: message }
-        Success => writtenProject(project, mapList(members, pathOf), compose(members))
-    }
+    export fn locked(project, members) = andThen(perform Host::Tree.ensure(inDir(project)), fn(_made) => writtenProject(project, mapList(members, pathOf), compose(members)))
 
     /// The line `lock` prints for a pinned plane.
     export fn lockedLine(project) = "python: locked ${inDir(project)}"

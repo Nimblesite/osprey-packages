@@ -49,7 +49,7 @@ module Verify {
         Success { value } => oneLine(value == pinnedManifest(o), "${localManifestCode} ${name}")
     }
 
-    fn treeFindings(lock, pkg, fileList, name) = match Lockfile::overrideFor(Lockfile::overridesOf(lock), pkg.release.key) {
+    fn treeFindings(lock, pkg, fileList, name) = match Lockfile::overrideOf(lock, Lockfile::keyOf(pkg)) {
         Success { value } => localFindings(value, fileList, name)
         Error => publishedFindings(pkg, fileList, name)
     }
@@ -61,7 +61,7 @@ module Verify {
 
     fn packageFindings(project, lock, pkg) = {
         let dir = Project::treeDirAt(project, lock, pkg)
-        let name = Names::display(pkg.release.key)
+        let name = Names::display(Lockfile::keyOf(pkg))
         match perform Host::Tree.walk(dir) {
             Error => ["${missingCode} ${name}"]
             Success { value } => walkedFindings(lock, pkg, value, dir, name)
@@ -73,9 +73,9 @@ module Verify {
     // ---- the Python plane ([PACKAGE-PYTHON-UV]) ----
 
     fn hexOf(pkg: Lockfile::Package) = Digests::hexOf(pkg.release.digest)
-    fn keyTextOf(pkg: Lockfile::Package) = Names::display(pkg.release.key)
+    fn keyTextOf(pkg) = Names::display(Lockfile::keyOf(pkg))
 
-    fn pythonPathFor(lock, pkg) = match Lockfile::overrideFor(Lockfile::overridesOf(lock), pkg.release.key) {
+    fn pythonPathFor(lock, pkg) = match Lockfile::overrideOf(lock, Lockfile::keyOf(pkg)) {
         Success { value } => "../../${Lockfile::overridePathOf(value)}"
         Error => "../packages/${keyTextOf(pkg)}/${hexOf(pkg)}"
     }
@@ -123,6 +123,5 @@ module Verify {
     export fn verifyOfflineAt(project) = Reports::checked(Overlay::readAt(project), fn(value) => if Overlay::active(value) { verifyLocalAt(project) } else { verifyReleaseAt(project) })
 
     /// The command: `verify`, `verify --offline` and `verify --project <dir>`.
-    export fn run(args) = Flags::dispatch(args, [Flags::projectFlag], [offlineFlag], usageCode, usageText,
-        fn(parsed) => verifyOfflineAt(Flags::project(parsed)))
+    export fn run(args) = Flags::dispatchWith(args, [Flags::projectFlag], [offlineFlag], usageCode, usageText, Flags::project, verifyOfflineAt)
 }

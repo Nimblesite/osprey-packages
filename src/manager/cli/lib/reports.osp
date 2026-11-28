@@ -1,6 +1,7 @@
 namespace registry_cli;
 import registry::Bytes
 import registry::Canonical
+import registry::Checked
 import registry::Json
 
 /// What a command answers: a process status and the lines to show. Rendering
@@ -50,10 +51,7 @@ module Reports {
     }
 
     /// `onSuccess` of a valid result, else the failure naming `code` and the message.
-    export fn checkedWith(result, code, onSuccess) = match result {
-        Error { message } => failure(["${code} ${message}"])
-        Success { value } => onSuccess(value)
-    }
+    export fn checkedWith(result, code, onSuccess) = checked(Checked::mapError(result, fn(message) => "${code} ${message}"), onSuccess)
 
     /// One line per entry of `label: value`.
     export fn field(label, value) = "${label}: ${value}"

@@ -73,14 +73,12 @@ module Canonical {
         true => out
         false => {
             let cp = codePointAt(s, i) ?: 63
-            let w = codePointWidth(cp) ?: 1
-            if cp < planeBase {
-                utf16Units(s, i + w, listAppend(out, cp))
-            } else {
-                utf16Units(s, i + w, appendAstral(out, cp))
-            }
+            utf16Units(s, i + (codePointWidth(cp) ?: 1), widen(out, cp))
         }
     }
+
+    /// `out` with one code point's unit, or its surrogate pair, appended.
+    fn widen(out, cp) = if cp < planeBase { listAppend(out, cp) } else { appendAstral(out, cp) }
 
     fn units(s) = utf16Units(s, 0, [])
 
@@ -96,10 +94,13 @@ module Canonical {
 
     fn noDuplicateKeys(members) = Order::strictlyAscending(listSort(mapList(members, fn(m) => m.key)))
 
+    /// True when every value of the list is serializable.
+    fn allWellFormed(values) = foldList(values, true, fn(ok, v) => ok && wellFormed(v))
+
     /// A tree is serializable when no object repeats a key, at any depth.
     fn wellFormed(value) = match value {
-        Json::Obj { members } => noDuplicateKeys(members) && foldList(members, true, fn(ok, m) => ok && wellFormed(m.value))
-        Json::Arr { items } => foldList(items, true, fn(ok, v) => ok && wellFormed(v))
+        Json::Obj { members } => noDuplicateKeys(members) && allWellFormed(mapList(members, fn(m) => m.value))
+        Json::Arr { items } => allWellFormed(items)
         _ => true
     }
 

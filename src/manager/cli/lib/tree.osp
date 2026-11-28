@@ -1,5 +1,4 @@
 namespace registry_cli;
-import registry::Identity
 import registry::ManifestModel
 import registry::Names
 
@@ -39,7 +38,7 @@ module Tree {
     fn seen(w: Walk, key) = Names::includes(w.visited, key)
 
     /// Resolve one required key, continuing through the matching lock state.
-    export fn withPackage(lock, key, missing, found) = match Lockfile::packageFor(Lockfile::packagesOf(lock), key) {
+    export fn withPackage(lock, key, missing, found) = match Lockfile::packageIn(lock, key) {
         Error => missing()
         Success { value } => found(value)
     }
@@ -49,7 +48,7 @@ module Tree {
         fn() => withLine(w, unlockedLine(depth, edge)), fn(value) => packageLines(lock, depth, w, edge, value))
 
     fn packageLines(lock, depth, w, edge, pkg) -> Walk = {
-        let key = Identity::keyOf(Lockfile::releaseOf(pkg))
+        let key = Lockfile::keyOf(pkg)
         let repeated = seen(w, key)
         let printed = withLine(w, lineOf(depth, pkg, edge, repeated))
         if repeated { printed } else { childLines(lock, depth + 1, withVisited(printed, key), Lockfile::edgesOf(pkg)) }

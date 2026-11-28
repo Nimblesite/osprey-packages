@@ -76,51 +76,27 @@ module Manifest {
     fn projectLine(root) = ManifestSections::spanOf(ManifestSections::pairsOf(root), "project", ManifestSections::rootSpan()).line
 
     fn publishable(project, publication, root) = if Maybe::isPresent(publication) && unrootedCode(project) != "" {
-        rejected("${unrootedCode(project)} at ${projectLine(root)}:1")
+        Error { message: "${unrootedCode(project)} at ${projectLine(root)}:1" }
     } else { withDependencies(project, publication, root) }
 
-    fn withDependencies(project, publication, root) = match ManifestDeps::dependencies(root) {
-        Error { message } => rejected(message)
-        Success { value } => withGrants(project, publication, root, value)
-    }
+    fn withDependencies(project, publication, root) = andThen(ManifestDeps::dependencies(root), fn(value) => withGrants(project, publication, root, value))
 
-    fn withGrants(project, publication, root, edges) = match ManifestDeps::grants(root) {
-        Error { message } => rejected(message)
-        Success { value } => withSystems(project, publication, root, Edges { edges: edges, grants: value })
-    }
+    fn withGrants(project, publication, root, edges) = andThen(ManifestDeps::grants(root), fn(value) => withSystems(project, publication, root, Edges { edges: edges, grants: value }))
 
-    fn withSystems(project, publication, root, dependencies) = match ManifestDeps::systems(root) {
-        Error { message } => rejected(message)
-        Success { value } => withAssets(project, publication, root, dependencies, value)
-    }
+    fn withSystems(project, publication, root, dependencies) = andThen(ManifestDeps::systems(root), fn(value) => withAssets(project, publication, root, dependencies, value))
 
-    fn withAssets(project, publication, root, dependencies, systems) = match ManifestDeps::assets(root) {
-        Error { message } => rejected(message)
-        Success { value } => withModules(project, publication, root, dependencies, systems, value)
-    }
+    fn withAssets(project, publication, root, dependencies, systems) = andThen(ManifestDeps::assets(root), fn(value) => withModules(project, publication, root, dependencies, systems, value))
 
-    fn withModules(project, publication, root, dependencies, systems, assets) = match ManifestSections::modules(root) {
-        Error { message } => rejected(message)
-        Success { value } => Accepted { manifest: assemble(project, value, publication, dependencies, systems, assets) }
-    }
+    fn withModules(project, publication, root, dependencies, systems, assets) = andThen(ManifestSections::modules(root), fn(value) => Success { value: assemble(project, value, publication, dependencies, systems, assets) })
 
-    fn withPublication(project, root) = match ManifestSections::publication(root) {
-        Error { message } => rejected(message)
-        Success { value } => publishable(project, value, root)
-    }
+    fn withPublication(project, root) = andThen(ManifestSections::publication(root), fn(value) => publishable(project, value, root))
 
-    fn fromTable(root) = match ManifestSections::unknownKeys(ManifestSections::pairsOf(root), topLevelKeys, "manifest.unknown-table") {
+    fn checkedProject(root) = andThen(ManifestSections::unknownKeys(ManifestSections::pairsOf(root), topLevelKeys, "manifest.unknown-table"), fn(_) =>
+        andThen(ManifestSections::discipline(root), fn(_) => andThen(ManifestSections::lints(root), fn(_) => ManifestSections::project(root))))
+
+    fn fromTable(root) = match andThen(checkedProject(root), fn(project) => withPublication(project, root)) {
         Error { message } => rejected(message)
-        Success => match ManifestSections::discipline(root) {
-            Error { message } => rejected(message)
-            Success => match ManifestSections::lints(root) {
-                Error { message } => rejected(message)
-                Success => match ManifestSections::project(root) {
-                    Error { message } => rejected(message)
-                    Success { value } => withPublication(value, root)
-                }
-            }
-        }
+        Success { value } => Accepted { manifest: value }
     }
 
     /// The verdict for one manifest text.

@@ -23,8 +23,5 @@ module Remove {
         fn(parsed) => withSettings(Transaction::releaseSettings(parsed), key))
 
     /// The whole command: the key word first, then the flags.
-    export fn run(args) = match Names::parse(listGet(args, 0) ?: "") {
-        Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => withKey(value, Flags::tail(args))
-    }
+    export fn run(args) = Flags::keyed(args, usageCode, usageText, withKey)
 }

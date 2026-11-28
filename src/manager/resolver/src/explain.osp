@@ -25,8 +25,10 @@ module Explain {
 
     // ---- reachability ----
 
+    fn concatMapped(items, values) = foldList(items, [], fn(acc, item) => listConcat(acc, values(item)))
+
     /// The Runtime/Build targets of every state-viable candidate of `key`.
-    fn unionTargets(graph, key) = foldList(Candidates::viableOfKey(graph, key), [], fn(acc, e) => listConcat(acc, ManifestModel::activeTargets(Candidates::edgesOf(e))))
+    fn unionTargets(graph, key) = concatMapped(Candidates::viableOfKey(graph, key), fn(e) => ManifestModel::activeTargets(Candidates::edgesOf(e)))
 
     fn tailKeys(xs) = range(1, length(xs)) |> map(fn(i) => listGet(xs, i) ?: Names::blank()) |> toList
 
@@ -53,7 +55,7 @@ module Explain {
 
     fn requirementsOf(edges) = mapList(edges, ManifestModel::requirementOf)
 
-    fn catalogRequirements(graph) = foldList(graph.catalog, [], fn(acc, e) => listConcat(acc, requirementsOf(ManifestModel::activeEdges(Candidates::edgesOf(e)))))
+    fn catalogRequirements(graph) = concatMapped(graph.catalog, fn(e) => requirementsOf(ManifestModel::activeEdges(Candidates::edgesOf(e))))
 
     /// Every requirement on `key`: the root's, then every release's active edges.
     fn edgesTo(graph, key) = filterList(listConcat(requirementsOf(graph.rootDeps), catalogRequirements(graph)), fn(r) => Names::same(ManifestModel::packageOf(r), key))
@@ -85,24 +87,26 @@ module Explain {
 
     fn allOf(xs, holds) = !isEmpty(xs) && foldList(xs, true, fn(all, x) => all && holds(x))
 
-    fn capabilityAt(graph, k) = allOf(filterList(inEpoch(graph, k), fn(e) => Identity::ordinalOf(e.release) >= floorOf(graph, k)), fn(e) => !Candidates::capsOk(graph, e))
+    fn allWhere(xs, include, holds) = allOf(filterList(xs, include), holds)
 
-    fn floorAt(graph, k) = allOf(filterList(inEpoch(graph, k), fn(e) => Candidates::capsOk(graph, e)), fn(e) => Identity::ordinalOf(e.release) < floorOf(graph, k))
+    fn capabilityAt(graph, k) = allWhere(inEpoch(graph, k), fn(e) => Identity::ordinalOf(e.release) >= floorOf(graph, k), fn(e) => !Candidates::capsOk(graph, e))
 
-    /// `code` naming the first key for which `cause` holds, else none.
+    fn floorAt(graph, k) = allWhere(inEpoch(graph, k), fn(e) => Candidates::capsOk(graph, e), fn(e) => Identity::ordinalOf(e.release) < floorOf(graph, k))
+
+    /// `code` naming the first of `hits`, else none.
     fn firstKey(keys, code, cause) = {
         let hits = filterList(keys, cause)
         if isEmpty(hits) { none() } else { found(code, [listGet(hits, 0) ?: Names::blank()]) }
     }
 
+    /// `code` naming every one of `hits`, else none.
+    fn foundKeys(code, hits) = if isEmpty(hits) { none() } else { found(code, hits) }
+
     /// `code` naming the first of `keys` for which `cause` holds, as one deferred cause.
     fn keyCause(graph, keys, code, cause) = fn() => firstKey(keys, code, fn(k) => cause(graph, k))
 
     /// Every key that reaches itself, as one cycle explanation.
-    fn cycleOutcome(graph, keys) = {
-        let cyc = filterList(keys, fn(k) => unionReaches(graph, k, k, []))
-        if isEmpty(cyc) { none() } else { found(cycle, cyc) }
-    }
+    fn cycleOutcome(graph, keys) = foundKeys(cycle, filterList(keys, fn(k) => unionReaches(graph, k, k, [])))
 
     /// The explanation of a refuted graph over its reachable keys: the
     /// oracle's path, and the resolver's when the solver returned no core.

@@ -73,7 +73,7 @@ module Dsse {
     /// RFC 4648 standard alphabet with padding, for binary process and KMS boundaries.
     export fn base64(bytes) = {
         let url = base64Url(bytes)
-        let standard = replace(replace(url, "-", "+") ?: url, "_", "/") ?: url
+        let standard = Bytes::replaceBoth(url, "-", "+", "_", "/")
         let leftover = length(bytes) % 3
         standard + (if leftover == 1 { "==" } else if leftover == 2 { "=" } else { "" })
     }

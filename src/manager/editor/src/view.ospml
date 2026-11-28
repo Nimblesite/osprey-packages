@@ -117,11 +117,14 @@ module View
         Ui::pair ("Digest", item.entryIdentity.entryDigest),
     ]
 
-    installedBody (snapshot, item) = [
-        Ui::styled (installedKey item, ui::Large, ui::Primary),
-        installedFacts item,
+    packageBody (snapshot, key, facts, findings) = [
+        Ui::styled (key, ui::Large, ui::Primary),
+        facts,
         projectNode snapshot,
-        findingsSection item.entryFindings,
+        findingsSection findings,
+    ]
+
+    installedBody (snapshot, item) = listConcat (packageBody (snapshot, installedKey item, installedFacts item, item.entryFindings)) [
         keyList ("Dependencies", item.entryDependencies),
         keyList ("Required by", item.entryDependents),
     ]
@@ -132,10 +135,12 @@ module View
 
     removeInstalledEnabled (snapshot, item) = idle snapshot && item.entryDirect
 
-    installedActions (snapshot, item) = [
-        Ui::action ("Add to project", "plus", ui::Plain, addInstalledEnabled (snapshot, item), Add),
-        Ui::action ("Remove dependency", "trash", ui::Destructive, removeInstalledEnabled (snapshot, item), Remove),
+    packageActions (addEnabled, removeEnabled) = [
+        Ui::action ("Add to project", "plus", ui::Plain, addEnabled, Add),
+        Ui::action ("Remove dependency", "trash", ui::Destructive, removeEnabled, Remove),
     ]
+
+    installedActions (snapshot, item) = packageActions (addInstalledEnabled (snapshot, item), removeInstalledEnabled (snapshot, item))
 
     catalogNote (snapshot, item) = match isEmpty item.catalogFindings
         false => Ui::styled ("Security findings block installation until they are resolved. Audit status is unverified.", ui::Callout, ui::Danger)
@@ -151,13 +156,7 @@ module View
         Ui::pair ("Registry", snapshot.packageRegistry),
     ]
 
-    catalogBody (snapshot, item) = [
-        Ui::styled (catalogKey item, ui::Large, ui::Primary),
-        catalogFacts (snapshot, item),
-        projectNode snapshot,
-        catalogNote (snapshot, item),
-        findingsSection item.catalogFindings,
-    ]
+    catalogBody (snapshot, item) = listConcat (packageBody (snapshot, catalogKey item, catalogFacts (snapshot, item), item.catalogFindings)) [catalogNote (snapshot, item)]
 
     addOffered (snapshot, item) = idle snapshot && isEmpty item.catalogFindings && (item.catalogEvidence || Packages::isLoopback snapshot.packageRegistry)
 
@@ -165,10 +164,7 @@ module View
         Success item => item.entryPresent && item.entryDirect && idle snapshot
         Error _ => false
 
-    catalogActions (snapshot, item) = [
-        Ui::action ("Add to project", "plus", ui::Plain, addOffered (snapshot, item), Add),
-        Ui::action ("Remove dependency", "trash", ui::Destructive, removeOffered (snapshot, item.catalogKey), Remove),
-    ]
+    catalogActions (snapshot, item) = packageActions (addOffered (snapshot, item), removeOffered (snapshot, item.catalogKey))
 
     stateNote snapshot = match snapshot.packagePending
         true => Ui::badge (pausedNote, "hourglass", ui::Caution)

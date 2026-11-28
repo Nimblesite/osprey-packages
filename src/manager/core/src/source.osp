@@ -52,8 +52,6 @@ module Source {
             else { "" }
     }
 
-    fn firstCode(entries) = foldList(entries, "", fn(code, entry) => if code == "" { entryCode(entry) } else { code })
-
     fn pathKey(entry: Entry) = Bytes::hex(Bytes::ofString(entry.path))
 
     fn missingEntry() = Entry { path: "", byteLength: 0, digest: [] }
@@ -77,7 +75,7 @@ module Source {
     export fn digest(entries) = andThen(envelope(entries), fn(value) => Success { value: Digests::format(Sha256::digest(value)) })
 
     /// The envelope bytes for a validated, sorted, collision-free tree.
-    export fn envelope(entries) = match firstCode(entries) {
+    export fn envelope(entries) = match Order::firstText(mapList(entries, entryCode)) {
         "" => andThen(sortedUnique(entries), fn(value) => Success { value: encode(value) })
         code => Error { message: code }
     }

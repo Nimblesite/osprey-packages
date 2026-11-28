@@ -77,9 +77,8 @@ module HostedCatalog {
     }
 
     fn credit(key, release) = {
-        let epoch = PublicCatalog::number(release, "epoch")
-        let ordinal = PublicCatalog::number(release, "ordinal")
-        "<li><a href=\"/packages/${key}/#e${epoch}.r${ordinal}\">${key} e${epoch}.r${ordinal}</a></li>"
+        let label = version(release)
+        "<li><a href=\"/packages/${key}/#${label}\">${key} ${label}</a></li>"
     }
 
     fn publisher(items, path) = {
