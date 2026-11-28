@@ -70,7 +70,7 @@ module FetchTests {
             }
         }
         let web = handler Host::Web { get base path => RegistryFixture::replyFor(routes, base, path) }
-        let report = healthyProcess()(fn() => files(fn() => tree(fn() => web(fn() => runCommand(mode, args)))))
+        let report = RegistryFixture::runHosted(healthyProcess(), files, tree, web, fn() => runCommand(mode, args))
         Attempt { report: report, writes: Fixture::writeLog(listReverse(written)), ensures: Fixture::ensureLog(ensured) }
     }
 

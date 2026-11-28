@@ -103,25 +103,91 @@ module Native {
         Success { value: reply }
     }
 
-    fn fetchedWith(client, path) = {
-        let answer = match httpGetResponse(client, path, "") {
+    fn transportFailure(message) = Error { message: "http.transport: ${message}" }
+
+    /// The reply to one request already sent on `client`, which is then closed.
+    fn closedAfter(client, sent) = {
+        let answer = match sent {
             Success { value } => replyOf(value)
-            Error { message } => Error { message: "http.transport: ${message}" }
+            Error { message } => transportFailure(message)
         }
         let _closed = httpCloseClient(client) ?: -1
         answer
     }
 
-    fn fetched(base, path) = {
-        match httpCreateClient(base, timeoutMs) {
-            Success { value } => fetchedWith(value, path)
-            Error { message } => Error { message: "http.transport: ${message}" }
-        }
+    /// One request against `base`, made by `request` on a fresh client.
+    fn requested(base, request) = match httpCreateClient(base, timeoutMs) {
+        Success { value } => closedAfter(value, request(value))
+        Error { message } => transportFailure(message)
     }
+
+    fn fetched(base, path) = requested(base, fn(client) => httpGetResponse(client, path, ""))
+
+    fn posted(base, path, body, headers) = requested(base, fn(client) => httpPostResponse(client, path, body, headers))
 
     /// Web answered by the runtime HTTP client.
     export fn web() = handler Host::Web {
         get base path => fetched(base, path)
+    }
+
+    let callbackFile = ".osprey/login-callback"
+    let callbackPolls = 480
+    let pollMs = 250
+
+    /// The loopback page of the CLI login: it records the request path for
+    /// `awaited` and tells the person to return to the terminal. The listener
+    /// calls a named function, so the path reaches the waiting command
+    /// through a private file rather than a closure.
+    export fn callbackReply(_method, path, _headers, _body) = {
+        let _recorded = writeFile(callbackFile, path)
+        HttpResponse {
+            status: 200,
+            headers: "Cache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n",
+            contentType: "text/plain; charset=utf-8",
+            streamFd: -1,
+            isComplete: true,
+            partialBody: "Signed in. Return to the terminal.\n"
+        }
+    }
+
+    fn polled(i) = match readFile(callbackFile) {
+        Success { value } => Success { value: value }
+        Error => if i >= callbackPolls { Error { message: "auth.cli-timeout" } } else { pollAfterSleep(i) }
+    }
+
+    fn pollAfterSleep(i) = {
+        sleep(pollMs)
+        polled(i + 1)
+    }
+
+    fn forgotten() = pathOk("rm -f --", callbackFile, "host.remove")
+
+    fn awaited(server) = {
+        let path = polled(0)
+        let _stopped = httpStopServer(server) ?: -1
+        let _removed = forgotten()
+        path
+    }
+
+    fn listened(server) = match httpListen(server, callbackReply) {
+        Success => awaited(server)
+        Error { message } => Error { message: "auth.cli-port: ${message}" }
+    }
+
+    /// Wait up to two minutes for one browser redirect to `127.0.0.1:port`.
+    fn awaitCallback(port) = {
+        let _ready = pathOk("mkdir -p", ".osprey", "host.mkdir")
+        let _stale = forgotten()
+        match httpCreateServer(port, "127.0.0.1") {
+            Success { value } => listened(value)
+            Error { message } => Error { message: "auth.cli-port: ${message}" }
+        }
+    }
+
+    /// Auth answered by the runtime HTTP client and a one-shot loopback listener.
+    export fn auth() = handler Host::Auth {
+        post base path body headers => posted(base, path, body, headers)
+        callback port => awaitCallback(port)
     }
 
     /// Console answered by standard output.
@@ -130,5 +196,5 @@ module Native {
     }
 
     /// Run `body` with every native handler installed.
-    export fn session(body) = files()(fn() => process()(fn() => tree()(fn() => web()(fn() => console()(body)))))
+    export fn session(body) = files()(fn() => process()(fn() => tree()(fn() => web()(fn() => auth()(fn() => console()(body))))))
 }

@@ -1,0 +1,161 @@
+namespace registry_cli;
+import registry_host::Host
+import registry::Bytes
+import registry::Canonical
+import registry::Checked
+import registry::Dsse
+import registry::Json
+import registry::JsonRead
+import registry::Sha256
+
+/// `osprey-pkg login [--registry <api-origin>]`: the CLI half of
+/// [PACKAGE-HOSTED-CLI-LOGIN]. It draws a PKCE verifier, a state and a
+/// loopback port from the kernel's CSPRNG, opens the browser at
+/// `GET /v1/auth/cli/start` with the S256 challenge, waits once on
+/// `127.0.0.1:{port}` for the redirect, refuses a callback whose state
+/// differs or whose code is malformed, exchanges the one-use code with
+/// `POST /v1/auth/cli/token`, and keeps only the opaque access token, in the
+/// OS credential store. The token never reaches a URL, an argument vector or
+/// the terminal, and it authenticates API calls only: it never signs a release.
+module Login {
+    let usageCode = "login.usage"
+    let entropyCode = "auth.cli-entropy"
+    let browserCode = "auth.cli-browser"
+    let stateCode = "auth.cli-state"
+    let deniedCode = "auth.cli-denied"
+    let replyCode = "auth.cli-reply"
+    let storeCode = "auth.cli-store"
+    let registryFlag = "--registry"
+    /// The hosted API origin when no `--registry` flag is given.
+    export let defaultOrigin = "https://packages-api.ospreylang.dev"
+    /// The credential-store service every hosted token is filed under.
+    export let service = "dev.ospreylang.packages"
+    let tokenPath = "/v1/auth/cli/token"
+    let callbackPath = "/callback"
+    let firstPort = 49152
+    let portSpan = 16384
+    let usageText = ["usage: osprey-pkg login [--registry <api-origin>]"]
+
+    /// One login attempt's secrets and loopback port.
+    export type Attempt = { verifier: string, stateToken: string, port: int }
+
+    /// The token reply: the opaque bearer and its RFC 3339 expiry.
+    export type Token = { accessToken: string, expiresAt: string }
+
+    // ---- entropy and PKCE (RFC 7636) ----
+
+    fn hexOf(stdout) = join(split(replace(stdout, "\n", " ") ?: stdout, " ") ?: [], "")
+
+    fn entropyOf(run: Host::Run, count) = {
+        let hex = hexOf(run.stdout)
+        if run.status == 0 && byteLength(hex) == count * 2 && Bytes::lowerHexBetween(hex, 0, byteLength(hex)) { Success { value: Bytes::fromHex(hex) } }
+        else { Error { message: entropyCode } }
+    }
+
+    /// `count` bytes from the kernel's CSPRNG, or `auth.cli-entropy`.
+    fn entropy(count) = entropyOf(perform Host::Process.run("od -An -v -tx1 -N${count} /dev/urandom"), count)
+
+    /// The S256 challenge of `verifier`.
+    export fn challengeOf(verifier) = Dsse::base64Url(Sha256::digest(Bytes::ofString(verifier)))
+
+    fn slice(bytes, from, count) = range(from, from + count) |> map(fn(i) => listGet(bytes, i) ?: 0) |> toList
+
+    fn portOf(bytes) = firstPort + ((listGet(bytes, 48) ?: 0) * 256 + (listGet(bytes, 49) ?: 0)) % portSpan
+
+    /// Bytes 0-31 make the 43-character verifier, 32-47 the state, 48-49 the port.
+    fn attemptOf(bytes) = Attempt { verifier: Dsse::base64Url(slice(bytes, 0, 32)), stateToken: Dsse::base64Url(slice(bytes, 32, 16)), port: portOf(bytes) }
+
+    /// A fresh attempt from 50 CSPRNG bytes.
+    export fn fresh() = Folds::mapped(entropy(50), attemptOf)
+
+    // ---- the browser leg ----
+
+    /// The loopback redirect the start request names and the token request repeats.
+    export fn redirectUri(port) = "http://127.0.0.1:${port}${callbackPath}"
+
+    fn escaped(text) = replace(replace(text, ":", "%3A") ?: text, "/", "%2F") ?: text
+
+    /// The browser URL that starts the login: no secret but the one-way challenge.
+    export fn startUrl(origin, a: Attempt) = "${origin}/v1/auth/cli/start?code_challenge=${challengeOf(a.verifier)}&code_challenge_method=S256&state=${a.stateToken}&redirect_uri=${escaped(redirectUri(a.port))}"
+
+    fn opener() = if trim(perform Host::Process.run("uname -s").stdout) == "Darwin" { "open" } else { "xdg-open" }
+
+    fn opened(url) = if perform Host::Process.run("${opener()} ${Host::shellWord(url)}").status == 0 { Success { value: url } } else { Error { message: browserCode } }
+
+    // ---- the callback ----
+
+    fn pairOf(part) = match indexOf(part, "=") {
+        Success { value } => [take(part, value), drop(part, value + 1)]
+        Error => [part, ""]
+    }
+
+    fn paramIn(query, name) = foldList(split(query, "&") ?: [], "", fn(found, part) => if found == "" && (listGet(pairOf(part), 0) ?: "") == name { listGet(pairOf(part), 1) ?: "" } else { found })
+
+    fn urlSafe(text) = byteLength(text) > 0 && byteLength(text) <= 512 && Folds::all(Bytes::ofString(text), fn(b) => Bytes::isAlnum(b) || b == 45 || b == 95 || b == 46 || b == 126)
+
+    fn codeIn(query, a: Attempt) = if paramIn(query, "error") != "" { Error { message: deniedCode } }
+    else if paramIn(query, "state") != a.stateToken { Error { message: stateCode } }
+    else if urlSafe(paramIn(query, "code")) { Success { value: paramIn(query, "code") } }
+    else { Error { message: stateCode } }
+
+    /// The one-use code of a `/callback?code=…&state=…` path: the state must be
+    /// this attempt's, byte for byte, and the code URL-safe; a provider error is `auth.cli-denied`.
+    export fn codeOf(path, a: Attempt) = match indexOf(path, "?") {
+        Success { value } => if take(path, value) == callbackPath { codeIn(drop(path, value + 1), a) } else { Error { message: stateCode } }
+        Error => Error { message: stateCode }
+    }
+
+    // ---- the token exchange ----
+
+    /// The canonical `{code, code_verifier, redirect_uri}` body.
+    export fn tokenBody(code, a: Attempt) = Canonical::serialize(Json::obj([
+                Json::member("code", Json::str(code)),
+                Json::member("code_verifier", Json::str(a.verifier)),
+                Json::member("redirect_uri", Json::str(redirectUri(a.port)))
+    ])) ?: ""
+
+    fn tokenOf(root) = andThen(JsonRead::requiredText(root, "accessToken", replyCode), fn(accessToken) =>
+        Folds::mapped(JsonRead::requiredText(root, "expiresAt", replyCode), fn(expiresAt) => Token { accessToken: accessToken, expiresAt: expiresAt }))
+
+    fn problemOf(body) = match Json::parse(body) {
+        Success { value } => JsonRead::text(JsonRead::field(value, "code"))
+        Error => ""
+    }
+
+    fn refused(reply: Host::Reply) = {
+        let code = problemOf(reply.body)
+        Error { message: if startsWith(code, "auth.cli-") { code } else { "${replyCode} ${reply.status}" } }
+    }
+
+    /// A 200 reply carrying a URL-safe token and an expiry, or the server's `auth.cli-*` code; never a partial token.
+    export fn tokenFrom(reply: Host::Reply) = if reply.status != 200 { refused(reply) }
+    else { andThen(Checked::orElseCode(Json::parse(reply.body), replyCode, tokenOf), fn(t: Token) => if urlSafe(t.accessToken) && t.expiresAt != "" { Success { value: t } } else { Error { message: replyCode } }) }
+
+    fn exchanged(origin, code, a) = andThen(perform Host::Auth.post(origin, tokenPath, tokenBody(code, a), "Content-Type: application/json\r\nAccept: application/json\r\n"), tokenFrom)
+
+    // ---- the credential store ----
+
+    /// The command that files `token` under `service` and `origin`, the token
+    /// fed on standard input by the shell's builtin `printf`, never as an argument.
+    export fn storeCommand(darwin, origin, token) = if darwin {
+        "printf '%s\\n' ${Host::shellWord("add-generic-password -U -s ${service} -a ${origin} -w ${token}")} | security -i"
+    } else {
+        "printf '%s' ${Host::shellWord(token)} | secret-tool store --label=${Host::shellWord("Osprey packages ${origin}")} service ${service} origin ${Host::shellWord(origin)}"
+    }
+
+    fn stored(origin, t: Token) = if perform Host::Process.run(storeCommand(opener() == "open", origin, t.accessToken)).status == 0 { Success { value: t } } else { Error { message: storeCode } }
+
+    // ---- the command ----
+
+    fn signedIn(origin, a) = andThen(perform Host::Auth.callback(a.port), fn(path) =>
+        andThen(codeOf(path, a), fn(code) => andThen(exchanged(origin, code, a), fn(t) => stored(origin, t))))
+
+    fn withAttempt(origin, a) = andThen(opened(startUrl(origin, a)), fn(_url) => signedIn(origin, a))
+
+    fn report(origin, result) = Reports::checked(result, fn(t: Token) => Reports::success(["logged in to ${origin}", Reports::field("expires", t.expiresAt), Reports::field("credential", "${service} in the OS credential store")]))
+
+    fn withOrigin(origin) = report(origin, andThen(fresh(), fn(a) => withAttempt(origin, a)))
+
+    /// The whole command.
+    export fn run(args) = Flags::dispatch(args, [registryFlag], [], usageCode, usageText, fn(parsed) => withOrigin(Flags::given(parsed, registryFlag, defaultOrigin)))
+}

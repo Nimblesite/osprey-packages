@@ -62,6 +62,15 @@ module Host {
         get: fn(string, string) -> Result<Reply, string>
     }
 
+    /// The hosted registry's authenticated boundary ([PACKAGE-HOSTED-CLI-LOGIN]):
+    /// `post` sends one body to `base` + `path` with extra header lines, and
+    /// `callback` listens once on `127.0.0.1:port` and answers the request path
+    /// the browser's redirect reached it with.
+    export effect Auth {
+        post: fn(string, string, string, string) -> Result<Reply, string>
+        callback: fn(int) -> Result<string, string>
+    }
+
     /// Run one shell command to completion and capture its streams.
     export effect Process {
         run: fn(string) -> Run

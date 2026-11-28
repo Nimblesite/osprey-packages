@@ -65,8 +65,14 @@ module RegistryFixture {
     export fn existsAmong(reads, path) = Fixture::existsIn(reads, path)
     export fn unexpectedRemove(path) = Error { message: "fixture: unexpected remove ${path}" }
 
-    /// Compose the four fixture handlers around one command.
-    export fn runHosted(process, files, tree, web, action) = process(fn() => files(fn() => tree(fn() => web(action))))
+    /// The hosted boundary of a folder-registry run: every authenticated call is refused.
+    export fn noAuth() = handler Host::Auth {
+        post _base _path _body _headers => Error { message: "fixture: no auth" }
+        callback _port => Error { message: "fixture: no auth" }
+    }
+
+    /// Compose the four fixture handlers, and a refusing hosted boundary, around one command.
+    export fn runHosted(process, files, tree, web, action) = process(fn() => files(fn() => tree(fn() => web(fn() => noAuth()(action)))))
 
     /// Compose the four fixture handlers around `command args`.
     export fn over(process, files, tree, web, command, args) = runHosted(process, files, tree, web, fn() => command(args))
