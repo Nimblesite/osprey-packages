@@ -1,4 +1,5 @@
 namespace registry_live_tests;
+import registry_api::HostedReview
 import registry_api::HostedService
 import registry_api::HostedLogin
 import registry_api::CatalogMemo
@@ -146,7 +147,7 @@ fn catalogListener() = {
     let created = fixtureRun(setup + ";" + fixtureBrowserBinding())
     let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let port = 20000 + random() % 15000
-    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, fn(_token, _id, _digest) => HostedLogin::unavailable(), fn() => catalogRequest(port)))
+    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, HostedReview::Operations { approve: fn(_token, _id, _digest) => HostedLogin::unavailable(), receipt: fn(_token, _id) => Error { message: HostedReview::missing } }, fn() => catalogRequest(port)))
     checkAll("restricted PostgreSQL login behind public HTTP ingress", [created.status == 0, (served ?: -1) == 0])
 }
 
@@ -230,9 +231,15 @@ fn sessionIssuerConnection() = {
 /// The mutation, then a lookup and a touch that must still answer exactly two lines ending `checked`.
 fn sessionDenied(mutation) = sessionRun(mutation + lookup + "EXECUTE touch(${sessionCookie},${sessionIssuer},${sessionIdentity}); SELECT 'checked';", 2, "checked")
 
+/// Seed a historical session directly so expiry tests preserve immutable issuance time.
+fn expiredSession(age, idle) = {
+    let prior = "INSERT INTO browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at) VALUES(gen_random_uuid(),${sessionCookie},md5('binding')::uuid,md5('person1')::uuid,1,'sealed',now()-interval '${age}',now()-interval '${idle}');"
+    answer(sessionSql() + prior + lookup + "EXECUTE touch(${sessionCookie},${sessionIssuer},${sessionIdentity}); SELECT 'checked';", "checked")
+}
+
 fn sessionLifetimeChecks() = checkAll("old, suspended, revoked and rotated sessions fail closed", [
-        sessionDenied("UPDATE browser_sessions SET started_at=now()-interval '60 minutes',last_used_at=now()-interval '30 minutes';"),
-        sessionDenied("UPDATE browser_sessions SET started_at=now()-interval '12 hours';"),
+        expiredSession("60 minutes", "30 minutes"),
+        expiredSession("12 hours", "0 minutes"),
         sessionDenied("UPDATE auth_bindings SET state='revoked';"),
         sessionDenied("UPDATE principals SET credential_epoch=2;"),
         sessionDenied("UPDATE principals SET state='suspended';"),
