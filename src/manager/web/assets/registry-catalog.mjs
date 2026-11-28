@@ -1,39 +1,49 @@
-// Feed an anonymous API response to the registry's WASI renderer.
+// Browser bridge for the hosted catalog: it only fetches and writes. Which API path to read and what
+// each reply becomes on the page are decided by the Osprey guest (CatalogReply) [PACKAGE-HOSTED-ROUTES-CATALOG].
 const binding = document.querySelector('script[data-catalog]');
 const detail = document.getElementById('package-details');
 const results = detail ?? document.getElementById('results');
 const status = document.getElementById('catalog-status');
 const field = document.querySelector('input[type=search]');
 if (field) field.value = new URLSearchParams(location.search).get('q') ?? '';
-function retryMessage(response) {
-  const raw = response.headers.get('Retry-After')?.trim() ?? '';
-  const seconds = /^\d+$/u.test(raw) ? Number(raw) : 0;
-  const reason = response.status === 429 ? 'Too many requests.' : 'The package catalog is temporarily busy.';
-  return seconds > 0 ? `${reason} Please retry in ${seconds} seconds.` : `${reason} Please retry in a moment.`;
+const kind = detail ? 'detail' : 'results';
+const oneLine = text => text.replace(/[\r\n]/gu, ' ');
+
+async function guest(wasm, runModule, lines) {
+  let out = '';
+  await runModule(wasm, part => { out += part; }, lines.join('\n') + '\n');
+  return out;
+}
+
+async function reply(endpoint) {
+  try {
+    const response = await fetch(endpoint, {credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000)});
+    return [String(response.status), oneLine(response.headers.get('Retry-After') ?? ''), await response.text()];
+  } catch {
+    return ['0', '', ''];
+  }
 }
 
 try {
-  const options = {credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(10000)};
+  const [module, {runModule}] = await Promise.all([fetch(binding.dataset.guest), import(binding.dataset.host)]);
+  if (!module.ok) throw Error('Guest unavailable');
+  const wasm = await module.arrayBuffer();
+  const path = await guest(wasm, runModule, ['catalog-endpoint', location.pathname, kind]);
   const endpoint = new URL(binding.dataset.catalog);
-  if (detail && /^\/publishers\/[^/]+/u.test(location.pathname)) {
-    endpoint.pathname = '/v1' + location.pathname.replace(/\/$/u, '') + '/releases';
+  endpoint.pathname = path.trim();
+  const [code, retryAfter, body] = await reply(endpoint);
+  const out = await guest(wasm, runModule, ['catalog-reply', location.pathname, oneLine(field?.value ?? ''), binding.dataset.content, kind, code, retryAfter, oneLine(body)]);
+  const split = out.indexOf('\n');
+  const [target, text] = [out.slice(0, split), out.slice(split + 1)];
+  if (target === 'html') {
+    results.innerHTML = text;
+    status.textContent = '';
+    if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+  } else {
+    results.replaceChildren();
+    status.textContent = text.trim();
   }
-  const [api, guest, {runModule}] = await Promise.all([
-    fetch(endpoint, options), fetch(binding.dataset.guest), import(binding.dataset.host),
-  ]);
-  if (detail && api.status === 404) throw new Error(status.dataset.missing);
-  if (api.status === 429 || api.status === 503) throw new Error(retryMessage(api));
-  if (!api.ok || !guest.ok) throw Error('Catalog unavailable');
-  const source = JSON.stringify(await api.json());
-  const lines = ['hosted-results', location.pathname, (field?.value ?? '').replace(/[\r\n]/gu, ' '), binding.dataset.content, source, ''];
-  let html = '';
-  await runModule(await guest.arrayBuffer(), part => { html += part; }, lines.join('\n'));
-  if (!html.trim()) throw Error('Invalid projection');
-  results.innerHTML = html;
-  status.textContent = '';
-  if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
-} catch (error) {
+} catch {
   results.replaceChildren();
-  const retryable = error.message.includes('Please retry');
-  status.textContent = (detail && error.message === status.dataset.missing) || retryable ? error.message : status.dataset.error;
+  status.textContent = status.dataset.error;
 }

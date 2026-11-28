@@ -1,0 +1,43 @@
+namespace registry_web;
+import registry::Bytes
+
+/// Every decision the browser makes about one hosted catalog read, in Osprey
+/// [PACKAGE-HOSTED-ROUTES-CATALOG]: which API path a page reads, and what a
+/// reply becomes on the page. The browser bridge only fetches and writes: the
+/// first line of `reply` says where (`html` into the results, `status` into
+/// the status line) and the rest is what to write.
+module CatalogReply {
+    let publisherPrefix = "/publishers/"
+    let htmlTarget = "html"
+    let statusTarget = "status"
+
+    fn publisherOf(path) = Bytes::before(drop(path, byteLength(publisherPrefix)), "/")
+
+    /// A publisher page reads that publisher's releases; every other page reads the catalog.
+    export fn endpoint(path, detail) = if detail && startsWith(path, publisherPrefix) && publisherOf(path) != "" {
+        "/v1${publisherPrefix}${publisherOf(path)}/releases"
+    } else { "/v1/packages" }
+
+    fn digitsOnly(text) = byteLength(text) > 0 && byteLength(text) <= 6 && Bytes::everyByte(text, Bytes::isDigit)
+
+    /// The retry wait a `Retry-After` header names, or zero when it names none.
+    fn retrySeconds(header) = if digitsOnly(trim(header)) { parseInt(trim(header)) ?: 0 } else { 0 }
+
+    fn retryText(status, header) = {
+        let reason = if status == 429 { "Too many requests." } else { "The package catalog is temporarily busy." }
+        let seconds = retrySeconds(header)
+        if seconds > 0 { "${reason} Please retry in ${seconds} seconds." } else { "${reason} Please retry in a moment." }
+    }
+
+    fn failure(detail) = if detail { "The registry could not load this page." } else { "The public catalog is unavailable." }
+
+    fn status(text) = "${statusTarget}\n${text}"
+
+    fn rendered(html, detail) = if trim(html) == "" { status(failure(detail)) } else { "${htmlTarget}\n${html}" }
+
+    /// What the page shows for one reply: `status` 0 is a request that never completed.
+    export fn reply(path, query, content, detail, code, retryAfter, body) = if detail && code == 404 { status("Page not found.") }
+    else if code == 429 || code == 503 { status(retryText(code, retryAfter)) }
+    else if code < 200 || code > 299 { status(failure(detail)) }
+    else { rendered(HostedCatalog::render(path, query, body, content), detail) }
+}

@@ -21,6 +21,17 @@ function isCacheableResponse(response) {
   return cc.includes("public") && !cc.includes("no-store") && !cc.includes("private");
 }
 
+// The website must read a 429 to show its retry message, so only its own Origin gets CORS and Retry-After.
+function rateLimited(request, env) {
+  const headers = new Headers({ "Retry-After": "10", Vary: "Origin" });
+  if (env.WEBSITE_ORIGIN && request.headers.get("Origin") === env.WEBSITE_ORIGIN) {
+    headers.set("Access-Control-Allow-Origin", env.WEBSITE_ORIGIN);
+    headers.set("Access-Control-Allow-Credentials", "true");
+    headers.set("Access-Control-Expose-Headers", "Retry-After");
+  }
+  return new Response("rate limited\n", { status: 429, headers });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -43,7 +54,7 @@ export default {
       if (hit) return hit;
     }
     const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
-    if (!(await env.LIMITER.limit({ key: ip })).success) return new Response("rate limited\n", { status: 429, headers: { "Retry-After": "10" } });
+    if (!(await env.LIMITER.limit({ key: ip })).success) return rateLimited(request, env);
     const headers = new Headers(request.headers);
     headers.set("X-Edge-Secret", env.EDGE_SECRET);
     headers.set("X-Edge-Host", url.hostname);

@@ -25,7 +25,7 @@ fn catalogAdapter(origin) = {
 fn hostedPackage() = {
     let origin = trim(input())
     let adapter = catalogAdapter(origin)
-    Shell::withEscapedTitle("Package · Osprey Packages", "<main><p id=\"catalog-status\" class=\"prose-cover\" role=\"status\" data-missing=\"Page not found.\" data-error=\"The registry could not load this page.\">Loading packages…</p><div id=\"package-details\"></div>${adapter}</main>")
+    Shell::withEscapedTitle("Package · Osprey Packages", "<main><p id=\"catalog-status\" class=\"prose-cover\" role=\"status\" data-error=\"The registry could not load this page.\">Loading packages…</p><div id=\"package-details\"></div>${adapter}</main>")
 }
 
 fn publisherAccount(origin) = if origin == "" {
@@ -67,11 +67,18 @@ fn main() = print(match trim(input()) {
         "publishing" => Guides::publishers()
         "upload" => upload()
         "hosted-package" => hostedPackage()
-        "hosted-results" => {
+        "catalog-endpoint" => {
+            let path = input()
+            CatalogReply::endpoint(path, trim(input()) == "detail")
+        }
+        "catalog-reply" => {
             let path = input()
             let query = input()
             let content = input()
-            HostedCatalog::render(path, query, input(), content)
+            let detail = trim(input()) == "detail"
+            let code = parseInt(trim(input())) ?: 0
+            let retryAfter = input()
+            CatalogReply::reply(path, query, content, detail, code, retryAfter, input())
         }
         _ => catalog(trim(input()))
 })

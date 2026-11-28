@@ -57,6 +57,19 @@ allowLimit = false;
 const cached = await worker.fetch(req('https://packages-api.ospreylang.dev/v1/packages'), env, ctx);
 assert.equal(cached.status, 200);
 assert.equal(originHits, 1, 'cached anonymous GET must not hit origin or rate limiter');
+// A rate-limited website read is a 429 the browser can read: CORS for the website only, Retry-After exposed.
+const limitedHits = originHits;
+for (const [path, origin, readable] of [['/v1/auth/session', env.WEBSITE_ORIGIN, true], ['/v1/packages?q=x', env.WEBSITE_ORIGIN, true],
+  ['/v1/auth/session', 'https://evil.example', false], ['/v1/auth/session', null, false]]) {
+  const limited = await worker.fetch(req('https://packages-api.ospreylang.dev' + path, origin ? { Origin: origin, Cookie: 'a=b' } : { Cookie: 'a=b' }), env, ctx);
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('Retry-After'), '10');
+  assert.equal(limited.headers.get('Access-Control-Allow-Origin'), readable ? env.WEBSITE_ORIGIN : null, `${path} ${origin}`);
+  assert.equal(limited.headers.get('Access-Control-Expose-Headers'), readable ? 'Retry-After' : null);
+  assert.equal(limited.headers.get('Access-Control-Allow-Credentials'), readable ? 'true' : null);
+  assert.equal(limited.headers.get('Vary'), 'Origin');
+}
+assert.equal(originHits, limitedHits, 'a rate-limited request never reaches the origin');
 allowLimit = true;
 
 // 3. Website Origin uses a separate cache key from non-Origin
