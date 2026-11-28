@@ -79,7 +79,7 @@ tables:
       enabled: true
       forced: true
       policies:
-        - { name: scan_scope, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        - { name: scan_scope, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.organization_id = organizations.id)" }
 
   - name: memberships
     schema: registry
@@ -147,7 +147,7 @@ tables:
       enabled: true
       forced: true
       policies:
-        - { name: scan_package, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        - { name: scan_package, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
 
   - name: package_permissions
     schema: registry
@@ -451,9 +451,9 @@ tables:
       enabled: true
       forced: true
       policies:
-        - { name: collector_submit, permissive: true, operations: [Insert], roles: [], withCheck: "current_setting('session_authorization') = 'registry_publication_collector'" }
-        - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
-        - { name: scanner_queue, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        - { name: collector_submit, permissive: true, operations: [Insert], roles: [registry_publication_collector], withCheck: "current_setting('session_authorization') = 'registry_publication_collector'" }
+        - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
+        - { name: scanner_queue, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
 
   - name: release_reviewers
     schema: registry
@@ -469,7 +469,7 @@ tables:
         - name: current_reviewer
           permissive: true
           operations: [Select]
-          roles: []
+          roles: [registry_session_runtime]
           using: >-
             current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS
             (SELECT 1 FROM registry.browser_sessions s WHERE s.principal_id = release_reviewers.principal_id
@@ -493,14 +493,14 @@ tables:
         - name: scanner_decision
           permissive: true
           operations: [Insert]
-          roles: []
+          roles: [registry_scan_worker]
           withCheck: >-
             current_setting('session_authorization') = 'registry_scan_worker' AND decided_at = statement_timestamp()
             AND CASE WHEN verdict = 'accepted' THEN true
             ELSE jsonb_path_match(verdict::jsonb,
             '$.type() == "array" && $[0].type() == "string" && !(exists($[*] ? (@.type() != "string" || @ like_regex "^\\s*$")))') END
-        - { name: scanner_decided, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
-        - { name: reviewer_accepted, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_session_runtime' AND verdict = 'accepted' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
+        - { name: scanner_decided, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        - { name: reviewer_accepted, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND verdict = 'accepted' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
 
   - name: release_approvals
     schema: registry
@@ -526,8 +526,41 @@ tables:
         - name: approve_scanned_version
           permissive: true
           operations: [Insert]
-          roles: []
+          roles: [registry_session_runtime]
           withCheck: >-
             current_setting('session_authorization') = 'registry_session_runtime' AND approved_at = statement_timestamp()
             AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = reviewer_id)
             AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id = release_approvals.submission_id AND s.verdict = 'accepted')
+
+
+# Implements [PACKAGE-OWNERSHIP-RLS]: one restricted login per workload, none with BYPASSRLS or a role
+# membership. Deploy sets each password; the migration owns existence and every privilege, and revokes
+# any grant not declared here. registry_catalog_writer is the API's one catalog writer, admitted to row 1 alone.
+roles:
+  - { name: registry_catalog_reader, login: true }
+  - { name: registry_login_runtime, login: true }
+  - { name: registry_session_issuer, login: true }
+  - { name: registry_session_runtime, login: true }
+  - { name: registry_session_revoker, login: true }
+  - { name: registry_publication_collector, login: true }
+  - { name: registry_scan_worker, login: true }
+  - { name: registry_catalog_writer, login: true }
+grants:
+  - { schema: registry, target: Schema, privileges: [USAGE], roles: [registry_catalog_reader, registry_login_runtime, registry_session_issuer, registry_session_runtime, registry_session_revoker, registry_publication_collector, registry_scan_worker, registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: public_catalog, privileges: [SELECT], roles: [registry_catalog_reader] }
+  - { schema: registry, target: Table, objectName: public_catalog, privileges: [SELECT, INSERT, UPDATE], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: pending_logins, privileges: [INSERT, SELECT, DELETE], roles: [registry_login_runtime] }
+  - { schema: registry, target: Table, objectName: auth_bindings, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT, SELECT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: review_submissions, privileges: [INSERT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_scan_worker, registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: review_scans, privileges: [INSERT, SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: review_scans, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_reviewers, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_approvals, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_reviewers, privileges: [SELECT], roles: [registry_scan_worker] }

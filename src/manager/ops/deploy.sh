@@ -302,7 +302,6 @@ step_database() {
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
   local password; password="$(owner_password)"
   export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGPASSWORD="$password"
-  psql -X -v ON_ERROR_STOP=1 -qc 'CREATE SCHEMA IF NOT EXISTS registry'
   log "applying src/manager/supabase/migrations/schema.yaml in Cloud Build"
   gcloud secrets add-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None >/dev/null \
     --member="serviceAccount:$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
@@ -312,15 +311,15 @@ step_database() {
     src/manager/ops/supabase/supabase-root-2021.crt src/manager/ops/cloudbuild-migrate.yaml
   gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region="$REGION" --config="$OPS/cloudbuild-migrate.yaml" \
     --substitutions="_HOST=$pooler,_USER=postgres.$ref,_SECRET=$NAME-db-owner" >&2
-  local logins; logins="$(tf output -json database_logins)"
-  REGISTRY_CATALOG_READER_PASSWORD="$(jq -r .registry_catalog_reader <<<"$logins")" \
-  REGISTRY_LOGIN_RUNTIME_PASSWORD="$(jq -r .registry_login_runtime <<<"$logins")" \
-  REGISTRY_SESSION_ISSUER_PASSWORD="$(jq -r .registry_session_issuer <<<"$logins")" \
-  REGISTRY_SESSION_RUNTIME_PASSWORD="$(jq -r .registry_session_runtime <<<"$logins")" \
-  REGISTRY_SESSION_REVOKER_PASSWORD="$(jq -r .registry_session_revoker <<<"$logins")" \
-    psql -X -q -f "$OPS/supabase/roles.sql"
-  psql -X -q -f "$OPS/supabase/catalog.sql"
-  psql -X -q -f "$OPS/supabase/catalog-schedule.sql"
+  # The migration owns every role and grant; a password is the one thing schema.yaml cannot declare.
+  # Each travels through the environment and \getenv, never argv.
+  local role secret
+  while read -r role secret; do
+    ROLE_PASSWORD="$secret" psql -X -q -v ON_ERROR_STOP=1 -v role="$role" <<'PSQL'
+\getenv secret ROLE_PASSWORD
+ALTER ROLE :"role" PASSWORD :'secret';
+PSQL
+  done < <(tf output -json database_logins | jq -r 'to_entries[] | "\(.key) \(.value)"')
   log "schema migrated and restricted logins converged"
 }
 

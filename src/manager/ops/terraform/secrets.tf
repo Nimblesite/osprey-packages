@@ -15,6 +15,7 @@ locals {
     session-issuer  = "registry_session_issuer"
     session-runtime = "registry_session_runtime"
     session-revoker = "registry_session_revoker"
+    catalog-writer  = "registry_catalog_writer"
   }
   # Transaction pooler: one short transaction per psql run; Supavisor names users <role>.<ref>.
   pg_service = join("\n", [for service, role in local.database_logins : <<-EOT
