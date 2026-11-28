@@ -9,6 +9,7 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 dir=${1:-$here/target/osprey}
 tag=v0.33.0
 source_commit=518eff90a1f5e422a4d0fdde46dbf14712360f81
+if [[ ${1:-} == --source-commit ]]; then echo "$source_commit"; exit 0; fi
 case "$(uname -s)-$(uname -m)" in
     Darwin-arm64) platform=darwin-arm64 ;;
     Linux-x86_64) platform=linux-x64 ;;

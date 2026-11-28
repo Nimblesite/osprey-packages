@@ -17,10 +17,9 @@ module Forge {
         files _repository _branch _commit _subdirectory => Error { message: unconfigured }
     }
 
-    fn digit(b) = b >= 48 && b <= 57
-    /// A GitHub repository ID: decimal digits, no leading zero.
-    export fn repositoryOk(text) = byteLength(text) >= 1 && byteLength(text) <= 19 && !startsWith(text, "0") && registry::Bytes::everyByte(text, digit)
-    fn hex(b) = digit(b) || (b >= 97 && b <= 102)
+    /// A positive repository ID that fits the registry’s PostgreSQL bigint column.
+    export fn repositoryOk(text) = byteLength(text) >= 1 && (byteLength(text) < 19 || (byteLength(text) == 19 && text <= "9223372036854775807"))
+    && !startsWith(text, "0") && registry::Bytes::everyByte(text, registry::Bytes::isDigit)
     /// A full lowercase 40-character commit hash.
-    export fn commitOk(text) = byteLength(text) == 40 && registry::Bytes::everyByte(text, hex)
+    export fn commitOk(text) = byteLength(text) == 40 && registry::Bytes::lowerHexBetween(text, 0, 40)
 }

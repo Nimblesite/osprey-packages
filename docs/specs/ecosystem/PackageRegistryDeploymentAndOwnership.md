@@ -204,6 +204,10 @@ RLS protects a trusted API's verified identity context, not a fully compromised 
 
 ## Source publication and storage `[PACKAGE-HOSTED-PUBLISH]`
 
+Accept repository IDs only as canonical decimal strings from 1 through 9223372036854775807, the range of the database column.
+
+Verify each supported release-path function against its compiled IR with Osprey IR-to-Lean. A proof gate must reject translation failures and exercise a deliberate mutation that contradicts its theorem. Record unsupported operations and cover their observable behavior at the request boundary until the translator can model them.
+
 **There is no uploading a package.** No interface, name, route or control offers one: no package-file upload, presigned upload URL or caller-writable source bucket, and no “upload” wording in the website, CLI or API. A publisher releases from GitHub: they submit a signed intent for a commit in the package's bound repository. Reject tar/multipart/arbitrary-byte publication at both HTTP and storage interfaces. Cloud Storage object creation for quarantined and published source must use the generation-zero precondition. A conflicting insert may acknowledge a retry only after exact byte verification. Publication retries must match the stored eligible release’s license, summary, keywords and notices before returning its ID. The registry fetches the exact revision using its scoped GitHub App, validates source and declared data, and freezes the canonical source digest before any build. Keep all source limits, forbidden payloads, credential thresholds and final-authorization rules from `[PACKAGE-PUBLISH]` unchanged.
 
 ### Releasing from a GitHub repository `[PACKAGE-HOSTED-PUBLISH-FLOW]`

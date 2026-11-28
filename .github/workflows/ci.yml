@@ -106,6 +106,11 @@ jobs:
         run: |
           /home/linuxbrew/.linuxbrew/bin/brew install klee
           echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - name: Check the hosted release predicates with Osprey IR-to-Lean
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends elan llvm-18-tools llvm-18 mlir-18-tools
+          LLVM_BIN=/usr/lib/llvm-18/bin make _release-proofs
       - name: osprey hunt from every program entry
         run: make _hunt
       - if: failure()

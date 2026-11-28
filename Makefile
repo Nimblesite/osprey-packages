@@ -47,8 +47,13 @@ ci: build _lint
 	$(MAKE) _test_registry REGISTRY_COVERAGE=target/coverage
 	$(MAKE) _package-hashing
 	$(MAKE) _registry-website-check
-	$(MAKE) _hunt
+	$(MAKE) _hunt _release-proofs
 	node scripts/coverage.mjs . target/coverage/*.json
+
+# _release-proofs: Check release byte predicates from emitted LLVM IR with Osprey IR-to-Lean.
+.PHONY: _release-proofs
+_release-proofs: $(TOOLCHAIN)
+	nice scripts/packages/prove-release-bytes.sh
 
 # _hunt: KLEE symbolic execution from every shipped program entry, each under its app's memory
 #        strategy: the client (CLI_MEMORY), the folder registry and the hosted API (API_MEMORY). Each

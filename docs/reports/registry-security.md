@@ -1,5 +1,9 @@
 # Registry security findings
 
+## Repository validation admitted out-of-range database IDs
+
+**Request validation · [PACKAGE-HOSTED-PUBLISH-FLOW].** Listener tests observed two 19-digit repository identifiers above the PostgreSQL bigint maximum reach the forge boundary. Validation now checks the numeric ceiling before the forge call. The listener suite distinguishes the largest valid ID, its successor, leading zeros, signs and non-decimal spellings.
+
 ## Release requests accepted undeclared fields
 
 **Request validation · [PACKAGE-HOSTED-PUBLISH-FLOW].** The listener accepted a valid commit request containing an extra archive field. It ignored that field and continued to use the bound repository. A non-string repository subdirectory also fell back to an empty path. Organization, package, repository and release requests now require exactly their declared fields. Repository binding requires a string subdirectory, with the empty string explicitly selecting the root.

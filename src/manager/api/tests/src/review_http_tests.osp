@@ -39,11 +39,51 @@ module ReviewHttpTests {
 
     export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage, bind: bind, release: release, account: account }
 
+    fn commitBody(sha) = "{\"commit\":\"${sha}\",\"epoch\":1,\"ordinal\":2}"
+
+    /// Each altered commit reaches the real listener. HTTP 400 rejects malformed input,
+    /// 409 means a well-formed value reached the fixture and 201 confirms the exact intent.
+    fn commitCases(client, path, headers) = {
+        let invalidBytes = ["G", "A", "/", ":", "g", "-", " "]
+        let acceptedPositions = filterList(toList(range(0, 40)), fn(i) => {
+                let byte = listGet(invalidBytes, i % length(invalidBytes)) ?: "G"
+                let altered = take(commit, i) + byte + drop(commit, i + 1)
+                status(client, path, headers, commitBody(altered)) != 400
+        })
+        check("positions that failed to reject an invalid commit byte", "", join(mapList(acceptedPositions, toString), ","))
+        checkAll("commit length, alphabet boundaries, reordered fields and exact authorization", [
+                status(client, path, headers, commitBody(take(commit, 39))) == 400,
+                status(client, path, headers, commitBody(commit + "0")) == 400,
+                status(client, path, headers, commitBody(repeat("0", 40) ?: "")) == 409,
+                status(client, path, headers, commitBody(repeat("9", 40) ?: "")) == 409,
+                status(client, path, headers, commitBody(repeat("a", 40) ?: "")) == 409,
+                status(client, path, headers, commitBody(repeat("f", 40) ?: "")) == 409,
+                status(client, path, headers, "{\"ordinal\":2,\"epoch\":1,\"commit\":\"${commit}\"}") == 201,
+                status(client, path, headers, commitBody(commit)) == 201
+        ])
+    }
+
+    fn repositoryCase(client, path, headers, id) = status(client, path, headers,
+        "{\"branch\":\"main\",\"repositoryId\":\"${id}\",\"subdirectory\":\"packages/net\"}")
+
+    fn repositoryCases(client, path, headers) = {
+        let invalid = ["", "0", "01", "-1", "+1", " 1", "1 ", "1.0", "1e1", "1a", "9223372036854775808", "9999999999999999999", "10000000000000000000"]
+        let admitted = filterList(invalid, fn(id) => repositoryCase(client, path, headers, id) != 400)
+        check("repository IDs rejected before the forge", "", join(mapList(admitted, fn(id) => "[" + id + "]"), ","))
+        checkAll("positive bigint boundaries reach the forge", [
+                repositoryCase(client, path, headers, "1") == 409,
+                repositoryCase(client, path, headers, "9223372036854775807") == 409,
+                repositoryCase(client, path, headers, "4242") == 201
+        ])
+    }
+
     fn releases(client, cookie, auth) = {
         let repository = HostedOwnership::packages + pkg + "/repository"
         let releasing = HostedOwnership::packages + pkg + "/releases"
         let bound = "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"
         let named = "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":2}"
+        repositoryCases(client, repository, json(auth))
+        commitCases(client, releasing, json(auth))
         checkAll("binding a repository and naming a commit need the browser, CSRF token and exact values", [
                 answer(client, repository, json(auth), bound) == "201|{\"id\":\"${pkg}\"}",
                 startsWith(answer(client, repository, json(cookie), bound), "403|"),
