@@ -319,6 +319,8 @@ step_database() {
   REGISTRY_SESSION_RUNTIME_PASSWORD="$(jq -r .registry_session_runtime <<<"$logins")" \
   REGISTRY_SESSION_REVOKER_PASSWORD="$(jq -r .registry_session_revoker <<<"$logins")" \
     psql -X -q -f "$OPS/supabase/roles.sql"
+  psql -X -q -f "$OPS/supabase/catalog.sql"
+  psql -X -q -f "$OPS/supabase/catalog-schedule.sql"
   log "schema migrated and restricted logins converged"
 }
 

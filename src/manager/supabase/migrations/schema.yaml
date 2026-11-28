@@ -316,7 +316,7 @@ tables:
           permissive: true
           operations: [Select]
           roles: []
-          using: &catalog_writer "current_user = 'registry_catalog_writer' AND id = 1"
+          using: &catalog_writer "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND id = 1"
         - name: catalog_writer_insert
           permissive: true
           operations: [Insert]

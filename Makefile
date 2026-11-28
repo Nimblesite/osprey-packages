@@ -157,28 +157,26 @@ _registry-blockers: $(TOOLCHAIN)
 
 REGISTRY_WEB = src/manager/web
 REGISTRY_TERRAFORM = src/manager/ops/terraform
-# DataProviderMigrate as the released native AOT binary: no .NET SDK or runtime, SHA-256 pinned per platform.
-REGISTRY_MIGRATOR_VERSION = 0.11.0-beta.1
-REGISTRY_MIGRATOR_PLATFORM := $(shell uname -s | tr A-Z a-z)-$(subst x86_64,x64,$(subst aarch64,arm64,$(shell uname -m)))
-REGISTRY_MIGRATOR_SHA256_darwin-arm64 = ebc4ff93d1b88d5cd317d1e2e0e0dde4317326fa17643befd8896622619e95a9
-REGISTRY_MIGRATOR_SHA256_darwin-x64 = 5d7747084891603bf9f923cfeaf7efea601bf622e970bfacf5732d2b9c605ac4
-REGISTRY_MIGRATOR_SHA256_linux-x64 = 98a8352350ad730962c322cc152d13a32c4a9ea32d5756326b3b633df85065b8
-REGISTRY_MIGRATOR_DIR = target/registry-tools/dataprovider-$(REGISTRY_MIGRATOR_VERSION)-$(REGISTRY_MIGRATOR_PLATFORM)
-REGISTRY_MIGRATOR = $(REGISTRY_MIGRATOR_DIR)/DataProviderMigrate
+# DataProviderMigrate compiled ahead of time (native AOT) from one pinned source revision: the last
+# release predates private-schema support. The build needs the .NET SDK; running it needs nothing.
+REGISTRY_MIGRATOR_REV = 3b4e356522affc61b466d8e87ef5232319c9d7a0
+REGISTRY_MIGRATOR_SHA256 = 87192312ca3a313fa0c786705c2fa2cbafebe76a0afb522b39df82f08aaa740a
+REGISTRY_MIGRATOR_RID := $(subst darwin,osx,$(shell uname -s | tr A-Z a-z))-$(subst x86_64,x64,$(subst aarch64,arm64,$(shell uname -m)))
+REGISTRY_MIGRATOR_DIR = target/registry-tools/$(REGISTRY_MIGRATOR_REV)-$(REGISTRY_MIGRATOR_RID)
+REGISTRY_MIGRATOR = $(REGISTRY_MIGRATOR_DIR)/bin/DataProviderMigrate
 
 .PHONY: _registry-migration-tool _registry-migration-check
-# _registry-migration-tool: Fetch the pinned native AOT DataProvider migration CLI under target/registry-tools.
+# _registry-migration-tool: Compile the pinned DataProvider migration CLI to a native binary under target/registry-tools.
 _registry-migration-tool: $(REGISTRY_MIGRATOR)
 	@echo "$(abspath $(REGISTRY_MIGRATOR))"
 
 $(REGISTRY_MIGRATOR):
-	@set -eu; sha="$(REGISTRY_MIGRATOR_SHA256_$(REGISTRY_MIGRATOR_PLATFORM))"; \
-	  test -n "$$sha" || { echo "no pinned DataProviderMigrate for $(REGISTRY_MIGRATOR_PLATFORM)" >&2; exit 1; }; \
-	  mkdir -p $(REGISTRY_MIGRATOR_DIR); archive="$(REGISTRY_MIGRATOR_DIR)/release.tar.gz"; \
-	  curl -fsSL --retry 2 --max-time 120 -o "$$archive" \
-	    "https://github.com/Nimblesite/DataProvider/releases/download/v$(REGISTRY_MIGRATOR_VERSION)/DataProviderMigrate-$(REGISTRY_MIGRATOR_VERSION)-$(REGISTRY_MIGRATOR_PLATFORM).tar.gz"; \
-	  echo "$$sha  $$archive" | shasum -a 256 -c - >/dev/null; \
-	  tar -xzf "$$archive" -C $(REGISTRY_MIGRATOR_DIR) --exclude='*.dSYM' --exclude='*.pdb' --exclude='*.xml'; \
+	@set -eu; mkdir -p $(REGISTRY_MIGRATOR_DIR)/src; archive="$(REGISTRY_MIGRATOR_DIR)/source.tgz"; \
+	  curl -fsSL --retry 2 --max-time 120 -o "$$archive" "https://codeload.github.com/Nimblesite/DataProvider/tar.gz/$(REGISTRY_MIGRATOR_REV)"; \
+	  echo "$(REGISTRY_MIGRATOR_SHA256)  $$archive" | shasum -a 256 -c - >/dev/null; \
+	  tar -xzf "$$archive" --strip-components=1 -C $(REGISTRY_MIGRATOR_DIR)/src; \
+	  dotnet publish $(REGISTRY_MIGRATOR_DIR)/src/Migration/DataProviderMigrate -c Release -f net10.0 \
+	    -r $(REGISTRY_MIGRATOR_RID) -p:PublishAot=true -o "$(abspath $(REGISTRY_MIGRATOR_DIR))/bin" >/dev/null; \
 	  test -x "$@"
 
 # _registry-migration-check: Apply the registry schema twice on disposable socket-only PostgreSQL.

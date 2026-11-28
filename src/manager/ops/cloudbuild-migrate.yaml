@@ -1,16 +1,16 @@
-# Implements [PACKAGE-OWNERSHIP-RLS] schema migration for operator runs: the pinned linux-x64
-# DataProviderMigrate applies schema.yaml over verify-full TLS from Cloud Build, with the owner
-# password read from Secret Manager. It runs on Linux because macOS refuses Supabase's 5-year leaf
-# certificate even under the pinned root.
+# Implements [PACKAGE-OWNERSHIP-RLS] schema migration for operator runs: Cloud Build compiles the
+# pinned DataProviderMigrate to a native binary and applies schema.yaml over verify-full TLS, with
+# the owner password read from Secret Manager. It runs on Linux because macOS refuses Supabase's
+# 5-year leaf certificate even under the pinned root.
 steps:
-  - name: docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
+  - name: mcr.microsoft.com/dotnet/sdk:10.0@sha256:8c6edfb26c85153f236d26efebd9ad349aec403583f343f201ee67838b23658d
     entrypoint: bash
     secretEnv: [PGPASSWORD]
     args:
       - -euc
       - |
         apt-get update -qq
-        apt-get install -y -qq --no-install-recommends ca-certificates curl libdigest-sha-perl libicu76 libssl3t64 make >/dev/null
+        apt-get install -y -qq --no-install-recommends clang libdigest-sha-perl make zlib1g-dev >/dev/null
         migrator="$$(make -s _registry-migration-tool | tail -1)"
         "$$migrator" migrate --provider postgres --schema src/manager/supabase/migrations/schema.yaml \
           --output "Host=$_HOST;Port=5432;Username=$_USER;Database=postgres;SSL Mode=VerifyFull;Root Certificate=src/manager/ops/supabase/supabase-root-2021.crt"
@@ -18,4 +18,4 @@ availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/$_SECRET/versions/latest
       env: PGPASSWORD
-timeout: 900s
+timeout: 1800s
