@@ -25,7 +25,9 @@ name="osprey-${tag#v}-$platform"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/osprey-toolchain.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 curl -fsSL --retry 3 -o "$scratch/$name.tar.gz" "https://github.com/Nimblesite/osprey/releases/download/$tag/$name.tar.gz"
-echo "$sha  $scratch/$name.tar.gz" | shasum -a 256 -c - >/dev/null
+# Git Bash on Windows has sha256sum but no shasum; macOS has shasum but no sha256sum.
+if command -v sha256sum >/dev/null; then sha256=(sha256sum); else sha256=(shasum -a 256); fi
+echo "$sha  $scratch/$name.tar.gz" | "${sha256[@]}" -c - >/dev/null
 tar -xzf "$scratch/$name.tar.gz" -C "$scratch"
 mkdir -p "$scratch/$name/packages" "$scratch/$name/native-host"
 for package in "$scratch/$name"/registry/@osprey/*/; do
