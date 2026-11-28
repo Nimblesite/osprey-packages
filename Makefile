@@ -238,7 +238,11 @@ REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
 REGISTRY_HOSTED_CONTEXT = Makefile scripts/osprey-toolchain.sh src/manager/api src/manager/core \
 	src/manager/host $(REGISTRY_HOSTED_DOCKERFILE)
 
-.PHONY: _registry-hosted-image _registry-hosted-image-check
+.PHONY: _registry-hosted-image _registry-hosted-image-check _registry-hosted-context
+# _registry-hosted-context: Print the paths the API image is built from (deploy.sh's Cloud Build archive).
+_registry-hosted-context:
+	@echo $(REGISTRY_HOSTED_CONTEXT)
+
 # _registry-hosted-image: Build the Cloud Run linux/amd64 image from the checked-out commit.
 _registry-hosted-image:
 	@set -eu; mkdir -p target; context=$$(mktemp target/registry-hosted-context.XXXXXX); \

@@ -222,16 +222,31 @@ deployed_image() {
     --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true
 }
 
-# The service needs an image before Terraform can create it; CI builds the first one.
+# The service needs an image before Terraform can create it: create the repository, then build one.
 bootstrap_image() {
-  log "no Cloud Run service yet: provisioning the registry and deploy identity, then building the first image in CI"
+  log "no Cloud Run service yet: creating the image repository and building the first image"
   tfvars "$(image_repo)/api@sha256:$(printf '0%.0s' $(seq 1 64))"
   tf apply -input=false -auto-approve -var-file="$WORK/terraform.tfvars.json" \
-    -target=google_artifact_registry_repository_iam_member.deploy -target=google_service_account_iam_member.federated_deploy \
-    -target=google_iam_workload_identity_pool_provider.github -target=cloudflare_pages_project.website >&2
-  step_github >&2
-  dispatch >&2
-  main_image
+    -target=google_artifact_registry_repository.registry -target=cloudflare_pages_project.website >&2
+  build_image
+}
+
+# Cloud Build from a `git archive` of HEAD: the exact committed tree, never uncommitted edits.
+build_image() {
+  local sha context ref; sha="$(git -C "$ROOT" rev-parse HEAD)"; context="$WORK/context.tar.gz"
+  ref="$(image_repo)/api:$sha"
+  if ! gcloud artifacts docker images describe "$ref" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+    gcloud services enable cloudbuild.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
+    gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" --condition=None >/dev/null \
+      --member="serviceAccount:$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
+      --role=roles/artifactregistry.writer
+    local paths; read -ra paths <<<"$(make -s -C "$ROOT" _registry-hosted-context)"
+    git -C "$ROOT" archive --format=tar.gz --output="$context" "$sha" "${paths[@]}" src/manager/ops/cloudbuild.yaml
+    log "building $ref in Cloud Build"
+    gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region=australia-southeast1 \
+      --config="$OPS/cloudbuild.yaml" --substitutions="_IMAGE=$ref,_SHA=$sha" >&2
+  fi
+  printf '%s/api@%s' "$(image_repo)" "$(gcloud artifacts docker images describe "$ref" --project="$GCP_PROJECT_ID" --format='value(image_summary.digest)')"
 }
 
 # The digest CI built for main's head, or nothing.
@@ -312,6 +327,25 @@ step_smoke() {
   [[ "$edge" == 200 || "$edge" == 503 ]] && [[ "$direct" == 403 ]] && [[ "$web" == 200 ]] || die "smoke failed"
 }
 
+# Website: the content-addressed archive, uploaded to Pages with the Terraform-minted token.
+step_website() {
+  REGISTRY_API_ORIGIN="https://$(host packages-api)" REGISTRY_CONTENT_ORIGIN="https://$(host packages-content)" \
+    make -s -C "$ROOT" _registry-website-archive >&2
+  local archive upload="$WORK/pages-upload"; archive="$(ls "$ROOT"/target/registry-artifacts/*.zip)"
+  [[ "$(wc -l <<<"$archive" | tr -d ' ')" == 1 ]] || die "expected one website archive, found: $archive"
+  rm -rf "$upload" && mkdir -p "$upload" && unzip -q "$archive" -d "$upload"
+  CLOUDFLARE_API_TOKEN="$(tf output -raw pages_token)" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
+    npx --yes wrangler@4.146.0 pages deploy "$upload" --project-name="$NAME" --branch=main \
+    --commit-hash="$(git -C "$ROOT" rev-parse HEAD)" >&2
+}
+
+# Operator release of HEAD: image via Cloud Build, Cloud Run rolled to its digest, website uploaded.
+step_ship() {
+  local image; image="$(build_image)"
+  gcloud run services update "$NAME" --region=australia-southeast1 --project="$GCP_PROJECT_ID" --image="$image" --quiet >&2
+  step_website
+}
+
 # Skips when main's head is already serving (a bootstrap run just deployed it).
 step_release() {
   local built; built="$(main_image)"
@@ -325,7 +359,9 @@ main() {
   [[ "$STEP" == supabase ]] || tf_init
   case "$STEP" in
     all) step_supabase; step_infra; step_github; step_database; step_release; step_smoke ;;
-    supabase|infra|github|database|release|smoke) "step_$STEP" ;;
+    # Straight from this checkout's HEAD, without the GitHub workflow.
+    local) step_supabase; step_infra; step_database; step_website; step_smoke ;;
+    supabase|infra|github|database|release|ship|website|smoke) "step_$STEP" ;;
     *) die "unknown step $STEP" ;;
   esac
   log "$STEP done"

@@ -1,0 +1,8 @@
+# Implements [PACKAGE-HOSTED-RELEASE] for operator releases: Cloud Build builds the linux/amd64 API
+# image from a `git archive` of one commit (never the working tree) and pushes it by that SHA.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: [build, --platform=linux/amd64, --file=src/manager/ops/Dockerfile,
+           --label=org.opencontainers.image.revision=$_SHA, --tag=$_IMAGE, .]
+images: [$_IMAGE]
+timeout: 3600s
