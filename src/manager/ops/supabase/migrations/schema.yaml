@@ -872,7 +872,8 @@ functions:
       BEGIN
         IF me IS NULL THEN RETURN NULL; END IF;
         INSERT INTO registry.organizations(id,handle,display_name,state,governance_epoch,created_at)
-        VALUES (org,org_handle,org_name,'active',1,statement_timestamp());
+        VALUES (org,org_handle,org_name,'active',1,statement_timestamp()) ON CONFLICT ON CONSTRAINT uq_organizations_handle DO NOTHING;
+        IF NOT FOUND THEN RETURN NULL; END IF;
         INSERT INTO registry.memberships(id,organization_id,principal_id,role,principal_kind,state,authority_epoch,accepted_at)
         VALUES (gen_random_uuid(),org,me,'custodian','human','active',1,statement_timestamp());
         RETURN org;
@@ -893,7 +894,8 @@ functions:
         AND m.state='active' AND m.principal_id=registry.review_session_principal();
         IF mine IS NULL THEN RETURN NULL; END IF;
         INSERT INTO registry.packages(id,organization_id,name,admin_membership_id,admin_membership_state,admin_principal_kind,authority_epoch,state,created_at)
-        VALUES (pkg,org,pkg_name,mine,'active','human',1,'active',statement_timestamp());
+        VALUES (pkg,org,pkg_name,mine,'active','human',1,'active',statement_timestamp()) ON CONFLICT ON CONSTRAINT uq_packages_org_name DO NOTHING;
+        IF NOT FOUND THEN RETURN NULL; END IF;
         INSERT INTO registry.package_permissions(id,organization_id,package_id,membership_id,permission,state,granted_by_membership_id,authority_epoch,membership_authority_epoch,granted_at)
         VALUES (gen_random_uuid(),org,pkg,mine,'publish-release','active',mine,1,1,statement_timestamp());
         RETURN pkg;

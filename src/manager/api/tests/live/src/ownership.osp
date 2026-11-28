@@ -49,7 +49,7 @@ module Ownership {
         let eve = person("f", "6a1f0e8e-1c1d-4f3a-9b5e-1e2d3c4b5a61", "7102")
         let org = asSession(ada, "registry.create_organization('atlas', 'Atlas Engineering')")
         let custodian = answers("SELECT role || ' ' || state FROM registry.memberships WHERE organization_id = '${org}' AND principal_id = ${principalOf("7101")}", "custodian active")
-        let takenHandle = asSession(eve, "registry.create_organization('atlas', 'Impostor')") == "error"
+        let takenHandle = asSession(eve, "registry.create_organization('atlas', 'Impostor')") == ""
         let strangerPackage = asSession(eve, "registry.create_package('${org}', 'net')") == ""
         let pkg = asSession(ada, "registry.create_package('${org}', 'net')")
         let adaId = trim(owner("SELECT ${principalOf("7101")}").stdout)
@@ -57,7 +57,7 @@ module Ownership {
         let admin = answers("SELECT p.state || ' ' || m.principal_id::text FROM registry.packages p JOIN registry.memberships m ON m.id = p.admin_membership_id WHERE p.id = '${pkg}'", "active " + adaId)
         let publisher = collector("registry.can_submit_version('${adaId}', '${pkg}')") == "t"
         let notPublisher = collector("registry.can_submit_version('${eveId}', '${pkg}')") == "f"
-        let takenName = asSession(ada, "registry.create_package('${org}', 'net')") == "error"
+        let takenName = asSession(ada, "registry.create_package('${org}', 'net')") == ""
         let anonymous = asSession(ada { digest: cookie("9") }, "registry.create_organization('ghost', 'Ghost')") == "" && answers("SELECT count(*) FROM registry.organizations WHERE handle = 'ghost'", "0")
         let clean = owner(cleanup).status == 0
         checkAll("a registered person owns a new organization and package", [ada.digest != "", eve.digest != "", Bytes::canonicalUuid(org), custodian, takenHandle,
