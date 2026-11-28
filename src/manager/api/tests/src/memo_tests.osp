@@ -6,6 +6,7 @@ import registry_api::CatalogMemo
 /// clock fails, and a malformed timed row is refused and never cached.
 module MemoTests {
     let body = "{\"packages\":[]}"
+    let dbFailed = "error:database.transaction-failed"
     fn row(expiry) = "${expiry} ${body}"
 
     fn bump(count) = {
@@ -51,8 +52,8 @@ module MemoTests {
     fn expiry() = withMemo(fn(n) => if n == 1 { Success { value: row(1010) } } else { Error { message: "database.transaction-failed" } },
         fn(at, fetches, _blind) => checkAll("never served past expires_at", [
                 at(1000) == body, at(1009) == body, fetches() == 1,
-                at(1010) == "error:database.transaction-failed", fetches() == 2,
-                at(1011) == "error:database.transaction-failed", fetches() == 3
+                at(1010) == dbFailed, fetches() == 2,
+                at(1011) == dbFailed, fetches() == 3
     ]))
 
     fn clockFailure() = withMemo(fn(_n) => Success { value: row(5000) }, fn(at, fetches, blind) => checkAll("a failed clock reads the database directly", [
@@ -63,7 +64,7 @@ module MemoTests {
 
     fn failureNotCached() = withMemo(fn(n) => if n == 1 { Error { message: "database.transaction-failed" } } else { Success { value: row(5000) } },
         fn(at, fetches, _blind) => checkAll("a failed read is not cached", [
-                at(1000) == "error:database.transaction-failed", at(1000) == body, at(1001) == body, fetches() == 2
+                at(1000) == dbFailed, at(1000) == body, at(1001) == body, fetches() == 2
     ]))
 
     fn malformed() = {

@@ -76,11 +76,16 @@ module Database {
     fn executed(config, source) = completed(perform Host::Process.run(command(config, source)), "database.transaction-failed")
 
     /// The anonymous API can read only the current verified public projection.
-    export let catalogSelect = "SELECT body FROM registry.public_catalog WHERE id=1 AND verified_at<=statement_timestamp() AND expires_at>statement_timestamp()"
-    export fn catalogScript() = "BEGIN READ ONLY; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s';\n\\o /dev/null\n" + roleGuard + "SELECT 1/((current_user='registry_catalog_reader')::int);\n\\o\n" + catalogSelect + "; COMMIT;\n"
+    let catalogLive = " FROM registry.public_catalog WHERE id=1 AND verified_at<=statement_timestamp() AND expires_at>statement_timestamp()"
+    export let catalogSelect = "SELECT body" + catalogLive
+    /// The same live row prefixed with its expiry in unix seconds, for the API's in-process memo.
+    export let timedCatalogSelect = "SELECT floor(extract(epoch FROM expires_at))::bigint || ' ' || body" + catalogLive
+    fn readerScript(query) = "BEGIN READ ONLY; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s';\n\\o /dev/null\n" + roleGuard + "SELECT 1/((current_user='registry_catalog_reader')::int);\n\\o\n" + query + "; COMMIT;\n"
+    export fn catalogScript() = readerScript(catalogSelect)
+    export fn timedCatalogScript() = readerScript(timedCatalogSelect)
     fn mountedConnection(service) = Connection { service: service, serviceFile: "/run/catalog-service/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
 
-    export fn publicCatalog() = executed(mountedConnection("catalog"), catalogScript())
+    export fn timedPublicCatalog() = executed(mountedConnection("catalog"), timedCatalogScript())
 
     fn preAuthScript(role, keys, scope, statement, values) =
     "BEGIN; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='2s';\n\\o /dev/null\n"

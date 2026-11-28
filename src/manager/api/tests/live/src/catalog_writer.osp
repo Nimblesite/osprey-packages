@@ -2,6 +2,7 @@ namespace registry_live_tests;
 import registry::PublicCatalog
 import registry_host::Database
 import registry_host::Host
+import registry_api::CatalogMemo
 
 /// The public catalog's one writer, src/manager/ops/supabase/catalog.sql, on real PostgreSQL
 /// [PACKAGE-HOSTED-ROUTES-CATALOG]: applied twice (idempotent), its NOLOGIN owner holds no
@@ -22,10 +23,15 @@ module CatalogWriter {
     fn readerSees() = {
         let setup = onFixture("printf '%s\\n' " + Host::shellWord(readerSetup) + " | " + owner)
         let read = onFixture("printf '%s' " + Host::shellWord(Database::catalogScript()) + " | psql -XqAt --no-password -p 18873 -U registry_catalog_reader -d postgres -v ON_ERROR_STOP=1")
-        setup.status == 0 && read.status == 0 && match PublicCatalog::decode(trim(read.stdout)) {
-            Success { value } => isEmpty(value)
+        let timed = onFixture("printf '%s' " + Host::shellWord(Database::timedCatalogScript()) + " | psql -XqAt --no-password -p 18873 -U registry_catalog_reader -d postgres -v ON_ERROR_STOP=1")
+        setup.status == 0 && read.status == 0 && timed.status == 0 && emptyCatalog(trim(read.stdout)) && match CatalogMemo::parse(trim(timed.stdout), 0) {
+            Success { value } => value.body == trim(read.stdout) && value.expiresAt > 0
             Error => false
         }
+    }
+    fn emptyCatalog(body) = match PublicCatalog::decode(body) {
+        Success { value } => isEmpty(value)
+        Error => false
     }
     fn loginless() = answers("SELECT rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname = '${writer}'", "f")
     fn tableRights() = answers("SELECT string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type) FROM information_schema.role_table_grants WHERE grantee = '${writer}'",

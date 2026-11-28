@@ -1,5 +1,6 @@
 namespace registry_api;
 import registry_host::Database
+import registry_host::Host
 import registry::Bytes
 import registry::Bundle
 import registry::Catalog
@@ -336,5 +337,10 @@ module HostedService {
             }
         }
     }
-    export fn serve(policy, contentHost, login, callback, session) = withListeners(policy, contentHost, "0.0.0.0", 8080, 8081, Database::publicCatalog, HostedSource::mounted, login, callback, session, waitForRequests)
+    /// Production: catalog reads go through one in-process memo of the verified row [PLAN-ROLLOUT-EDGE].
+    export fn serve(policy, contentHost, login, callback, session) = match CatalogMemo::create() {
+        Error { message } => Error { message: message }
+        Success { value } => withListeners(policy, contentHost, "0.0.0.0", 8080, 8081, fn() => CatalogMemo::read(value, Database::timedPublicCatalog, Host::utcSeconds),
+            HostedSource::mounted, login, callback, session, waitForRequests)
+    }
 }
