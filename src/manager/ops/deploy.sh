@@ -170,8 +170,11 @@ supabase_auth() { # REF
     log "GitHub sign-in stays off: create a GitHub OAuth app with callback https://$1.supabase.co/auth/v1/callback, set $id_var/$secret_var, re-run"
   fi
   # [PACKAGE-HOSTED-AUTH]: ten-minute tokens; Supabase redirects only to the exact API callback.
-  jq -nc --arg site "https://$(host packages)" --arg cb "https://$(host packages-api)/v1/auth/github/callback" --argjson gh "$github" \
-    '{site_url:$site, uri_allow_list:$cb, jwt_exp:600, mailer_autoconfirm:false} + $gh' \
+  # Passkeys are the first sign-in method; the relying party is the website host.
+  jq -nc --arg site "https://$(host packages)" --arg rp "$(host packages)" \
+    --arg cb "https://$(host packages-api)/v1/auth/github/callback" --argjson gh "$github" \
+    '{site_url:$site, uri_allow_list:$cb, jwt_exp:600, mailer_autoconfirm:false, passkey_enabled:true,
+      webauthn_rp_id:$rp, webauthn_rp_origins:$site, webauthn_rp_display_name:"Osprey Packages"} + $gh' \
     | supabase_api PATCH "/projects/$1/config/auth" body >/dev/null
 }
 
