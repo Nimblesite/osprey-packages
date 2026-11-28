@@ -91,7 +91,6 @@ REGION=us-central1 # the cheapest US GCP region (Tier 1 pricing for Cloud Run, S
 # --- Cost guard [PACKAGE-HOSTED-SPEND-CAP]: alerts plus a hard stop, before anything can spend --
 BUDGET=50 # in the billing account's own currency (AUD here); the API rejects any other
 CAP_NAME=osprey-registry-spend-cap
-CAP_REGION=$REGION
 
 # Both environments share the project, so the cap is one project singleton, not per-environment Terraform.
 ensure_spend_cap() {
@@ -113,11 +112,11 @@ cap_workflow() {
   for role in billing.projectManager workflows.invoker eventarc.eventReceiver logging.logWriter; do
     gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" --member="serviceAccount:$sa" --role="roles/$role" --condition=None >/dev/null
   done
-  gcloud workflows deploy "$CAP_NAME" --location="$CAP_REGION" --project="$GCP_PROJECT_ID" \
+  gcloud workflows deploy "$CAP_NAME" --location="$REGION" --project="$GCP_PROJECT_ID" \
     --source="$OPS/spend-cap/workflow.yaml" --service-account="$sa" >/dev/null
-  gcloud eventarc triggers describe "$CAP_NAME" --location="$CAP_REGION" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
-    || gcloud eventarc triggers create "$CAP_NAME" --location="$CAP_REGION" --project="$GCP_PROJECT_ID" \
-      --destination-workflow="$CAP_NAME" --destination-workflow-location="$CAP_REGION" \
+  gcloud eventarc triggers describe "$CAP_NAME" --location="$REGION" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
+    || gcloud eventarc triggers create "$CAP_NAME" --location="$REGION" --project="$GCP_PROJECT_ID" \
+      --destination-workflow="$CAP_NAME" --destination-workflow-location="$REGION" \
       --event-filters=type=google.cloud.pubsub.topic.v1.messagePublished \
       --transport-topic="projects/$GCP_PROJECT_ID/topics/$CAP_NAME" --service-account="$sa" >/dev/null
 }
@@ -205,11 +204,11 @@ tf_init() {
 }
 
 tfvars() { # IMAGE
-  jq -n --slurpfile s "$WORK/supabase.json" --arg env "$ENV_NAME" --arg project "$GCP_PROJECT_ID" \
+  jq -n --slurpfile s "$WORK/supabase.json" --arg env "$ENV_NAME" --arg project "$GCP_PROJECT_ID" --arg region "$REGION" \
     --arg cfa "$CLOUDFLARE_ACCOUNT_ID" --arg cfz "$CLOUDFLARE_ZONE_ID" \
     --arg api "$(host packages-api)" --arg web "$(host packages)" --arg content "$(host packages-content)" \
     --arg image "$1" '{
-      environment:$env, project_id:$project,
+      environment:$env, project_id:$project, region:$region,
       cloudflare_account_id:$cfa, cloudflare_zone_id:$cfz,
       api_hostname:$api, website_hostname:$web, content_hostname:$content, image:$image,
       supabase_project_ref:$s[0].ref, supabase_publishable_key:$s[0].publishable_key,
