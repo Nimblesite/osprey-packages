@@ -118,6 +118,25 @@ SELECT pg_temp.require_denied('INSERT INTO release_reviewers VALUES (md5(''alice
 RESET SESSION AUTHORIZATION;
 INSERT INTO release_reviewers VALUES (md5('alice')::uuid);
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
+-- Permission and browser identity are rechecked at the table on every approval.
+CREATE FUNCTION pg_temp.expect_closed_review() RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF registry.approve_submission(md5('1')::uuid,'sha256:'||repeat('1',64)) IS NOT NULL
+    THEN RAISE EXCEPTION 'approval succeeded after review authority lapsed'; END IF;
+  PERFORM pg_temp.require_denied('SELECT pg_temp.approve(1)');
+END $$;
+SAVEPOINT live_reviewer;
+RESET SESSION AUTHORIZATION;
+DELETE FROM release_reviewers WHERE principal_id=md5('alice')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
+SELECT pg_temp.expect_closed_review();
+ROLLBACK TO live_reviewer;
+RESET SESSION AUTHORIZATION;
+UPDATE browser_sessions SET revoked_at=statement_timestamp(),token_envelope=NULL WHERE id=md5('session')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
+SELECT pg_temp.expect_closed_review();
+ROLLBACK TO live_reviewer;
+RELEASE SAVEPOINT live_reviewer;
 DO $$ BEGIN
   IF registry.approve_submission(md5('1')::uuid,'sha256:'||repeat('9',64)) IS NOT NULL OR
      registry.approve_submission(md5('1')::uuid,'sha256:'||repeat('1',64)) IS DISTINCT FROM md5('1')::uuid OR
