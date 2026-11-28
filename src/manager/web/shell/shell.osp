@@ -41,11 +41,14 @@ module Shell {
         "<nav class=\"prose-desktop-nav\" aria-label=\"Primary\">${upload}</nav><details class=\"prose-mobile-menu\"><summary>Menu</summary><nav aria-label=\"Primary\"><a href=\"/\">Browse packages</a><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a>${upload}</nav></details>"
     }
 
-    let footer = "<footer class=\"prose-footer\"><a href=\"https://www.ospreylang.dev/\"><img src=\"/osprey-mark.svg?v=6efc798a098d\" width=\"56\" height=\"44\" alt=\"\">A package registry for the Osprey language</a></footer>"
+    fn footer() = join([
+            "<footer class=\"prose-footer\"><a class=\"prose-footer-mark\" href=\"https://www.ospreylang.dev/\"><img src=\"/osprey-mark.svg?v=6efc798a098d\" width=\"56\" height=\"44\" alt=\"\">A package registry for the Osprey language</a>",
+            "<nav aria-label=\"Osprey\"><a href=\"https://www.ospreylang.dev/\">Osprey</a><a href=\"https://www.ospreylang.dev/docs/\">Docs</a><a href=\"https://www.ospreylang.dev/docs/package-manager/\">Package manager</a><a href=\"https://www.ospreylang.dev/docs/installation/\">Install</a><a href=\"https://github.com/Nimblesite/osprey-packages\">Source</a></nav>",
+            "<p>© 2026 <a href=\"https://nimblesite.co/\">Nimblesite</a></p></footer>"], "")
 
     /// Shell for an already escaped title or a trusted text literal.
     export fn withEscapedTitle(title, body) = join([
             "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
-            title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.f3c439e00338.css\"></head><body>",
-            "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer, "</body></html>"], "")
+            title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.bb8fd0c0df65.css\"></head><body>",
+            "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer(), "</body></html>"], "")
 }

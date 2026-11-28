@@ -5,6 +5,8 @@ node_modules/
 .playwright-mcp
 .commandtree/
 
+.DS_Store
+
 # Terraform state and inputs hold secrets
 src/manager/ops/terraform/.terraform/
 src/manager/ops/terraform/*.tfstate
@@ -15,3 +17,4 @@ src/manager/ops/terraform/*.tfvars.json
 src/manager/ops/terraform/crash.log
 src/manager/ops/deploy.env
 .wrangler/
+
