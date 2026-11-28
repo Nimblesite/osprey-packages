@@ -4,7 +4,7 @@
 
 - 🗄️ Backend = Osprey + Supabase, ❌ Rust. Prefer SQL triggers/functions; APIs beside Supabase go on GCP
 - 🔐 Package integrity is the product: hashes, locks and trust checks never fail open
-- 🧠 One memory strategy per app, never a matrix: native programs (client, folder registry, hosted API) = ARC, WASM (editor, website) = GC. `NATIVE_MEMORY` / `WASM_MEMORY` in `Makefile`
+- 🧠 One memory strategy per app, never a matrix: client = GC, folder + hosted API = ARC, WASM (editor, website) = ARC. `CLI_MEMORY` / `API_MEMORY` / `WASM_MEMORY` in `Makefile`
 - 🧪 `make ci` = every suite once under its app's strategy, then the website check
 
 ## 🐦 Osprey

@@ -1,6 +1,6 @@
 // The package registry's contracts: its security suites gate CI and local
-// tests with a real uv, each app has one memory strategy (native ARC, WASM GC)
-// that every build, suite and hunt uses, and nested compiler invocations keep
+// tests with a real uv, each app has one memory strategy (client GC, APIs ARC,
+// WASM ARC) that every build, suite and hunt uses, and nested compiler invocations keep
 // the selected compiler and strategy over stale inherited E2E context.
 // Run from the repository root:
 //   node --test scripts/ci/ci-registry-contract-tests.mjs
@@ -36,10 +36,12 @@ function assertRealUv(registry) {
   assert.ok(makeRecipe('ci').includes('$(MAKE) _test_registry REGISTRY_COVERAGE=target/coverage'))
 }
 
-const nativeSuites = ['fixture-check', 'manifest/tests', 'cli/tests', 'tests', 'e2e', 'auth-tests', 'database-tests', 'governance-tests', 'hosted-tests']
+const cliSuites = ['fixture-check', 'manifest/tests', 'cli/tests', 'tests', 'e2e']
+const apiSuites = ['auth-tests', 'database-tests', 'governance-tests', 'hosted-tests']
 const wasmSuites = ['web', 'editor/tests', 'editor/wire-tests']
-const registrySuites = [...nativeSuites, ...wasmSuites]
-const strategyOf = (suite) => (wasmSuites.includes(suite) ? 'gc' : 'arc')
+const registrySuites = [...cliSuites, ...apiSuites, ...wasmSuites]
+const variableOf = (suite) => (cliSuites.includes(suite) ? 'CLI_MEMORY' : apiSuites.includes(suite) ? 'API_MEMORY' : 'WASM_MEMORY')
+const strategyOf = (suite) => (cliSuites.includes(suite) ? 'gc' : 'arc')
 
 // A fake compiler records, for every process the Make target starts, its argv plus
 // the two E2E selection variables. Only those three fields are stored — no secret
@@ -97,7 +99,7 @@ function assertNativeRegistryCalls(native, fixture) {
   assert.deepEqual(native.map(call => call.script), ['scripts/packages/test-package-publication.py', 'scripts/packages/test-package-interruption.py'])
   for (const call of native) {
     assert.equal(call.compiler, fixture.compiler)
-    assert.equal(call.memory, 'arc')
+    assert.equal(call.memory, 'gc')
     assert.equal(call.client, process.env.OSPREY_PACKAGE_CLIENT || resolve('target/osprey-pkg'))
   }
 }
@@ -129,23 +131,27 @@ function withRegistryFixture(body) {
     assert.doesNotMatch(readFileSync('Makefile', 'utf8'), /--no-warnings/, 'no build silences warnings')
   })
 
-  test('osprey hunt runs once from every program entry under the native strategy in phase 2', () => {
+  test('osprey hunt runs once from every program entry under its app\'s strategy in phase 2', () => {
     const hunt = job('hunt')
     assert.match(hunt, /needs: build/)
     assert.doesNotMatch(hunt, /matrix/)
     assert.ok(hunt.includes('run: make _hunt\n'))
     assert.match(job('ci'), /needs\.hunt\.result/)
-    assert.ok(makeRecipe('_hunt').some((line) => line.includes('$(OSPREY) hunt src/manager/$$p --memory=$(NATIVE_MEMORY)')))
+    assert.match(readFileSync(recipes, 'utf8'), /^HUNT_PROGRAMS = cli:\$\(CLI_MEMORY\) api:\$\(API_MEMORY\) api\/hosted:\$\(API_MEMORY\)$/m)
+    assert.ok(makeRecipe('_hunt').some((line) => line.includes('$(OSPREY) hunt src/manager/$$p --memory=$$memory')))
   })
 
-  test('each app has one memory strategy: native programs ARC, WASM programs GC', () => {
+  test('each app has one memory strategy: client GC, folder and hosted APIs ARC, WASM ARC', () => {
     const make = readFileSync(recipes, 'utf8')
-    assert.match(make, /^NATIVE_MEMORY = arc$/m)
-    assert.match(make, /^WASM_MEMORY = gc$/m)
-    for (const app of ['cli', 'api', 'api/hosted']) assert.ok(make.includes(`build src/manager/${app} --memory=$(NATIVE_MEMORY) `), app)
+    for (const [name, value] of [['CLI', 'gc'], ['API', 'arc'], ['WASM', 'arc']]) {
+      assert.equal(make.match(new RegExp(`^${name}_MEMORY = `, 'gm'))?.length, 1, `${name}_MEMORY is defined once`)
+      assert.match(make, new RegExp(`^${name}_MEMORY = ${value}$`, 'm'))
+    }
+    assert.ok(make.includes('build src/manager/cli --memory=$(CLI_MEMORY) '))
+    for (const app of ['api', 'api/hosted']) assert.ok(make.includes(`build src/manager/${app} --memory=$(API_MEMORY) `), app)
     assert.ok(make.includes('build src/manager/editor --target=wasm32 --memory=$(WASM_MEMORY) '))
     assert.ok(make.includes('build $(REGISTRY_WEB)/site --target=wasm32 --memory=$(WASM_MEMORY) '))
-    assert.doesNotMatch(make, /--memory=(gc|arc)\b|REGISTRY_MEMORY|HUNT_MEMORY/, 'no target picks a strategy of its own')
+    assert.doesNotMatch(make, /--memory=(gc|arc)\b|REGISTRY_MEMORY|HUNT_MEMORY|NATIVE_MEMORY/, 'no target picks a strategy of its own')
     assert.doesNotMatch(readFileSync(workflow, 'utf8'), /matrix\.memory|memory: \[/, 'CI runs each suite once')
   })
 
@@ -184,10 +190,9 @@ function withRegistryFixture(body) {
     assert.ok(registry.includes('make _test_registry REGISTRY_COVERAGE=target/coverage'))
     assertRealUv(registry)
     const commands = makeRecipe('_test_registry')
-    for (const script of ['publication', 'interruption']) assert.match(commands.join('\n'), new RegExp(`OSPREY_PACKAGE_CLIENT=.*REGISTRY_NATIVE_CLIENT.*python3 scripts/packages/test-package-${script}\\.py`))
+    for (const script of ['publication', 'interruption']) assert.match(commands.join('\n'), new RegExp(`OSPREY_PACKAGE_CLIENT=.*target/osprey-pkg.*python3 scripts/packages/test-package-${script}\\.py`))
     for (const suite of registrySuites) {
-      const strategy = wasmSuites.includes(suite) ? 'WASM_MEMORY' : 'NATIVE_MEMORY'
-      assert.ok(commands.includes(`$(OSPREY) test src/manager/${suite} --memory=$(${strategy}) $(call registry_coverage,${suite.replaceAll('/', '-')})`), suite)
+      assert.ok(commands.includes(`$(OSPREY) test src/manager/${suite} --memory=$(${variableOf(suite)}) $(call registry_coverage,${suite.replaceAll('/', '-')})`), suite)
     }
   })
 
@@ -203,7 +208,7 @@ function withRegistryFixture(body) {
         const suite = seen.argv[1].slice('src/manager/'.length)
         assert.equal(seen.OSPREY_E2E_COMPILER, fixture.compiler)
         assert.ok(isAbsolute(seen.OSPREY_E2E_COMPILER), 'selection must stay absolute')
-        assert.equal(seen.OSPREY_E2E_MEMORY, 'arc')
+        assert.equal(seen.OSPREY_E2E_MEMORY, 'gc')
         assert.ok(seen.argv.includes(`--memory=${strategyOf(suite)}`), `${suite} must run ${strategyOf(suite)}`)
         assert.equal(seen.argv.filter(arg => arg.startsWith('--memory=')).length, 1, `${suite} has one strategy`)
       }

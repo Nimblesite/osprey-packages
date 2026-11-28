@@ -5,10 +5,6 @@ BIN ?= target/osprey/osprey
 OSPREY = $(abspath $(BIN))
 TOOLCHAIN = target/osprey/.release
 MKDIR = mkdir -p
-# One memory strategy per app: the native programs (client, folder registry, hosted API)
-# are ARC, the WASM editor and website are GC. Every build, suite and hunt uses its app's strategy.
-NATIVE_MEMORY = arc
-WASM_MEMORY = gc
 
 .PHONY: help _toolchain build ci
 ## help: List this repository's targets.
@@ -21,9 +17,9 @@ _toolchain $(TOOLCHAIN): scripts/osprey-toolchain.sh
 
 REGISTRY_CLIENT_SOURCES = $(shell find src/manager -type f \( -name '*.osp' -o -name '*.ospml' -o -name 'osprey.toml' \))
 target/osprey-pkg: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/cli --memory=$(NATIVE_MEMORY) --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/cli --memory=$(CLI_MEMORY) --quiet --warnings-as-errors -o $@
 target/osprey-registry: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/api --memory=$(NATIVE_MEMORY) --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/api --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
 target/package-workspace.wasm: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	$(OSPREY) build src/manager/editor --target=wasm32 --memory=$(WASM_MEMORY) --quiet --warnings-as-errors -o $@
 
@@ -36,11 +32,11 @@ build: target/osprey-pkg target/osprey-registry target/package-workspace.wasm
 ##         the fixture and registry tree walks shell out to POSIX `find`.
 .PHONY: canary
 canary: export OSPREY_E2E_COMPILER = $(OSPREY)
-canary: export OSPREY_E2E_MEMORY = $(NATIVE_MEMORY)
+canary: export OSPREY_E2E_MEMORY = $(CLI_MEMORY)
 canary: $(TOOLCHAIN)
-	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/fixture-check --memory=$(NATIVE_MEMORY))
-	$(OSPREY) test src/manager/cli/tests --memory=$(NATIVE_MEMORY)
-	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/e2e --memory=$(NATIVE_MEMORY))
+	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/fixture-check --memory=$(CLI_MEMORY))
+	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY)
+	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY))
 
 ## ci: Every check this host can run: each suite once, under its app's memory strategy, with coverage, the hashing and
 ##     website checks, then the per-project coverage gate (scripts/coverage-thresholds.json).
@@ -63,6 +59,15 @@ _hunt: $(TOOLCHAIN)
 	  nice $(OSPREY) hunt src/manager/$$p --memory=$$memory --max-time 120 --input-bytes 8 --quiet \
 	    --out target/hunt/$$(echo $$p | tr / -); \
 	done
+
+# _lint: The analysis gate, phase 1: every project compiles with --warnings-as-errors, every source is
+#        osprey-fmt clean, and duplication stays under .deslop.toml's threshold (scripts/deslop.sh).
+LINT_PROJECTS = $(sort $(dir $(shell find src/manager -name osprey.toml -not -path '*/fixtures/*' -not -path '*/sample-registry/*' -not -path '*/e2e/consumer*')))
+.PHONY: _lint
+_lint: $(TOOLCHAIN)
+	set -e; for p in $(LINT_PROJECTS); do [ -d $$p/src ] || continue; nice $(OSPREY) $$p --check --warnings-as-errors --quiet; done
+	$(OSPREY) fmt --check src/manager
+	nice scripts/deslop.sh
 
 # _package-hashing: The package hash rotates machine words with no allocation (the emitted IR of
 #                  bytes.osp, sha256.osp and policy.osp). Expect every unittest to pass.
@@ -199,7 +204,7 @@ _registry-migration-verify:
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
 	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
-	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/database-tests/live --memory=$(NATIVE_MEMORY) $(call registry_coverage,database-live)
+	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/database-tests/live --memory=$(API_MEMORY) $(call registry_coverage,database-live)
 
 .PHONY: _registry-integration-check _registry-integration-verify
 # _registry-integration-check: Browse a real PostgreSQL-backed hosted API with the packaged website in Chromium.
@@ -235,7 +240,7 @@ _registry-hosted-api: $(REGISTRY_HOSTED_BINARY)
 
 $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	@mkdir -p $(dir $@)
-	$(OSPREY) build src/manager/api/hosted --memory=$(NATIVE_MEMORY) --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/api/hosted --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
