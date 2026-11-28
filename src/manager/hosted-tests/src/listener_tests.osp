@@ -57,7 +57,7 @@ module ListenerTests {
         let public = fetch(port, v1Packages, "")
         let probe = fetch(port + 1, "/v1/ready", "")
         let private = fetch(port + 1, v1Packages, "")
-        let edge = "X-Edge-Secret: test-only-secret-with-at-least-32-bytes"
+        let edge = "X-Edge-Host: 127.0.0.1\r\nX-Edge-Secret: test-only-secret-with-at-least-32-bytes"
         sessions(port, edge)
         let admitted = fetch(port, v1Packages, edge)
         let crossOrigin = fetch(port, v1Packages, edge + "\r\nOrigin: https://packages.example.test")
@@ -105,13 +105,14 @@ module ListenerTests {
     }
 
     fn overlapRequests(port, accepted) = {
-        let edge = "X-Edge-Secret: ${oldSecret}"
-        let current = "X-Edge-Secret: test-only-secret-with-at-least-32-bytes"
+        let host = "X-Edge-Host: 127.0.0.1\r\n"
+        let edge = host + "X-Edge-Secret: ${oldSecret}"
+        let current = host + "X-Edge-Secret: test-only-secret-with-at-least-32-bytes"
         checkAll("retiring edge secret uses the live bounded clock", [
             startsWith(fetch(port, v1Packages, edge), if accepted { jsonReply } else { forbidden }),
             startsWith(fetch(port, v1Packages, current), jsonReply),
             startsWith(fetch(port, v1Packages, "X-Edge-Secret: missing"), forbidden),
-            startsWith(fetch(port, v1Packages, current + "\r\n" + edge), "400|no-store|")
+            startsWith(fetch(port, v1Packages, current + "\r\nX-Edge-Secret: ${oldSecret}"), "400|no-store|")
         ])
         Success { value: 0 }
     }

@@ -251,7 +251,7 @@ module HostedService {
 
     fn unavailable(cors) = problemWith(503, "registry.not-ready", cors)
 
-    fn contentRequest(headers, host, method, path) = host != "" && (HostedHeaders::find(headers, "host") ?: "") == host
+    fn contentRequest(headers, host, method, path) = host != "" && (HostedRequest::publicHost(headers) ?: "") == host
         && method == "GET" && startsWith(path, HostedSource::prefix) && (endsWith(path, HostedSource::attachmentSuffix) || endsWith(path, HostedSource::licenseSuffix))
         && !HostedHeaders::has(headers, "cookie") && !HostedHeaders::has(headers, authorizationHeader)
 

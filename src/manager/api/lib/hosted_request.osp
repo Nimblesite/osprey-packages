@@ -74,7 +74,11 @@ module HostedRequest {
         Error => stop(forbidden, "req.edge-secret")
     }
 
-    fn hostStage(headers, policy) = match HostedHeaders::find(headers, "host") {
+    /// The public hostname the Cloudflare Worker overwrote after rewriting `Host`
+    /// to the Cloud Run origin. Trusted only after the edge secret admits the request.
+    export fn publicHost(headers) = HostedHeaders::find(headers, "x-edge-host")
+
+    fn hostStage(headers, policy) = match publicHost(headers) {
         Success { value } => {
             if toLowerCase(value) == toLowerCase(policy.allowedHost) { Pass } else { stop(misdirected, "req.host") }
         }

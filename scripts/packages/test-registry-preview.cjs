@@ -18,7 +18,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
     assert.match(livePort, /^[0-9]{4,5}$/);
     await page.route(url => url.origin === api && (url.pathname.startsWith('/v1/packages') || url.pathname.startsWith('/v1/publishers/')), async route => {
       const upstream = await page.request.get('http://127.0.0.1:' + livePort + new URL(route.request().url()).pathname, {
-        headers:{Host:'127.0.0.1','X-Edge-Secret':'fixture-edge-secret-at-least-32-bytes',Origin:website}, timeout:5000,
+        headers:{'X-Edge-Host':'127.0.0.1','X-Edge-Secret':'fixture-edge-secret-at-least-32-bytes',Origin:website}, timeout:5000,
       });
       assert.equal(upstream.status(), 200);
       assert.equal(upstream.headers()['access-control-allow-origin'], website);
@@ -44,7 +44,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
     const content = 'https://content.example.test';
     async function atContent(path, credential) {
       return page.request.get('http://127.0.0.1:' + livePort + path, {
-        headers:{Host:'content.example.test','X-Edge-Secret':'fixture-edge-secret-at-least-32-bytes',...credential},
+        headers:{'X-Edge-Host':'content.example.test','X-Edge-Secret':'fixture-edge-secret-at-least-32-bytes',...credential},
         timeout:5000,
       });
     }

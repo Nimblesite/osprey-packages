@@ -73,7 +73,7 @@ try {
     ...mounted('/run/catalog-ca'), ...mounted('/run/catalog-service'), ...mounted('/run/registry-source'), image]);
   const ingress = port(container, 8080);
   const management = port(container, 8081);
-  const trusted = { host, 'X-Edge-Secret': edge };
+  const trusted = { 'X-Edge-Host': host, 'X-Edge-Secret': edge };
   await ready(container, management);
   assert.equal(await get(management, '/v1/packages', trusted), 404);
   assert.equal(await get(ingress, '/v1/ready'), 403);

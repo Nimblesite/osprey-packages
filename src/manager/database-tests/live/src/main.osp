@@ -121,8 +121,10 @@ fn catalogFailure(detail) = {
     Error { message: "unexpected catalog response" }
 }
 
+let fixtureEdge = "X-Edge-Host: 127.0.0.1\r\nX-Edge-Secret: fixture-edge-secret-at-least-32-bytes"
+
 fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5000), fn(client) => {
-    let observed = match httpGetResponse(client, "/v1/packages", "X-Edge-Secret: fixture-edge-secret-at-least-32-bytes") {
+    let observed = match httpGetResponse(client, "/v1/packages", fixtureEdge) {
         Success { value } => {
             let valid = httpResponseStatus(value) == 200 && (httpResponseBody(value) ?: "") == catalogRow
             let _released = httpResponseFree(value)
@@ -130,7 +132,7 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
         }
         Error => false
     }
-    let edge = "X-Edge-Secret: fixture-edge-secret-at-least-32-bytes"
+    let edge = fixtureEdge
     let login = expectLogin(client, edge, true)
     let binding = onFixture(fixtureClient + Host::shellWord("UPDATE registry.auth_bindings SET state='revoked' WHERE auth_subject='${fixtureBrowserSubject}'"))
     let denied = expectLogin(client, edge, false)

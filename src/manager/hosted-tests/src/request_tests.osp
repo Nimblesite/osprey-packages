@@ -29,7 +29,7 @@ module RequestTests {
 
     fn raw(method, uri, headers, body) = verdictOf(HostedRequest::admit(incoming(method, uri, headers, body), policy()))
 
-    fn verdict(method, uri, extra, body) = raw(method, uri, "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test" + (if extra == "" { "" } else { "\r\n" + extra }), body)
+    fn verdict(method, uri, extra, body) = raw(method, uri, "X-Edge-Secret: s3cr3t-edge\r\nHost: registry-abc-ts.a.run.app\r\nX-Edge-Host: api.example.test" + (if extra == "" { "" } else { "\r\n" + extra }), body)
 
     fn rawCase(c) = raw(c.method, c.uri, c.headers, c.body) == c.expected
     fn verdictCase(c) = verdict(c.method, c.uri, c.extra, c.body) == c.expected
@@ -42,7 +42,7 @@ module RequestTests {
             { method: "POST", uri: "/v1/auth/logout", extra: "Origin: https://packages.example.test\r\nCookie: session=abc\r\nX-Csrf-Token: csrf-tok", body: "", expected: "admitted" }
         ]
         checkAll("request: clean requests admitted", [
-            match HostedRequest::admit(incoming("POST", "/v1/publish", "Host: api.example.test\r\nX-Edge-Secret: s3cr3t-edge", "release"), policy()) {
+            match HostedRequest::admit(incoming("POST", "/v1/publish", "X-Edge-Host: api.example.test\r\nX-Edge-Secret: s3cr3t-edge", "release"), policy()) {
                 HostedHeaders::Ok { value } => value.method == "POST" && value.uri == "/v1/publish" && value.body == "release"
                 _ => false
             },
@@ -52,10 +52,14 @@ module RequestTests {
 
     fn edgeAndHost() = {
         let cases = [
-            { method: "GET", uri: "/v1/health", headers: "Host: api.example.test", body: "", expected: "403:req.edge-secret" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: wrong\r\nHost: api.example.test", body: "", expected: "403:req.edge-secret" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: run.app", body: "", expected: "421:req.host" },
-            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge", body: "", expected: "421:req.host" }
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Host: api.example.test", body: "", expected: "403:req.edge-secret" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: wrong\r\nX-Edge-Host: api.example.test", body: "", expected: "403:req.edge-secret" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nX-Edge-Host: run.app", body: "", expected: "421:req.host" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge", body: "", expected: "421:req.host" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test", body: "", expected: "421:req.host" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test\r\nX-Edge-Host: evil.example.test", body: "", expected: "421:req.host" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: registry-abc-ts.a.run.app\r\nX-Edge-Host: API.Example.Test", body: "", expected: "admitted" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nX-Edge-Host: api.example.test\r\nx-edge-host: api.example.test", body: "", expected: "400:req.duplicate-header" }
         ]
         checkAll("request: edge secret and host gates", [foldList(cases, true, fn(valid, c) => rawCase(c) && valid)])
     }
