@@ -2,6 +2,6 @@
   "name": "osprey-registry-pages-deploy",
   "private": true,
   "dependencies": {
-    "wrangler": "4.146.0"
+    "wrangler": "4.169.0"
   }
 }
