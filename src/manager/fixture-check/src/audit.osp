@@ -98,16 +98,17 @@ module Audit {
     fn sourcesCite(sources, specs) = audit("registry sources cite defined spec sections", suffixed(sources, ".osp"), fn(p) =>
         Citations::undefined(specs, readFile("src/manager/${p}") ?: "", "src/manager/${p}"))
 
-    fn specText(specs) = join(mapList(suffixed(specs, ".md"), fn(p) => readFile("docs/specs/${p}") ?: ""), "\n")
+    fn docText(root, docs) = join(mapList(suffixed(docs, ".md"), fn(p) => readFile("${root}/${p}") ?: ""), "\n")
 
     fn schemaStage(walked) = match model() {
         Success { value } => test("fixture-check: typed values", fn() => typedValues(value, walked))
         Error { message } => test("fixture-check: schema parses", fn() => check("schema", "", message))
     }
 
-    /// Every audit, one test each, over the walked fixture, registry and spec trees.
-    export fn run(fixtures, sources, specs) = {
-        let defined = specText(specs)
+    /// Every audit, one test each, over the walked fixture, registry, spec and
+    /// plan trees; a citation is defined by a spec section or a plan stage.
+    export fn run(fixtures, sources, specs, plans) = {
+        let defined = docText("docs/specs", specs) + "\n" + docText("docs/plans", plans)
         test("fixture-check: data only", fn() => treeIsData(fixtures))
         test("fixture-check: strict JSON and spec citations", fn() => parsesAndCites(fixtures, defined))
         test("fixture-check: indexes", fn() => indexesComplete(fixtures))

@@ -10,7 +10,7 @@ import registry_host::Native
 fn walk(root) = Native::session(fn() => perform Host::Tree.walk(root))
 
 fn stage() = {
-    Audit::run(walk("src/manager/tests/fixtures"), walk("src/manager"), walk("docs/specs"))
+    Audit::run(walk("src/manager/tests/fixtures"), walk("src/manager"), walk("docs/specs"), walk("docs/plans"))
     0
 }
 
