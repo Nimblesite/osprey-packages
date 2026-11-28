@@ -605,6 +605,7 @@ tables:
             current_setting('session_authorization') = 'registry_session_runtime' AND approved_at = statement_timestamp()
             AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = reviewer_id)
             AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id = release_approvals.submission_id AND s.verdict = 'accepted')
+        - { name: scanner_approved, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
 
   # Published releases, the public catalog's only source [PACKAGE-HOSTED-ROUTES-CATALOG]
   # [PACKAGE-OWNERSHIP-DATABASE]. One row per release digest, immutable but for its activation state;
@@ -642,6 +643,19 @@ tables:
       forced: true
       policies:
         - { name: catalog_writer_releases, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'eligible'" }
+        - { name: scanner_released, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        # [PACKAGE-HOSTED-PUBLISH-FLOW] The scanner publishes exactly the approved version, digest and publisher
+        # of an active package, credited to its organization, at the moment of publication.
+        - name: scanner_publishes_approved
+          permissive: true
+          operations: [Insert]
+          roles: [registry_scan_worker]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_scan_worker' AND state = 'eligible' AND published_at = statement_timestamp()
+            AND EXISTS (SELECT 1 FROM registry.release_approvals a WHERE a.submission_id = releases.id AND a.package_id = releases.package_id
+            AND a.epoch = releases.epoch AND a.ordinal = releases.ordinal AND a.digest = releases.digest)
+            AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = releases.package_id AND p.organization_id = releases.organization_id AND p.state = 'active')
+            AND EXISTS (SELECT 1 FROM registry.organizations o WHERE o.id = releases.organization_id AND o.display_name = releases.publisher_name AND o.state = 'active')
 
 # Implements [PACKAGE-OWNERSHIP-RLS]: one restricted login per workload, none with BYPASSRLS or a role
 # membership. Deploy sets each password; the migration owns existence and every privilege, and revokes
@@ -683,6 +697,8 @@ grants:
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: releases, privileges: [SELECT], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: releases, privileges: [SELECT, INSERT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: release_approvals, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_catalog_writer] }
   - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_catalog_writer] }
 # Stored functions are the only data access [PACKAGE-OWNERSHIP-RLS]: SECURITY INVOKER, so RLS decides
@@ -940,3 +956,32 @@ functions:
       SELECT job_id FROM approved UNION ALL SELECT a.submission_id FROM registry.release_approvals a
       WHERE a.submission_id=job_id AND a.digest=reviewed_digest AND EXISTS (SELECT FROM registry.release_reviewers r WHERE r.principal_id=a.reviewer_id)
       LIMIT 1
+
+  # [PACKAGE-HOSTED-PUBLISH-FLOW] One approved version not yet published, as `{"id","dir","digest"}`, or NULL.
+  - schema: registry
+    name: approved_release_job
+    returns: text
+    executeRoles: [registry_scan_worker]
+    body: >-
+      SELECT json_build_object('id',a.submission_id,'dir','@'||o.handle||'/'||p.name||'/'||a.epoch||'.'||a.ordinal,'digest',a.digest)::text
+      FROM registry.release_approvals a JOIN registry.packages p ON p.id=a.package_id JOIN registry.organizations o ON o.id=p.organization_id
+      WHERE p.state='active' AND o.state='active' AND NOT EXISTS (SELECT FROM registry.releases r WHERE r.id=a.submission_id)
+      ORDER BY a.approved_at,a.submission_id LIMIT 1
+
+  # Publish the approved version with the discovery text its frozen manifest declares; a replay answers the same id.
+  - schema: registry
+    name: publish_approved_release
+    arguments: [{ name: job_id, type: uuid }, { name: license, type: text }, { name: about, type: text }, { name: tags, type: text }, { name: attributions, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_scan_worker]
+    body: >-
+      WITH published AS (
+      INSERT INTO registry.releases(id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,
+      license_expression,summary,keywords,warnings,notices,state,published_at)
+      SELECT a.submission_id,p.organization_id,a.package_id,a.epoch,a.ordinal,a.digest,j.publisher_id,o.display_name,
+      license,about,tags,'[]',attributions,'eligible',statement_timestamp()
+      FROM registry.release_approvals a JOIN registry.review_submissions j ON j.id=a.submission_id
+      JOIN registry.packages p ON p.id=a.package_id JOIN registry.organizations o ON o.id=p.organization_id
+      WHERE a.submission_id=job_id ON CONFLICT DO NOTHING RETURNING id)
+      SELECT id FROM published UNION ALL SELECT r.id FROM registry.releases r WHERE r.id=job_id LIMIT 1

@@ -10,19 +10,19 @@ import registry::Bytes
 /// without a live session creates nothing. Leaves no rows behind.
 module Ownership {
     let issuer = "https://supabase.example.test/auth/v1"
-    fn run(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
-    fn psql(role) = "psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1"
-    fn owner(statement) = run(psql("registry_check") + " -c " + Host::shellWord(statement))
-    fn answers(statement, expected) = {
+    export fn run(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
+    export fn psql(role) = "psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1"
+    export fn owner(statement) = run(psql("registry_check") + " -c " + Host::shellWord(statement))
+    export fn answers(statement, expected) = {
         let result = owner(statement)
         result.status == 0 && trim(result.stdout) == expected
     }
     fn cookie(fill) = "sha256:" + (repeat(fill, 64) ?: "")
 
-    type Person = { digest: string, subject: string, github: string }
+    export type Person = { digest: string, subject: string, github: string }
 
     /// Register `github` through the issuer; the session scope the API sets for it, or an empty digest.
-    fn person(fill, subject, github) = {
+    export fn person(fill, subject, github) = {
         let registered = match BrowserSessions::issueScript(cookie(fill), issuer, subject, github, "sealed-ownership") {
             Error => false
             Success { value } => run("printf '%s' " + Host::shellWord(value) + " | " + psql("registry_session_issuer")).status == 0
@@ -31,17 +31,17 @@ module Ownership {
     }
 
     /// `call` as the session runtime in `who`'s verified scope: its single answer, "" for NULL, "error" when refused.
-    fn asSession(who: Person, call) = {
+    export fn asSession(who: Person, call) = {
         let scope = "SET LOCAL registry.session_digest = '${who.digest}'; SET LOCAL registry.session_issuer = '${issuer}'; SET LOCAL registry.session_subject = '${who.subject}'; SET LOCAL registry.session_provider = '${who.github}';"
         let script = "BEGIN; ${scope} SELECT ${call}; COMMIT;"
         let result = run("printf '%s' " + Host::shellWord(script) + " | " + psql("registry_session_runtime"))
         if result.status == 0 { trim(result.stdout) } else { "error" }
     }
-    fn collector(call) = {
+    export fn collector(call) = {
         let result = run(psql("registry_publication_collector") + " -c " + Host::shellWord("SELECT " + call))
         if result.status == 0 { trim(result.stdout) } else { "error" }
     }
-    fn principalOf(github) = "(SELECT principal_id FROM registry.auth_bindings WHERE provider_subject='${github}')"
+    export fn principalOf(github) = "(SELECT principal_id FROM registry.auth_bindings WHERE provider_subject='${github}')"
     let cleanup = "DELETE FROM registry.package_permissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.browser_sessions; DELETE FROM registry.auth_bindings WHERE provider_subject IN ('7101','7102'); DELETE FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id);"
 
     export fn check() = {

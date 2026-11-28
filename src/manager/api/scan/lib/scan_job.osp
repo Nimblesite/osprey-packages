@@ -26,7 +26,7 @@ module ScanJob {
         if !Bytes::canonicalUuid(configId) || trim(revision) == "" || byteLength(revision) > 200 { Error { message: "publication.scan-config" } }
         else { andThen(Digests::parse(field(doc, "digest")), fn(digest) =>
                 andThen(perform Inputs.bundle(id, digest), fn(bytes) => PublicationScan::run(field(doc, "dir"), digest, bytes,
-                        fn(source) => PublicationScan::nap(configId, revision, field(config, "apiKey"), source),
+                        fn(source) => PublicationScan::nap(configId, field(config, "apiKey"), source),
                         fn(result) => receipt(id, ticket, configId + "@" + revision, result)))) }
     }
 
@@ -53,4 +53,19 @@ module ScanJob {
             else { andThen(byId("completed_scan", id), fn(done) => if done == id { Success { value: done } }
                     else { Error { message: "publication.scan-pending" } }) }) }
 
+    fn listedArgs(id, found: PublicationScan::Listing) = [id, found.license, found.summary, found.keywords, found.notices]
+    fn published(id, found) = andThen(query("SELECT registry.publish_approved_release(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + ","
+            + Database::decoded(3) + "," + Database::decoded(4) + "," + Database::decoded(5) + ")", listedArgs(id, found)),
+        fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.release-refused" } })
+
+    fn release(doc) = {
+        let id = field(doc, "id")
+        if !Bytes::canonicalUuid(id) { Error { message: "publication.release-job" } }
+        else { andThen(Digests::parse(field(doc, "digest")), fn(digest) => andThen(perform Inputs.bundle(id, digest), fn(bytes) =>
+                    andThen(PublicationScan::listed(field(doc, "dir"), digest, bytes), fn(found) => published(id, found)))) }
+    }
+
+    /// Publish one approved version from its frozen bundle, or "idle" when none waits [PACKAGE-HOSTED-PUBLISH-FLOW].
+    export fn publish() = andThen(query("SELECT registry.approved_release_job()", []),
+        fn(raw) => if raw == "" { Success { value: "idle" } } else { andThen(document(raw), release) })
 }
