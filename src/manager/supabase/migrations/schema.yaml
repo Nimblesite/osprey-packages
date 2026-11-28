@@ -110,6 +110,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: own_review_membership, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "state = 'active' AND principal_id = registry.review_session_principal()" }
         - { name: collector_memberships, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
 
   - name: recovery_authorities
@@ -154,6 +155,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: review_org_packages, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.organization_id = packages.organization_id AND m.principal_id = registry.review_session_principal())" }
         - { name: collector_packages, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active' OR state = 'draft'" }
         - { name: scan_package, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
         - { name: catalog_writer_packages, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
@@ -468,6 +470,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: member_submission, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = review_submissions.package_id)" }
         - { name: collector_submit, permissive: true, operations: [Insert], roles: [registry_publication_collector], withCheck: "current_setting('session_authorization') = 'registry_publication_collector' AND registry.can_submit_version(publisher_id,package_id)" }
         - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
         - { name: scanner_queue, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
@@ -487,16 +490,30 @@ tables:
           permissive: true
           operations: [Select]
           roles: [registry_session_runtime]
-          using: >-
-            current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS
-            (SELECT 1 FROM registry.browser_sessions s WHERE s.principal_id = release_reviewers.principal_id
-            AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = s.principal_id AND p.credential_epoch = s.credential_epoch)
-            AND EXISTS (SELECT 1 FROM registry.auth_bindings b WHERE b.id = s.binding_id AND b.principal_id = s.principal_id))
+          using: "current_setting('session_authorization') = 'registry_session_runtime' AND principal_id = registry.review_session_principal()"
+
+  - name: scan_claims
+    schema: registry
+    columns:
+      - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: ticket, type: Uuid, isNullable: false }
+      - { name: expires_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [submission_id] }
+    foreignKeys:
+      - { columns: [submission_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scan_claim_read, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "submission_id IS NOT NULL" }
+        - { name: scan_claim_insert, permissive: true, operations: [Insert], roles: [registry_scan_worker], withCheck: &lease_deadline "expires_at = statement_timestamp() + interval '5 minutes'" }
+        - { name: scan_claim_retry, permissive: true, operations: [Update], roles: [registry_scan_worker], using: "expires_at <= statement_timestamp()", withCheck: *lease_deadline }
 
   - name: review_scans
     schema: registry
     columns:
       - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: claim_ticket, type: Uuid, isNullable: false }
       - { name: agent_revision, type: Text, isNullable: false, checkConstraint: "length(agent_revision) BETWEEN 1 AND 256 AND agent_revision ~ '[^[:space:]]'" }
       - { name: verdict, type: Text, isNullable: false, checkConstraint: "octet_length(verdict) BETWEEN 1 AND 65536" }
       - { name: decided_at, type: DateTimeOffset, isNullable: false }
@@ -507,12 +524,14 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: member_scan_receipt, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.id = review_scans.submission_id)" }
         - name: scanner_decision
           permissive: true
           operations: [Insert]
           roles: [registry_scan_worker]
           withCheck: >-
             current_setting('session_authorization') = 'registry_scan_worker' AND decided_at = statement_timestamp()
+            AND EXISTS (SELECT 1 FROM registry.scan_claims c WHERE c.submission_id = review_scans.submission_id AND c.ticket = review_scans.claim_ticket AND c.expires_at > statement_timestamp())
             AND CASE WHEN verdict = 'accepted' THEN true
             ELSE jsonb_path_match(verdict::jsonb,
             '$.type() == "array" && $[0].type() == "string" && !(exists($[*] ? (@.type() != "string" || @ like_regex "^\\s*$")))') END
@@ -540,6 +559,8 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: member_review_decision, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.id = release_approvals.submission_id)" }
+        - { name: reviewer_own_approval, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = release_approvals.reviewer_id)" }
         - name: approve_scanned_version
           permissive: true
           operations: [Insert]
@@ -607,12 +628,15 @@ grants:
   - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT, SELECT], roles: [registry_session_issuer] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: memberships, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [INSERT], roles: [registry_publication_collector] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_scan_worker, registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: scan_claims, privileges: [SELECT, INSERT, UPDATE], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: review_scans, privileges: [INSERT, SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: review_scans, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: release_reviewers, privileges: [SELECT], roles: [registry_session_runtime] }
-  - { schema: registry, target: Table, objectName: release_approvals, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_approvals, privileges: [INSERT, SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: releases, privileges: [SELECT], roles: [registry_catalog_writer] }
@@ -670,6 +694,30 @@ functions:
 # [PACKAGE-SECURITY-SCAN-APPROVAL] Invoker rights preserve the caller's grants
 # and row policies throughout admission, scanning and approval.
   - schema: registry
+    name: review_session_principal
+    returns: uuid
+    executeRoles: [registry_session_runtime]
+    body: >-
+      SELECT s.principal_id FROM registry.browser_sessions s JOIN registry.principals p
+      ON p.id=s.principal_id AND p.credential_epoch=s.credential_epoch JOIN registry.auth_bindings b
+      ON b.id=s.binding_id AND b.principal_id=p.id WHERE s.cookie_digest=current_setting('registry.session_digest')
+      AND p.kind='human' AND p.state='active' AND b.state='active'
+
+  - schema: registry
+    name: publication_receipt
+    arguments: [{ name: job_id, type: uuid }]
+    returns: text
+    executeRoles: [registry_session_runtime]
+    body: >-
+      SELECT json_build_object('submissionId',j.id,'digest',j.digest,'epoch',j.epoch,'ordinal',j.ordinal,
+      'status',CASE WHEN a.submission_id IS NOT NULL THEN 'approved' WHEN s.verdict='accepted' THEN 'awaiting-admin'
+      WHEN s.submission_id IS NOT NULL THEN 'rejected' ELSE 'pending-scan' END,
+      'canApprove',COALESCE(s.verdict='accepted' AND a.submission_id IS NULL AND EXISTS (SELECT FROM registry.release_reviewers),false),
+      'messages',CASE WHEN s.verdict IS NOT NULL AND s.verdict<>'accepted' THEN s.verdict::jsonb ELSE '[]'::jsonb END)::text
+      FROM registry.review_submissions j LEFT JOIN registry.review_scans s ON s.submission_id=j.id
+      LEFT JOIN registry.release_approvals a ON a.submission_id=j.id WHERE j.id=job_id
+
+  - schema: registry
     name: can_submit_version
     arguments: [{ name: publisher, type: uuid }, { name: pkg, type: uuid }]
     returns: boolean
@@ -711,14 +759,36 @@ functions:
     body: SELECT submission_id FROM registry.review_scans WHERE submission_id=job_id
 
   - schema: registry
+    name: claim_pending_scan
+    arguments: [{ name: requested, type: uuid }]
+    returns: text
+    volatility: volatile
+    executeRoles: [registry_scan_worker]
+    body: >-
+      WITH candidate AS (
+      SELECT j.id FROM registry.review_submissions j
+      WHERE (requested IS NULL OR j.id=requested)
+      AND NOT EXISTS (SELECT FROM registry.review_scans s WHERE s.submission_id=j.id)
+      AND NOT EXISTS (SELECT FROM registry.scan_claims c WHERE c.submission_id=j.id AND c.expires_at>statement_timestamp())
+      ORDER BY j.epoch,j.ordinal,j.id LIMIT 1),
+      claimed AS (
+      INSERT INTO registry.scan_claims AS c (submission_id,ticket,expires_at)
+      SELECT id,gen_random_uuid(),statement_timestamp()+interval '5 minutes' FROM candidate
+      ON CONFLICT (submission_id) DO UPDATE SET ticket=excluded.ticket,expires_at=excluded.expires_at
+      WHERE c.expires_at<=statement_timestamp() RETURNING submission_id,ticket)
+      SELECT json_build_object('id',submission_id,'ticket',ticket)::text FROM claimed
+
+  - schema: registry
     name: record_scan
-    arguments: [{ name: job_id, type: uuid }, { name: revision, type: text }, { name: decision, type: text }]
+    arguments: [{ name: job_id, type: uuid }, { name: lease, type: uuid }, { name: revision, type: text }, { name: decision, type: text }]
     returns: uuid
     volatility: volatile
     executeRoles: [registry_scan_worker]
     body: >-
-      INSERT INTO registry.review_scans(submission_id,agent_revision,verdict,decided_at)
-      VALUES (job_id,revision,decision,statement_timestamp()) RETURNING submission_id
+      INSERT INTO registry.review_scans(submission_id,claim_ticket,agent_revision,verdict,decided_at)
+      SELECT job_id,lease,revision,decision,statement_timestamp() FROM registry.scan_claims c
+      WHERE c.submission_id=job_id AND c.ticket=lease AND c.expires_at>statement_timestamp()
+      RETURNING submission_id
 
   - schema: registry
     name: approve_submission
@@ -734,4 +804,6 @@ functions:
       WHERE j.id=job_id AND j.digest=reviewed_digest
       AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id=j.id AND s.verdict='accepted')
       ON CONFLICT DO NOTHING RETURNING 1)
-      SELECT job_id FROM approved
+      SELECT job_id FROM approved UNION ALL SELECT a.submission_id FROM registry.release_approvals a
+      WHERE a.submission_id=job_id AND a.digest=reviewed_digest AND EXISTS (SELECT FROM registry.release_reviewers r WHERE r.principal_id=a.reviewer_id)
+      LIMIT 1
