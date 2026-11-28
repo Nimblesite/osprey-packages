@@ -47,13 +47,13 @@ jobs:
     env:
       IMAGE: ${{ vars.REGISTRY_IMAGE_REPO }}/api:${{ github.sha }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: google-github-actions/auth@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY }}
           service_account: ${{ vars.GCP_DEPLOY_SA }}
-      - uses: google-github-actions/setup-gcloud@v3
-      - uses: docker/setup-buildx-action@v4
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - name: Build the linux/amd64 image from this exact commit
         run: make _registry-hosted-image REGISTRY_HOSTED_IMAGE="$IMAGE"
       - name: Push and resolve the immutable digest
@@ -82,13 +82,13 @@ jobs:
       REGISTRY_API_ORIGIN: ${{ vars.REGISTRY_API_ORIGIN }}
       REGISTRY_CONTENT_ORIGIN: ${{ vars.REGISTRY_CONTENT_ORIGIN }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: The pinned Osprey toolchain
         run: make _toolchain
       - uses: ./.github/actions/setup-wasm
       - name: Build the content-addressed website archive
         run: make _registry-website-archive
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "24"
       - name: Upload the archived bytes as a Direct Upload deployment
