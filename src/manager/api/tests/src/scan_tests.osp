@@ -9,6 +9,7 @@ import registry::JsonRead
 import registry::Canonical
 
 module ScanTests {
+    let configBody = "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"agent_type\":\"disembodied\",\"tools_config\":[]}"
     let session = "11111111-1111-4111-8111-111111111111"
     let dir = "@team/one/1.1"
     fn reply(status, body) = Success { value: Supabase::Reply { status: status, body: body } }
@@ -23,20 +24,22 @@ module ScanTests {
         Error => false
     }
 
-    fn scan(body, status, source) = {
+    fn scan(body, status, source, config) = {
         handle Supabase::Provider {
             request method base path headers payload =>
-            if method != "POST" || base != "https://api.nimblesite.ai" || !contains(headers, "X-API-Key: fixture") { reply(400, "") }
+            if base != "https://api.nimblesite.ai" || !contains(headers, "X-API-Key: fixture") { reply(400, "") }
+            else if method == "GET" && path == "/api/v1/configs/" + session { reply(200, config) }
+            else if method != "POST" { reply(400, "") }
             else if endsWith(path, "/new") && payload == "{\"cwd\":\"/\",\"mcpServers\":[]}" { reply(200, "{\"sessionId\":\"" + session + "\"}") }
             else if endsWith(path, "/prompt") && !toolFree(payload) { reply(409, "") }
             else if endsWith(path, "/prompt") && contains(payload, "REVIEW_THIS_BYTE") { reply(status, body) }
             else { reply(400, "") }
         }
-        PublicationScan::nap(session, "fixture", source)
+        PublicationScan::nap(session, "sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765", "fixture", source)
     }
 
     fn receipt(release: Release::Served, path, bytes, answer, status) =
-    PublicationScan::run(path, release.id.digest, bytes, fn(source) => scan(answer, status, source), fn(result) => Success { value: result }) ?: "pending"
+    PublicationScan::run(path, release.id.digest, bytes, fn(source) => scan(answer, status, source, configBody), fn(result) => Success { value: result }) ?: "pending"
 
     fn outcomes(release, bytes) = {
         let accepted = provider("accepted", "end_turn", session)
@@ -50,6 +53,7 @@ module ScanTests {
                 receipt(release, dir, bytes, provider("accepted", "end_turn", "other"), 200) == "pending",
                 receipt(release, dir, bytes, accepted, 503) == "pending",
                 receipt(release, dir, bytes, accepted, 409) == "pending",
+                (scan(accepted, 200, bytes, replace(configBody, "disembodied", "sandbox-embodied") ?: "") ?: "pending") == "pending",
                 receipt(release, "@team/one/1.2", bytes, accepted, 200) == "pending",
                 receipt(release, dir, bytes + " ", accepted, 200) == "pending",
                 receipt(release, dir, "{\"unexpected\":true," + drop(bytes, 1), accepted, 200) == "pending",

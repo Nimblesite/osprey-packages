@@ -468,6 +468,8 @@ Both responses carry `Cache-Control: no-store`.
 
 ### Verdict `[PACKAGE-SECURITY-SCAN-VERDICT]`
 
+The worker must compare the SHA-256 of the NAP configuration response with the reviewed revision before opening a session and again before recording a verdict. A failed read or a changed revision leaves the version pending.
+
 Every source-carrying prompt must pin NAP’s empty tool manifest through `_meta.nap.toolManifestSha256`. A changed tool contract leaves the job pending.
 
 The scan returns exactly one verdict:

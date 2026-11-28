@@ -3,6 +3,8 @@ import registry_api::Supabase
 import registry::Bundle
 import registry::Bytes
 import registry::Canonical
+import registry::Digests
+import registry::Sha256
 import registry::Json
 import registry::JsonRead
 import registry::Manifest
@@ -59,9 +61,17 @@ module PublicationScan {
     fn submit(configId, apiKey, session, source) = if !Bytes::canonicalUuid(session) { refused() }
     else { andThen(prompt(session, source), fn(payload) => andThen(post(configId, apiKey, "prompt", payload), fn(doc) => response(doc, session))) }
 
-    export fn nap(configId, apiKey, source) = if !Bytes::canonicalUuid(configId) || byteLength(apiKey) < 1 || byteLength(apiKey) > 512
+    fn checkRevision(configId, apiKey, revision) = andThen(perform Supabase::Provider.request("GET", "https://api.nimblesite.ai",
+            "/api/v1/configs/" + configId, "X-API-Key: " + apiKey, ""), fn(reply) =>
+        if reply.status == 200 && Digests::format(Sha256::digest(Bytes::ofString(reply.body))) == revision { Success { value: true } } else { refused() })
+
+    fn turn(configId, apiKey, source) = andThen(post(configId, apiKey, "new", "{\"cwd\":\"/\",\"mcpServers\":[]}"),
+        fn(doc) => submit(configId, apiKey, field(doc, "sessionId"), source))
+
+    export fn nap(configId, revision, apiKey, source) = if !Bytes::canonicalUuid(configId) || byteLength(apiKey) < 1 || byteLength(apiKey) > 512
     || !Bytes::everyByte(apiKey, fn(b) => b > 32 && b < 127) { refused() }
-    else { andThen(post(configId, apiKey, "new", "{\"cwd\":\"/\",\"mcpServers\":[]}"), fn(doc) => submit(configId, apiKey, field(doc, "sessionId"), source)) }
+    else { andThen(Digests::parse(revision), fn(pin) => andThen(checkRevision(configId, apiKey, pin), fn(_) =>
+                andThen(turn(configId, apiKey, source), fn(result) => andThen(checkRevision(configId, apiKey, pin), fn(_) => Success { value: result })))) }
 
     fn namesPackage(release: Release::Served) = {
         let entries = filterList(release.files, fn(file) => file.relPath == "osprey.toml")
