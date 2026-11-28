@@ -1,6 +1,7 @@
 namespace registry_api_tests;
 import registry_api::HostedLogin
 import registry_api::HostedReview
+import registry_api::HostedOwnership
 
 module ReviewHttpTests {
     let token = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -13,6 +14,49 @@ module ReviewHttpTests {
 
     export fn receipt(cookie, id) = if cookie == token && id == submission { Success { value: "{}" } }
     else { Error { message: HostedReview::missing } }
+
+    let org = "22222222-2222-4222-8222-222222222222"
+    let pkg = "33333333-3333-4333-8333-333333333333"
+
+    export fn organize(cookie, slug, name) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if slug == "atlas" && name == "Atlas Engineering" { Success { value: org } } else { Error { message: HostedOwnership::refused } }
+
+    export fn createPackage(cookie, owner, name) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if owner == org && name == "net" { Success { value: pkg } } else { Error { message: HostedOwnership::refused } }
+
+    export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage }
+
+    /// `status|body` of one POST.
+    fn answer(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
+        Error => "-1|"
+        Success { value } => {
+            let result = toString(httpResponseStatus(value)) + "|" + (httpResponseBody(value) ?: "")
+            let _released = httpResponseFree(value)
+            result
+        }
+    }
+    fn json(headers) = headers + "\r\nContent-Type: application/json"
+
+    fn ownership(client, origin, cookie, auth) = {
+        let packages = HostedOwnership::organizations + "/" + org + "/packages"
+        let founded = "{\"handle\":\"atlas\",\"name\":\"Atlas Engineering\"}"
+        checkAll("organization and package creation require the browser, origin, CSRF token and valid names", [
+                startsWith(answer(client, HostedOwnership::organizations, json(origin), founded), "401|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(cookie), founded), "403|"),
+                answer(client, HostedOwnership::organizations, json(auth), founded) == "201|{\"id\":\"${org}\"}",
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"Atlas!\",\"name\":\"Atlas\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"atlas\",\"name\":\" Atlas\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"atlas\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"taken\",\"name\":\"Taken\"}"), "409|"),
+                answer(client, packages, json(auth), "{\"name\":\"net\"}") == "201|{\"id\":\"${pkg}\"}",
+                startsWith(answer(client, packages, json(cookie), "{\"name\":\"net\"}"), "403|"),
+                startsWith(answer(client, packages, json(auth), "{\"name\":\"\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations + "/not-a-uuid/packages", json(auth), "{\"name\":\"net\"}"), "400|"),
+                startsWith(answer(client, packages, json(auth), "{\"name\":\"other\"}"), "409|"),
+                startsWith(answer(client, HostedOwnership::organizations + "/" + pkg + "/packages", json(auth), "{\"name\":\"net\"}"), "409|")
+        ])
+    }
 
     fn status(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
         Error => -1
@@ -37,6 +81,7 @@ module ReviewHttpTests {
                     status(value, replace(path, digest, "sha256:" + (repeat("c", 64) ?: "")) ?: "", auth, "") == 403
             ])
             ListenerTests::receiptChecks(port, edge, cookie, submission)
+            ownership(value, origin, cookie, auth)
             let _closed = httpCloseClient(value)
         }
     }

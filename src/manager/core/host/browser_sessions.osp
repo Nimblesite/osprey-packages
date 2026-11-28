@@ -84,6 +84,17 @@ module BrowserSessions {
                 Success { value: Database::sessionRuntimeScript(scope, approvalStatement(), [id, digest]) })), fn(row) =>
         if row == id { Success { value: row } } else { Error { message: "publication.review-denied" } })
 
+    /// `statement` on `values` as the live session; the id it creates, or the ownership refusal [PACKAGE-OWNERSHIP-RLS].
+    fn created(cookie, issuer, subject, github, statement, values) = andThen(runtime(identifiedScript(cookie, issuer, subject, github, fn(scope) =>
+                Success { value: Database::sessionRuntimeScript(scope, statement, values) })), fn(row) =>
+        if Bytes::canonicalUuid(row) { Success { value: row } } else { Error { message: "ownership.refused" } })
+
+    export fn createOrganization(cookie, issuer, subject, github, slug, name) = created(cookie, issuer, subject, github,
+        "SELECT registry.create_organization(" + Database::decoded(1) + "," + Database::decoded(2) + ")", [slug, name])
+
+    export fn createPackage(cookie, issuer, subject, github, org, name) = created(cookie, issuer, subject, github,
+        "SELECT registry.create_package(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + ")", [org, name])
+
     export fn receipt(cookie, issuer, subject, github, id) = andThen(runtime(identifiedScript(cookie, issuer, subject, github, fn(scope) =>
                 Success { value: Database::sessionRuntimeScript(scope, "SELECT registry.publication_receipt(" + Database::decoded(1) + "::uuid)", [id]) })), fn(body) =>
         if body == "" { Error { message: "publication.unknown-submission" } } else { Success { value: body } })

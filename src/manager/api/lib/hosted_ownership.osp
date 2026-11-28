@@ -1,0 +1,40 @@
+namespace registry_api;
+import registry::Bytes
+import registry::Json
+import registry::JsonRead
+import registry::Names
+
+/// A signed-in person founds an organization and creates its packages [PACKAGE-OWNERSHIP-RLS].
+/// `POST /v1/organizations {"handle","name"}` and `POST /v1/organizations/{id}/packages {"name"}`
+/// answer `{"id"}`. A taken handle or name, or an organization the caller does not keep, creates nothing.
+module HostedOwnership {
+    export let organizations = "/v1/organizations"
+    export let badRequest = "ownership.request"
+    export let refused = "ownership.refused"
+
+    fn document(body) = match Json::parse(body) {
+        Success { value } => Success { value: value }
+        Error => Error { message: badRequest }
+    }
+    fn text(doc, key) = JsonRead::text(JsonRead::field(doc, key))
+    fn displayName(name) = trim(name) == name && byteLength(name) >= 1 && byteLength(name) <= 128
+
+    fn organize(token, doc, operations: HostedReview::Operations) = {
+        let slug = text(doc, "handle")
+        let name = text(doc, "name")
+        if Names::scopeCode(slug) != "" || !displayName(name) { Error { message: badRequest } } else { operations.organize(token, slug, name) }
+    }
+
+    fn createPackage(token, org, doc, operations: HostedReview::Operations) = {
+        let name = text(doc, "name")
+        if !Bytes::canonicalUuid(org) || Names::nameCode(name) != "" { Error { message: badRequest } } else { operations.createPackage(token, org, name) }
+    }
+
+    /// True for the two ownership routes, which carry a JSON body and need the CSRF token.
+    export fn owns(path) = path == organizations || (startsWith(path, organizations + "/") && endsWith(path, "/packages"))
+
+    /// The created id for `path` and `body`, or the request or ownership refusal.
+    export fn route(path, token, body, operations) = andThen(document(body), fn(doc) =>
+        if path == organizations { organize(token, doc, operations) }
+        else { createPackage(token, Bytes::before(drop(path, byteLength(organizations) + 1), "/"), doc, operations) })
+}

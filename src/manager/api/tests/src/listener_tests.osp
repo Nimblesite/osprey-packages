@@ -127,7 +127,7 @@ module ListenerTests {
     fn live(source, exercise) = {
         let port = 20000 + random() % 15000
         let outcome = andThen(HostedService::config(source), fn(policy) => HostedService::withListeners(
-                policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fn() => Success { value: projection }, fn(_digest) => Error { message: "missing" }, HostedLogin::unavailable, fn(_path, _headers) => HostedLogin::unavailable(), fn(_method, _token) => HostedLogin::unavailable(), HostedReview::Operations { approve: ReviewHttpTests::decide, receipt: ReviewHttpTests::receipt }, fn() => exercise(port)))
+                policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fn() => Success { value: projection }, fn(_digest) => Error { message: "missing" }, HostedLogin::unavailable, fn(_path, _headers) => HostedLogin::unavailable(), fn(_method, _token) => HostedLogin::unavailable(), ReviewHttpTests::operations(), fn() => exercise(port)))
         match outcome {
             Error { message } => check("two listeners start", "ready", message)
             Success { value } => check("listeners finish the request sequence", 0, value)

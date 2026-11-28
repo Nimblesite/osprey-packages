@@ -224,9 +224,14 @@ module HostedLogin {
     fn receipt(config, token, id) = nativeAction(config, token, fn(cookie, identity: Supabase::Identity) =>
         BrowserSessions::receipt(cookie, issuerOf(config.oauth), identity.authSubject, identity.githubId, id))
 
+    fn owned(config, token, create) = nativeAction(config, token, fn(cookie, identity: Supabase::Identity) =>
+        create(cookie, issuerOf(config.oauth), identity.authSubject, identity.githubId))
+
     export fn reviewOperations(config) = HostedReview::Operations {
         approve: fn(token, id, digest) => approve(config, token, id, digest),
-        receipt: fn(token, id) => receipt(config, token, id)
+        receipt: fn(token, id) => receipt(config, token, id),
+        organize: fn(token, slug, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createOrganization(cookie, issuer, subject, github, slug, name)),
+        createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name))
     }
 
     export fn nativeSession(config, method, token) = if method == "POST" { BrowserSessions::logout(sessionDigest(token)) }
