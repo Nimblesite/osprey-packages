@@ -43,6 +43,8 @@ module ScanTests {
                 receipt(release, dir, bytes, provider("accepted", "end_turn", "other"), 200) == "pending",
                 receipt(release, dir, bytes, accepted, 503) == "pending",
                 receipt(release, "@team/one/1.2", bytes, accepted, 200) == "pending",
+                receipt(release, dir, bytes + " ", accepted, 200) == "pending",
+                receipt(release, dir, "{\"unexpected\":true," + drop(bytes, 1), accepted, 200) == "pending",
                 receipt(release, dir, replace(bytes, "REVIEW_THIS_BYTE", "CHANGED") ?: "", accepted, 200) == "pending"
         ])
     }
