@@ -190,7 +190,8 @@ step_supabase() {
 }
 
 # --- Terraform [PACKAGE-HOSTED-TOPOLOGY] ------------------------------------------------------
-tf() { TF_DATA_DIR="$WORK/terraform" terraform -chdir="$TF_DIR" "$@"; }
+# A fresh token from the signed-in gcloud on every call: no separate application-default login to go stale.
+tf() { GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth print-access-token)" TF_DATA_DIR="$WORK/terraform" terraform -chdir="$TF_DIR" "$@"; }
 
 tf_init() {
   local bucket="$GCP_PROJECT_ID-osprey-registry-tfstate"
