@@ -5,6 +5,7 @@ import registry::Release
 import registry::ReleaseFiles
 import registry::Bundle
 import registry::Json
+import registry::JsonRead
 import registry::Canonical
 
 module ScanTests {
@@ -17,11 +18,17 @@ module ScanTests {
         "{\"stopReason\":\"" + stop + "\",\"_meta\":{\"nap\":{\"sessionId\":\"" + jobSession + "\"}},\"updates\":[{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":" + encoded + "}}]}"
     }
 
+    fn toolFree(payload) = match Json::parse(payload) {
+        Success { value } => JsonRead::text(JsonRead::at(value, "_meta/nap/toolManifestSha256")) == "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+        Error => false
+    }
+
     fn scan(body, status, source) = {
         handle Supabase::Provider {
             request method base path headers payload =>
             if method != "POST" || base != "https://api.nimblesite.ai" || !contains(headers, "X-API-Key: fixture") { reply(400, "") }
             else if endsWith(path, "/new") && payload == "{\"cwd\":\"/\",\"mcpServers\":[]}" { reply(200, "{\"sessionId\":\"" + session + "\"}") }
+            else if endsWith(path, "/prompt") && !toolFree(payload) { reply(409, "") }
             else if endsWith(path, "/prompt") && contains(payload, "REVIEW_THIS_BYTE") { reply(status, body) }
             else { reply(400, "") }
         }
@@ -42,6 +49,7 @@ module ScanTests {
                 receipt(release, dir, bytes, provider("accepted", "max_tokens", session), 200) == "pending",
                 receipt(release, dir, bytes, provider("accepted", "end_turn", "other"), 200) == "pending",
                 receipt(release, dir, bytes, accepted, 503) == "pending",
+                receipt(release, dir, bytes, accepted, 409) == "pending",
                 receipt(release, "@team/one/1.2", bytes, accepted, 200) == "pending",
                 receipt(release, dir, bytes + " ", accepted, 200) == "pending",
                 receipt(release, dir, "{\"unexpected\":true," + drop(bytes, 1), accepted, 200) == "pending",

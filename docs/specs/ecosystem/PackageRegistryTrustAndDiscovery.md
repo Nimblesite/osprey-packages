@@ -468,6 +468,8 @@ Both responses carry `Cache-Control: no-store`.
 
 ### Verdict `[PACKAGE-SECURITY-SCAN-VERDICT]`
 
+Every source-carrying prompt must pin NAP’s empty tool manifest through `_meta.nap.toolManifestSha256`. A changed tool contract leaves the job pending.
+
 The scan returns exactly one verdict:
 
 - `accepted`: the scan found nothing that blocks publication. Every other gate

@@ -50,7 +50,10 @@ module PublicationScan {
 
     fn prompt(session, source) = {
         let content = Json::obj([Json::member("type", Json::str("text")), Json::member("text", Json::str(source))])
-        Canonical::serialize(Json::obj([Json::member("sessionId", Json::str(session)), Json::member("prompt", Json::arr([content]))]))
+        // NAP compares the pinned empty tool manifest before executing the turn [PACKAGE-SECURITY-SCAN-VERDICT].
+        let contract = Json::obj([Json::member("toolManifestSha256", Json::str("4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"))])
+        let meta = Json::obj([Json::member("nap", contract)])
+        Canonical::serialize(Json::obj([Json::member("sessionId", Json::str(session)), Json::member("prompt", Json::arr([content])), Json::member("_meta", meta)]))
     }
 
     fn submit(configId, apiKey, session, source) = if !Bytes::canonicalUuid(session) { refused() }
