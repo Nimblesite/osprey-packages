@@ -44,7 +44,7 @@ module Consume {
                 "d=$(mktemp -d) && cd \"$d\" && printf '%s\\n' ",
                 Host::shellWord("fetch ${digest} --registry http://127.0.0.1:${edgePort}"),
                 " | \"$OLDPWD/target/osprey-pkg\"; s=$?; cd \"$OLDPWD\"; rm -rf \"$d\"; exit $s"
-    ], ""))
+            ], ""))
 
     fn fetchedOk(run: Host::Run, key, version, digest) = run.status == 0 && contains(run.stdout, "fetched: ${key}@${version}#${digest}") && contains(run.stdout, "status: 0")
 
