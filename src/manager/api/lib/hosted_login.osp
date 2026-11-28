@@ -19,6 +19,12 @@ module HostedLogin {
 
     export type Redirect = { location: string, cookie: string }
     export type Settings = { oauth: OAuth::Config, key: string, sessionKey: string }
+    export let passkeyCookieName = "__Host-registry-passkey"
+    export let expiredPasskeyCookie = "${passkeyCookieName}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax"
+    /// A passkey challenge reply and the cookie that carries its id back.
+    export type PasskeyStart = { body: string, cookie: string }
+    /// Passkey sign-in: `options()` starts a challenge, `verify(challenge, credential)` issues the browser session.
+    export type Passkeys = { options: fn() -> Result<PasskeyStart, string>, verify: fn(string, string) -> Result<Redirect, string> }
 
     fn field(doc, key) = JsonRead::text(JsonRead::field(doc, key))
 
@@ -233,13 +239,41 @@ module HostedLogin {
         organize: fn(token, slug, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createOrganization(cookie, issuer, subject, github, slug, name)),
         createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name)),
         bind: fn(token, pkg, repository, branch, dir) => Forge::closed()(fn() => owned(config, token, fn(cookie, issuer, subject, github) =>
-                bound(cookie, issuer, subject, github, pkg, repository, branch, dir))),
+                    bound(cookie, issuer, subject, github, pkg, repository, branch, dir))),
         release: fn(token, pkg, commit, epoch, ordinal) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal))
     }
 
     /// Bind only a repository the forge says this GitHub account administers [PACKAGE-HOSTED-PUBLISH-FLOW].
     export fn bound(cookie, issuer, subject, github, pkg, repository, branch, dir) = andThen(perform Forge::Repository.admin(repository, github), fn(admin) =>
         if admin { BrowserSessions::bindRepository(cookie, issuer, subject, github, pkg, repository, branch, dir) } else { Error { message: HostedOwnership::refused } })
+
+    /// The challenge id travels only in a five-minute HttpOnly cookie; Supabase consumes the challenge once.
+    export fn passkeyStart(oauth) = andThen(Supabase::passkeyChallenge(oauth), fn(challenge: Supabase::Challenge) => Success { value: PasskeyStart {
+                body: challenge.body, cookie: "${passkeyCookieName}=${challenge.id}; Path=/; Max-Age=300; Secure; HttpOnly; SameSite=Lax" } })
+
+    /// The challenge id this browser was given, or "" without exactly one.
+    export fn passkeyChallenge(headers) = HostedCookies::foundValue(HostedCookies::select(HostedHeaders::find(headers, "cookie") ?: "", passkeyCookieName))
+
+    /// The provider session for a WebAuthn assertion `body` over `challenge`. Only a JSON object is relayed.
+    export fn passkeyAssertion(oauth, challenge, body) = match Json::parse(body) {
+        Success { value } => match value {
+            Json::Obj { members } => if isEmpty(members) { Error { message: Supabase::passkeyRejected } } else { Supabase::passkeySession(oauth, challenge, value) }
+            _ => Error { message: Supabase::passkeyRejected }
+        }
+        Error => Error { message: Supabase::passkeyRejected }
+    }
+
+    fn passkeySignIn(config, challenge, body) = andThen(passkeyAssertion(config.oauth, challenge, body), fn(session) =>
+        andThen(verifyCurrent(config.oauth, session), fn(current) => issueNative(config, current)))
+
+    /// A passkey issues the same sealed browser session as the GitHub callback [PACKAGE-HOSTED-AUTH].
+    export fn nativePasskeys(config: Settings) = Passkeys {
+        options: fn() => if config.key == "" { unavailable() } else { ProviderNative::transport()(fn() => passkeyStart(config.oauth)) },
+        verify: fn(challenge, body) => if config.key == "" { unavailable() } else { ProviderNative::transport()(fn() => passkeySignIn(config, challenge, body)) }
+    }
+
+    /// No passkey provider: every request is refused.
+    export fn noPasskeys() = Passkeys { options: unavailable, verify: fn(_challenge, _body) => unavailable() }
 
     export fn nativeSession(config, method, token) = if method == "POST" { BrowserSessions::logout(sessionDigest(token)) }
     else { nativeRead(config, token, BrowserSessions::revalidate) }

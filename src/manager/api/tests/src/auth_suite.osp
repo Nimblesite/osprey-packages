@@ -35,6 +35,7 @@ module AuthSuite {
         ProviderTests::run(config())
         WebhookTests::run()
         KmsTests::run()
+        PasskeyTests::run()
         0
     }
 

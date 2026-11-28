@@ -1,0 +1,185 @@
+namespace registry_api_tests;
+import registry_api::HostedLogin
+import registry_api::OAuth
+import registry_api::Supabase
+
+/// Passkey sign-in through Supabase Auth passkeys [PACKAGE-HOSTED-AUTH]: the API relays the challenge
+/// and the assertion, and only Supabase's signed session for a GitHub-bound account opens a browser session.
+module PasskeyTests {
+    let challenge = "44444444-4444-4444-8444-444444444444"
+    let subject = "11111111-1111-4111-8111-111111111111"
+    let receipt = "22222222-2222-4222-8222-222222222222"
+    let optionsPath = "/auth/v1/passkeys/authentication/options"
+    let verifyPath = "/auth/v1/passkeys/authentication/verify"
+    let requestOptions = "{\"challenge\":\"Y2hhbGxlbmdl\",\"rpId\":\"packages.example.test\",\"userVerification\":\"preferred\"}"
+    let publicKey = "{\"publicKey\":${requestOptions}}"
+    let unavailable = "auth.passkey-unavailable"
+    let rejected = "auth.passkey-rejected"
+    let cookieSuffix = "; Path=/; Max-Age=300; Secure; HttpOnly; SameSite=Lax"
+
+    fn config() = KmsTests::oauthConfig("https://api.example.test/v1/auth/github/callback")
+
+    fn code(result) = match result {
+        Error { message } => message
+        Success => ""
+    }
+
+    fn reply(status, body) = Success { value: Supabase::Reply { status: status, body: body } }
+
+    fn account(github, provider) = "{\"id\":\"${subject}\",\"identities\":[{\"user_id\":\"${subject}\",\"provider\":\"${provider}\",\"id\":\"${github}\"}]}"
+
+    fn tokens(access) = "{\"access_token\":\"${access}\",\"refresh_token\":\"refresh-fixture\",\"expires_in\":600}"
+
+    fn assertion(credential) = "{\"challenge_id\":\"${challenge}\",\"credential\":{\"id\":\"${credential}\"}}"
+
+    /// Supabase as the fixtures need it: one challenge, credentials `known` (GitHub 421), `stranger`
+    /// (GitHub 999), `email` (no GitHub identity) and `outage`; every other assertion is refused.
+    fn provider(method, base, path, headers, payload) = {
+        let keyed = base == "https://project.supabase.co" && contains(headers, "apikey: sb_publishable_fixture")
+        let posted = keyed && method == "POST" && contains(headers, "Content-Type: application/json")
+        if posted && path == optionsPath && payload == "{}" { reply(200, "{\"challenge_id\":\"${challenge}\",\"options\":${requestOptions},\"expires_at\":1}") }
+        else if posted && path == verifyPath && payload == assertion("known") { reply(200, tokens("access-known")) }
+        else if posted && path == verifyPath && payload == assertion("stranger") { reply(200, tokens("access-stranger")) }
+        else if posted && path == verifyPath && payload == assertion("email") { reply(200, tokens("access-email")) }
+        else if posted && path == verifyPath && payload == assertion("outage") { reply(500, "{}") }
+        else if posted && path == verifyPath { reply(400, "{\"error_code\":\"webauthn_verification_failed\"}") }
+        else if keyed && method == "GET" && path == "/auth/v1/user" && contains(headers, "Authorization: Bearer access-known") { reply(200, account("421", "github")) }
+        else if keyed && method == "GET" && path == "/auth/v1/user" && contains(headers, "Authorization: Bearer access-stranger") { reply(200, account("999", "github")) }
+        else if keyed && method == "GET" && path == "/auth/v1/user" && contains(headers, "Authorization: Bearer access-email") { reply(200, account("421", "email")) }
+        else { Error { message: "unexpected-provider-request" } }
+    }
+
+    fn withProvider(action) = {
+        handle Supabase::Provider {
+            request method base path headers payload => provider(method, base, path, headers, payload)
+        }
+        action()
+    }
+
+    fn answering(status, body, action) = {
+        handle Supabase::Provider {
+            request _method _base _path _headers _payload => reply(status, body)
+        }
+        action()
+    }
+
+    fn offline(action) = {
+        handle Supabase::Provider {
+            request _method _base _path _headers _payload => Error { message: "fixture-outage" }
+        }
+        action()
+    }
+
+    fn challengeCode(status, body) = code(answering(status, body, fn() => Supabase::passkeyChallenge(config())))
+
+    fn challenges() = {
+        let base = config()
+        let started = withProvider(fn() => Supabase::passkeyChallenge(config()))
+        checkAll("a challenge relays Supabase's id and request options, and nothing malformed", [
+                match started {
+                    Success { value } => value.id == challenge && value.body == publicKey
+                    Error => false
+                },
+                challengeCode(500, "{}") == unavailable,
+                challengeCode(200, "not-json") == unavailable,
+                challengeCode(200, "{\"challenge_id\":\"latest\",\"options\":${requestOptions}}") == unavailable,
+                challengeCode(200, "{\"challenge_id\":\"${challenge}\"}") == unavailable,
+                challengeCode(200, "{\"challenge_id\":\"${challenge}\",\"options\":{\"rpId\":\"packages.example.test\"}}") == unavailable,
+                code(offline(fn() => Supabase::passkeyChallenge(config()))) == unavailable,
+                code(withProvider(fn() => Supabase::passkeyChallenge(base { supabaseOrigin: "http://project.supabase.co" }))) == unavailable
+        ])
+    }
+
+    fn signIn(id, body) = withProvider(fn() => HostedLogin::passkeyAssertion(config(), id, body))
+
+    fn assertions() = checkAll("only Supabase's session for one GitHub-bound account signs in", [
+            match signIn(challenge, "{\"id\":\"known\"}") {
+                Success { value } => value.identity.authSubject == subject && value.identity.githubId == "421" && value.accessToken == "access-known"
+                Error => false
+            },
+            code(signIn(challenge, "{\"id\":\"forged\"}")) == rejected,
+            code(signIn(challenge, "{\"id\":\"email\"}")) == "auth.github-identity",
+            code(signIn(challenge, "{\"id\":\"outage\"}")) == "auth.provider-rejected",
+            code(signIn("latest", "{\"id\":\"known\"}")) == rejected,
+            code(signIn("", "{\"id\":\"known\"}")) == rejected,
+            code(signIn(challenge, "{}")) == rejected,
+            code(signIn(challenge, "[]")) == rejected,
+            code(signIn(challenge, "\"known\"")) == rejected,
+            code(signIn(challenge, "{")) == rejected,
+            code(signIn(challenge, "")) == rejected,
+            code(offline(fn() => HostedLogin::passkeyAssertion(config(), challenge, "{\"id\":\"known\"}"))) == "auth.provider-unavailable"
+    ])
+
+    fn started() = match withProvider(fn() => HostedLogin::passkeyStart(config())) {
+        Error { message } => check("a passkey challenge starts", "started", message)
+        Success { value } => checkAll("the challenge id leaves only in a short HttpOnly cookie", [
+                value.body == publicKey, !contains(value.body, challenge),
+                value.cookie == "__Host-registry-passkey=${challenge}${cookieSuffix}"
+        ])
+    }
+
+    fn seal(_context, session: Supabase::Session) = if session.accessToken == "" { Error { message: "fixture.invalid-context" } } else { Success { value: "YQ==" } }
+
+    fn store(_digest, _issuer, _subject, github, _envelope) = Success { value: if github == "421" { receipt } else { "" } }
+
+    /// The listener's passkey routes over the fixture provider: GitHub 421 holds the one registry account.
+    export fn passkeys() = HostedLogin::Passkeys {
+        options: fn() => withProvider(fn() => HostedLogin::passkeyStart(config())),
+        verify: fn(id, body) => withProvider(fn() => andThen(HostedLogin::passkeyAssertion(config(), id, body), fn(session) =>
+                HostedLogin::issue(config(), session, seal, store)))
+    }
+
+    /// `status|allowed origin|set-cookie|body` of one POST.
+    fn answer(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
+        Error => "-1|||"
+        Success { value } => {
+            let result = "${httpResponseStatus(value)}|${httpResponseHeader(value, "access-control-allow-origin") ?: ""}|${httpResponseHeader(value, "set-cookie") ?: ""}|${httpResponseBody(value) ?: ""}"
+            let _released = httpResponseFree(value)
+            result
+        }
+    }
+
+    fn requests(client, edge) = {
+        let website = "https://packages.example.test"
+        let origin = edge + "\r\nOrigin: ${website}\r\nContent-Type: application/json"
+        let stale = origin + "\r\nCookie: __Host-registry=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        let bound = origin + "\r\nCookie: __Host-registry-passkey=${challenge}"
+        let options = "/v1/auth/passkey/options"
+        let verify = "/v1/auth/passkey/verify"
+        let challenged = "200|${website}|__Host-registry-passkey=${challenge}${cookieSuffix}|${publicKey}"
+        let signedIn = answer(client, verify, bound, "{\"id\":\"known\"}")
+        let refusal = "401|${website}|${HostedLogin::expiredPasskeyCookie}|{\"code\":\"${rejected}\",\"status\":401}"
+        checkAll("passkey routes answer the website origin only, and a challenge opens one session", [
+                answer(client, options, origin, "{}") == challenged,
+                answer(client, options, stale, "{}") == challenged,
+                startsWith(answer(client, options, edge + "\r\nContent-Type: application/json", "{}"), "403||"),
+                startsWith(answer(client, options, edge + "\r\nOrigin: https://evil.example.test\r\nContent-Type: application/json", "{}"), "403||"),
+                startsWith(signedIn, "204|${website}|__Host-registry=") && contains(signedIn, "; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax|"),
+                !contains(signedIn, receipt) && !contains(signedIn, "access-known"),
+                answer(client, verify, bound, "{\"id\":\"forged\"}") == refusal,
+                answer(client, verify, bound, "{\"id\":\"email\"}") == refusal,
+                answer(client, verify, bound, "[]") == refusal,
+                answer(client, verify, origin, "{\"id\":\"known\"}") == refusal,
+                answer(client, verify, origin + "\r\nCookie: __Host-registry-passkey=latest", "{\"id\":\"known\"}") == refusal,
+                startsWith(answer(client, verify, bound, "{\"id\":\"stranger\"}"), "403|${website}|${HostedLogin::expiredPasskeyCookie}|{\"code\":\"auth.session-unapproved\""),
+                startsWith(answer(client, verify, bound, "{\"id\":\"outage\"}"), "503|${website}|${HostedLogin::expiredPasskeyCookie}|"),
+                startsWith(answer(client, verify, edge + "\r\nContent-Type: application/json\r\nCookie: __Host-registry-passkey=${challenge}", "{\"id\":\"known\"}"), "403||")
+        ])
+    }
+
+    /// Drive the passkey routes of the live listener on `port`.
+    export fn exercise(port, edge) = match httpCreateClient("http://127.0.0.1:${port}", 5000) {
+        Error { message } => check("passkey listener", "ready", message)
+        Success { value } => {
+            let checked = requests(value, edge)
+            let _closed = httpCloseClient(value)
+            checked
+        }
+    }
+
+    export fn run() = {
+        test("auth: passkey challenge relay", challenges)
+        test("auth: passkey assertion verification", assertions)
+        test("auth: passkey challenge cookie", started)
+    }
+}

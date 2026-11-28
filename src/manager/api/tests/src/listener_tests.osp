@@ -98,6 +98,7 @@ module ListenerTests {
         let edge = "X-Edge-Host: 127.0.0.1\r\nX-Edge-Secret: test-only-secret-with-at-least-32-bytes"
         sessions(port, edge)
         ReviewHttpTests::exercise(port, edge)
+        PasskeyTests::exercise(port, edge)
         let admitted = fetch(port, v1Packages, edge)
         let crossOrigin = fetch(port, v1Packages, edge + "\r\nOrigin: https://packages.example.test")
         let etag = fetchEtag(port, v1Packages, edge)
@@ -127,7 +128,7 @@ module ListenerTests {
     fn live(source, exercise) = {
         let port = 20000 + random() % 15000
         let outcome = andThen(HostedService::config(source), fn(policy) => HostedService::withListeners(
-                policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fn() => Success { value: projection }, fn(_digest) => Error { message: "missing" }, HostedLogin::unavailable, fn(_path, _headers) => HostedLogin::unavailable(), fn(_method, _token) => HostedLogin::unavailable(), ReviewHttpTests::operations(), fn() => exercise(port)))
+                policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fn() => Success { value: projection }, fn(_digest) => Error { message: "missing" }, HostedLogin::unavailable, fn(_path, _headers) => HostedLogin::unavailable(), fn(_method, _token) => HostedLogin::unavailable(), PasskeyTests::passkeys(), ReviewHttpTests::operations(), fn() => exercise(port)))
         match outcome {
             Error { message } => check("two listeners start", "ready", message)
             Success { value } => check("listeners finish the request sequence", 0, value)
