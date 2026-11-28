@@ -18,7 +18,8 @@ locals {
     catalog-writer  = "registry_catalog_writer"
   }
   # Transaction pooler: one short transaction per psql run; Supavisor names users <role>.<ref>.
-  database_logins = merge(local.api_database_logins, { scan = "registry_scan_worker" })
+  publication_logins = { collector = "registry_publication_collector", scan = "registry_scan_worker" }
+  database_logins    = merge(local.api_database_logins, local.publication_logins)
   service_entries = { for service, role in local.database_logins : service => <<-EOT
     [${service}]
     host=${var.supabase_pooler_host}

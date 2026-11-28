@@ -222,12 +222,13 @@ _registry-integration-verify:
 _registry-infra-check: export TF_DATA_DIR = $(CURDIR)/target/registry-infra/data
 _registry-infra-check:
 	ruby scripts/packages/check-action-pins.rb
-	shellcheck -S warning src/manager/ops/deploy.sh scripts/packages/check-website-release.sh scripts/packages/test-deploy-main-only.sh
+	shellcheck -S warning src/manager/ops/deploy.sh scripts/packages/check-website-release.sh scripts/packages/check-registry-logins.sh scripts/packages/test-deploy-main-only.sh
 	scripts/packages/test-deploy-main-only.sh
 	node scripts/packages/test-edge-worker.mjs
 	terraform -chdir=$(REGISTRY_TERRAFORM) fmt -check
 	terraform -chdir=$(REGISTRY_TERRAFORM) init -backend=false -lockfile=readonly -input=false
 	terraform -chdir=$(REGISTRY_TERRAFORM) validate
+	scripts/packages/check-registry-logins.sh
 
 .PHONY: deploy
 ## deploy: Stand up or converge a hosted environment: Cloudflare → Cloud Run → Supabase (docs/DEPLOY.md).

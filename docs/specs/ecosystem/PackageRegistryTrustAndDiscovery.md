@@ -453,7 +453,7 @@ append-only. Independent signing and eligibility gates still apply before public
 listing, metadata, licenses or source downloads become available.
 
 PostgreSQL must enforce this sequence with forced RLS, immutable job identities
-and separate collector, scanner and reviewer privileges. The database checks
+and separate collector, scanner and reviewer privileges. Provision distinct PostgreSQL logins for the collector and scanner. For database access, each workload receives its own login and the database CA. The API service file excludes both publication logins. The database checks
 the reviewer's live session and current permission on insertion. Runtime roles
 cannot grant themselves permission or edit an existing job, receipt or approval.
 

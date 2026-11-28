@@ -25,9 +25,14 @@ resource "google_storage_bucket_iam_member" "quarantine" {
 }
 
 # The agent configuration (including its API key) is supplied directly in Secret Manager.
-# The listener cannot mount either scanner secret.
-resource "google_secret_manager_secret" "scanner" {
-  for_each  = toset(["scan-db", "scan-agent"])
+# Each publication identity can read its own database login. The listener receives neither.
+moved {
+  from = google_secret_manager_secret.scanner
+  to   = google_secret_manager_secret.publication
+}
+
+resource "google_secret_manager_secret" "publication" {
+  for_each  = setunion(toset(["scan-agent"]), toset([for service in keys(local.publication_logins) : "${service}-db"]))
   secret_id = "${local.name}-${each.key}"
   replication {
     auto {}
@@ -35,15 +40,21 @@ resource "google_secret_manager_secret" "scanner" {
   depends_on = [google_project_service.required]
 }
 
-resource "google_secret_manager_secret_version" "scanner_db" {
-  secret      = google_secret_manager_secret.scanner["scan-db"].id
-  secret_data = local.service_entries["scan"]
+moved {
+  from = google_secret_manager_secret_version.scanner_db
+  to   = google_secret_manager_secret_version.publication_db["scan"]
+}
+
+resource "google_secret_manager_secret_version" "publication_db" {
+  for_each    = local.publication_logins
+  secret      = google_secret_manager_secret.publication["${each.key}-db"].id
+  secret_data = local.service_entries[each.key]
 }
 
 locals {
   scan_mounts = {
-    database = { dir = "/run/registry-scan-db", file = "pg_service.conf", secret = google_secret_manager_secret.scanner["scan-db"].secret_id, version = google_secret_manager_secret_version.scanner_db.version }
-    agent    = { dir = "/run/registry-scan", file = "agent.json", secret = google_secret_manager_secret.scanner["scan-agent"].secret_id, version = var.scan_agent_secret_version }
+    database = { dir = "/run/registry-scan-db", file = "pg_service.conf", secret = google_secret_manager_secret.publication["scan-db"].secret_id, version = google_secret_manager_secret_version.publication_db["scan"].version }
+    agent    = { dir = "/run/registry-scan", file = "agent.json", secret = google_secret_manager_secret.publication["scan-agent"].secret_id, version = var.scan_agent_secret_version }
     ca       = { dir = "/run/catalog-ca", file = "ca.pem", secret = google_secret_manager_secret.mounted["catalog-ca"].secret_id, version = google_secret_manager_secret_version.mounted["catalog-ca"].version }
   }
 }
@@ -53,6 +64,16 @@ resource "google_secret_manager_secret_iam_member" "scanner" {
   secret_id = each.value.secret
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.publication["scanner"].email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "collector" {
+  for_each = {
+    database = google_secret_manager_secret.publication["collector-db"].secret_id
+    ca       = google_secret_manager_secret.mounted["catalog-ca"].secret_id
+  }
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.publication["collector"].email}"
 }
 
 variable "scan_agent_secret_version" {
