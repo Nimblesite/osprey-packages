@@ -28,6 +28,10 @@ The regression applies the simulated revocation before the publication statement
 
 Transport fixtures verified the precondition and retry decisions. A local concurrency check ran 16 conflicting writes against the hard-link fixture and observed one winner. Eight identical retries succeeded. Cloud deployment and provider-backed concurrency verification remain open.
 
+## Collector fetched source before applying the aggregate byte limit
+
+**Fixed on feature branch · [PACKAGE-HOSTED-PUBLISH-FLOW].** The GitHub adapter fetched each blob before the release assembler enforced the 50 MiB limit. An oversized tree could therefore consume network requests and worker memory before refusal. The collector now checks declared sizes, modes, blob types and object IDs before fetching blobs, and checks each response against its declared length. A missing tree array fails the collection. The transport regression uses two 30 MB declarations and a fixture that distinguishes a fetch attempt from an immediate refusal.
+
 ## Production observations
 
 A TLS-verified anonymous GET returned 200 for the plural hostname’s homepage and catalog API, 401 for the session endpoint, and 404 for the website’s release page. The singular hostname failed DNS resolution from the test host. These observations establish availability and guest-session behavior only. No production publication or private package access was exercised.

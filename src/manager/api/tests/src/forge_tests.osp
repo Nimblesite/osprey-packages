@@ -40,12 +40,15 @@ module ForgeTests {
     fn permission(level, id) = ok("{\"permission\":\"${level}\",\"user\":{\"id\":${id}}}")
     fn mergeBase() = ok("{\"status\":\"ahead\",\"merge_base_commit\":{\"sha\":\"${commit}\"}}")
 
-    /// The package tree; `variant` damages one fact GitHub reports about it.
-    fn packageTree(variant) = listing(if variant == "truncated" { "true" } else { "false" }, join([
-                file("osprey.toml", "100644", manifestBlob, if variant == "short" { 5 } else { byteLength(manifest) }),
-                tree("src", net),
-                file("src/main.osp", if variant == "symlink" { "120000" } else if variant == "executable" { "100755" } else { "100644" }, mainBlob, byteLength(program))
-            ], ","))
+    fn declaredSize(variant, size) = if variant == "oversize" { 30000000 } else { size }
+
+    /// The package tree; `variant` changes one fact GitHub reports about it.
+    fn packageTree(variant) = if variant == "missing-tree" { ok("{\"truncated\":false}") }
+    else { listing(if variant == "truncated" { "true" } else { "false" }, join([
+                    file("osprey.toml", "100644", manifestBlob, if variant == "short" { 5 } else { declaredSize(variant, byteLength(manifest)) }),
+                    tree("src", net),
+                    file("src/main.osp", if variant == "symlink" { "120000" } else if variant == "executable" { "100755" } else { "100644" }, mainBlob, declaredSize(variant, byteLength(program)))
+                ], ",")) }
 
     fn reads(path, variant) = if path == "/user/7201" { person("ada", 7201) }
     else if path == "/user/7202" { person("rex", 7202) }
@@ -68,7 +71,7 @@ module ForgeTests {
         else if base != api || variant == "outage" { Error { message: "fixture.unexpected-request" } }
         else if method == "POST" && path == "/app/installations/88/access_tokens" && headers == appHeaders { if body == grant { Success { value: Supabase::Reply { status: 201, body: "{\"token\":\"ghs_fixture\"}" } } } else { status(422) } }
         else if method == "GET" && headers == readHeaders && body == "" { reads(path, variant) }
-        else if method == "GET" && headers == rawHeaders && body == "" { blobs(path) }
+        else if method == "GET" && headers == rawHeaders && body == "" { if variant == "oversize" { status(503) } else { blobs(path) } }
         else { status(401) }
     }
 
@@ -112,6 +115,8 @@ module ForgeTests {
                 fileCode("truncated", "main", commit, dir) == refusal,
                 fileCode("symlink", "main", commit, dir) == refusal,
                 fileCode("executable", "main", commit, dir) == refusal,
+                fileCode("missing-tree", "main", commit, dir) == refusal,
+                fileCode("oversize", "main", commit, dir) == refusal,
                 fileCode("short", "main", commit, dir) == refusal,
                 fileCode("outage", "main", commit, dir) == ForgeGithub::unavailable
         ])

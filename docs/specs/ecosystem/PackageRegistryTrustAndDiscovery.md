@@ -161,7 +161,7 @@ as an image, never inline script-capable markup. Search indexes escaped plain
 text only. Sanitizer/parser failures quarantine the release.
 
 Each submission is bounded to 10,000 files and 50 MiB, with at most 25 MiB of
-assets. Release assembly checks file count and total source bytes before inspecting file contents. Parsing, compilation, tests, and scanners have fixed CPU, memory, output,
+assets. The forge collector checks the tree’s declared file sizes and aggregate source size before fetching blobs, then checks each received blob’s byte length. Release assembly checks file count and total source bytes before inspecting file contents. Parsing, compilation, tests, and scanners have fixed CPU, memory, output,
 and wall-time limits. Tests execute only in a disposable network-denied registry
 sandbox; installation never runs them.
 

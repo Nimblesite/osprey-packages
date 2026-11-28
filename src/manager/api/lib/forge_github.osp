@@ -5,6 +5,7 @@ import registry::Dsse
 import registry::Json
 import registry::JsonRead
 import registry::Release
+import registry::Source
 import registry::Sha256
 
 /// GitHub through the registry's own GitHub App [PACKAGE-HOSTED-PUBLISH-FLOW]: a Cloud KMS key signs the
@@ -96,7 +97,7 @@ module ForgeGithub {
 
     fn entries(token, repository, tree, suffix) = andThen(get(token, "/repositories/${repository}/git/trees/${tree}${suffix}"), fn(doc) =>
         match JsonRead::field(doc, "truncated") {
-            Json::Bool { flag } => if flag { Error { message: refused } } else { Success { value: JsonRead::items(JsonRead::field(doc, "tree")) } }
+            Json::Bool { flag } => if flag { Error { message: refused } } else { JsonRead::requiredItems(doc, "tree", refused) }
             _ => Error { message: unavailable }
     })
 
@@ -110,19 +111,28 @@ module ForgeGithub {
                 subtree(token, repository, AuthText::field(entry, "sha"), segments, depth + 1)))
     }
 
+    /// Reject unsupported entries and unbounded sizes before requesting any file contents.
+    fn totalAfter(total, entry) = {
+        let size = JsonRead::number(JsonRead::field(entry, "size"))
+        if total < 0 || size < 0 || Source::limitCode(0, size, 0) != "" || Source::limitCode(0, total, 0) != ""
+        || AuthText::field(entry, "type") != "blob" || AuthText::field(entry, "mode") != "100644"
+        || !Forge::commitOk(AuthText::field(entry, "sha")) { -1 } else { total + size }
+    }
+
     fn blob(token, repository, entry) = {
         let sha = AuthText::field(entry, "sha")
         let size = JsonRead::number(JsonRead::field(entry, "size"))
-        if AuthText::field(entry, "mode") != "100644" || !Forge::commitOk(sha) { Error { message: refused } }
-        else { andThen(answered(perform Supabase::Provider.request("GET", api, "/repositories/${repository}/git/blobs/${sha}", headers(token, raw), ""), 200), fn(content) =>
-                if byteLength(content) == size { Success { value: Release::File { relPath: AuthText::field(entry, "path"), content: content } } }
-                else { Error { message: refused } }) }
+        andThen(answered(perform Supabase::Provider.request("GET", api, "/repositories/${repository}/git/blobs/${sha}", headers(token, raw), ""), 200), fn(content) =>
+            if byteLength(content) == size { Success { value: Release::File { relPath: AuthText::field(entry, "path"), content: content } } }
+            else { Error { message: refused } })
     }
 
     /// Every entry that is not a directory must be a plain file: a symlink, submodule or executable refuses the tree.
     fn fetched(token, repository, listed) = {
         let leaves = filterList(listed, fn(entry) => AuthText::field(entry, "type") != "tree")
-        if length(leaves) > fileLimit { Error { message: refused } } else { Checked::collectAll(leaves, fn(entry) => blob(token, repository, entry)) }
+        let total = foldList(leaves, 0, totalAfter)
+        if total < 0 || length(leaves) > fileLimit || Source::limitCode(length(leaves), total, 0) != "" { Error { message: refused } }
+        else { Checked::collectAll(leaves, fn(entry) => blob(token, repository, entry)) }
     }
 
     fn filesWith(token, repository, branch, commit, subdirectory) = andThen(reachable(token, repository, branch, commit), fn(sha) =>
