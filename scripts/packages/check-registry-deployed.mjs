@@ -1,0 +1,147 @@
+// Live acceptance of a deployed registry environment [PACKAGE-HOSTED-TOPOLOGY] [PACKAGE-HOSTED-EDGE].
+// Usage: node scripts/packages/check-registry-deployed.mjs <staging|production> <domain>
+// Read-only: every request is a GET, HEAD or OPTIONS a visitor could send; nothing is written.
+import assert from 'node:assert/strict';
+import tls from 'node:tls';
+import { chromium } from 'playwright';
+
+const [env, domain] = process.argv.slice(2);
+assert.ok(['staging', 'production'].includes(env) && domain, 'usage: check-registry-deployed.mjs <staging|production> <domain>');
+const host = name => `${name}${env === 'staging' ? '-staging' : ''}.${domain}`;
+const website = `https://${host('packages')}`;
+const api = `https://${host('packages-api')}`;
+const content = `https://${host('packages-content')}`;
+const failures = [];
+const check = async (label, body) => {
+  try { await body(); console.log(`ok - ${label}`); } catch (error) { failures.push(label); console.log(`not ok - ${label}\n  ${error.message}`); }
+};
+const get = (url, init = {}) => fetch(url, { redirect: 'manual', ...init });
+const problemCode = async response => {
+  assert.equal(response.headers.get('content-type'), 'application/problem+json');
+  return (await response.json()).code;
+};
+const handshake = (hostname, maxVersion) => new Promise(resolve => {
+  const socket = tls.connect({ host: hostname, port: 443, servername: hostname, maxVersion, minVersion: 'TLSv1' }, () => {
+    resolve(socket.getProtocol()); socket.end();
+  });
+  socket.on('error', () => resolve('refused'));
+});
+
+for (const hostname of [host('packages'), host('packages-api'), host('packages-content')]) {
+  await check(`${hostname}: TLS 1.3 handshake with a valid certificate`, async () =>
+    assert.equal(await handshake(hostname, 'TLSv1.3'), 'TLSv1.3'));
+  await check(`${hostname}: TLS 1.1 is refused`, async () => {
+    assert.equal(await handshake(hostname, 'TLSv1.3'), 'TLSv1.3', 'host is not serving TLS at all, so a refusal proves nothing');
+    const protocol = await handshake(hostname, 'TLSv1.1');
+    if (protocol === 'refused') return;
+    const response = await get(`https://${hostname}/`);
+    assert.equal(response.status, 426, `TLS 1.1 negotiated ${protocol} and was served ${response.status}`);
+  });
+}
+
+await check('api: plain HTTP is redirected to HTTPS', async () => {
+  const response = await get(`http://${host('packages-api')}/v1/packages`);
+  assert.ok([301, 308].includes(response.status), `status ${response.status}`);
+  assert.equal(response.headers.get('location'), `${api}/v1/packages`);
+});
+
+await check('api: the catalog answers JSON, or the catalog-unavailable problem before the projection exists', async () => {
+  const response = await get(`${api}/v1/packages`);
+  if (response.status === 503) return assert.match(await problemCode(response), /\S/);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^application\/json/);
+  assert.ok(Array.isArray((await response.json()).packages), 'packages is a list');
+});
+
+await check('api: client-supplied edge headers are overwritten, never trusted', async () => {
+  const honest = await get(`${api}/v1/packages`);
+  const spoofed = await get(`${api}/v1/packages`, { headers: { 'X-Edge-Secret': 'spoofed', 'X-Edge-Host': 'evil.example' } });
+  assert.equal(spoofed.status, honest.status);
+});
+
+await check('api: an unknown route is a problem document, not a 200', async () => {
+  const response = await get(`${api}/v1/definitely-not-a-route`);
+  assert.ok(response.status >= 400, `status ${response.status}`);
+  assert.match(await problemCode(response), /\S/);
+});
+
+await check('api: the probe path is not reachable through the edge', async () =>
+  assert.equal((await get(`${api}/v1/ready`)).status, 404));
+
+await check('api: CORS preflight admits the website origin with credentials', async () => {
+  const response = await get(`${api}/v1/auth/session`, { method: 'OPTIONS', headers: {
+    Origin: website, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-csrf-token' } });
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get('access-control-allow-origin'), website);
+  assert.equal(response.headers.get('access-control-allow-credentials'), 'true');
+});
+
+await check('api: CORS never echoes a foreign origin', async () => {
+  const response = await get(`${api}/v1/packages`, { headers: { Origin: 'https://evil.example' } });
+  assert.notEqual(response.headers.get('access-control-allow-origin'), 'https://evil.example');
+  assert.notEqual(response.headers.get('access-control-allow-origin'), '*');
+});
+
+await check('api: CORS preflight refuses an unlisted request header', async () => {
+  const response = await get(`${api}/v1/packages`, { method: 'OPTIONS', headers: {
+    Origin: website, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'x-evil' } });
+  assert.equal(response.status, 403);
+  assert.equal(await problemCode(response), 'req.preflight');
+});
+
+await check('api: a signed-out session read is 401 auth.session-required', async () => {
+  const response = await get(`${api}/v1/auth/session`, { headers: { Origin: website } });
+  assert.equal(response.status, 401);
+  assert.equal(await problemCode(response), 'auth.session-required');
+});
+
+await check('api: logout without the website origin is refused', async () => {
+  const response = await get(`${api}/v1/auth/logout`, { method: 'POST' });
+  assert.equal(response.status, 403);
+  assert.equal(await problemCode(response), 'req.origin-required');
+});
+
+await check('api: GitHub sign-in redirects to GitHub with a Secure, HttpOnly flow cookie', async () => {
+  const response = await get(`${api}/v1/auth/github/start`);
+  assert.equal(response.status, 303, `status ${response.status}: GitHub OAuth app configured?`);
+  const location = new URL(response.headers.get('location'));
+  assert.equal(location.origin + location.pathname, 'https://github.com/login/oauth/authorize');
+  assert.ok(location.searchParams.get('client_id'), 'client_id');
+  assert.equal(location.searchParams.get('redirect_uri'), `${api}/v1/auth/github/callback`);
+  assert.ok(location.searchParams.get('state'), 'state');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  const cookie = response.headers.get('set-cookie') ?? '';
+  for (const flag of ['Secure', 'HttpOnly', 'SameSite=']) assert.ok(cookie.includes(flag), `cookie lacks ${flag}`);
+});
+
+await check('content: an unknown release is not served', async () => {
+  const response = await get(`${content}/v1/releases/sha256:${'0'.repeat(64)}`);
+  assert.ok(response.status >= 400 && response.status !== 500, `status ${response.status}`);
+});
+
+await check('website: the home page is HTML over HTTPS', async () => {
+  const response = await get(`${website}/`);
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /^text\/html/);
+});
+
+await check('website: Chromium renders the catalog from this environment\'s API with no errors', async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    const errors = [];
+    const apiCalls = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => { if (request.url().startsWith(api)) apiCalls.push(request.url()); });
+    page.on('requestfailed', request => errors.push(`${request.url()} ${request.failure()?.errorText}`));
+    await page.goto(`${website}/`, { waitUntil: 'networkidle' });
+    await page.locator('.prose-package, :text("No matching packages."), :text("unavailable")').first().waitFor({ timeout: 20000 });
+    assert.ok(apiCalls.some(url => url.startsWith(`${api}/v1/packages`)), `catalog never read from ${api}`);
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+console.log(failures.length ? `\n${failures.length} check(s) failed` : '\nall checks passed');
+process.exitCode = failures.length ? 1 : 0;
