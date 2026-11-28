@@ -35,18 +35,46 @@ DO $$ BEGIN
   THEN RAISE EXCEPTION 'worker job or identity boundary'; END IF;
 END $$;
 SELECT pg_temp.require_denied('SELECT principal_id FROM release_reviewers'), pg_temp.require_denied('SELECT principal_id FROM browser_sessions');
-SELECT registry.record_scan(md5('1')::uuid,'fixture-v1','accepted'), registry.record_scan(md5('2')::uuid,'fixture-v1','["blocked capability"]');
+SELECT registry.claim_pending_scan(md5('1')::uuid)::jsonb->>'ticket' AS ticket_one \gset
+SELECT registry.claim_pending_scan(md5('2')::uuid)::jsonb->>'ticket' AS ticket_two \gset
+DO $$ BEGIN
+  IF registry.claim_pending_scan(md5('1')::uuid) IS NOT NULL OR
+     registry.record_scan(md5('1')::uuid,gen_random_uuid(),'fixture-v1','accepted') IS NOT NULL
+  THEN RAISE EXCEPTION 'duplicate scan claim or stale writer'; END IF;
+END $$;
+SELECT registry.record_scan(md5('1')::uuid,:'ticket_one','fixture-v1','accepted'), registry.record_scan(md5('2')::uuid,:'ticket_two','fixture-v1','["blocked capability"]');
 DO $$ BEGIN
   IF registry.frozen_scan_job(md5('1')::uuid)::jsonb ->> 'dir' IS DISTINCT FROM '@team/one/1.1'
     OR registry.completed_scan(md5('1')::uuid) IS DISTINCT FROM md5('1')::uuid
     OR registry.completed_scan(md5('3')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'incorrect durable scan status'; END IF;
 END $$;
-SELECT pg_temp.require_denied('INSERT INTO review_scans VALUES (md5(''3'')::uuid,''fixture-v1'',''[]'',statement_timestamp())');
+SELECT registry.claim_pending_scan(NULL)::jsonb->>'ticket' AS ticket_three \gset
+SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('3')::uuid,:'ticket_three','fixture-v1',invalid))
+FROM unnest(ARRAY['[]','[" "]','[1]','[["nested"]]']) invalid;
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
 SET LOCAL registry.session_issuer = 'issuer';
 SELECT set_config('registry.session_subject',md5('subject')::uuid::text,true),
        set_config('registry.session_digest','sha256:'||repeat('c',64),true);
 SET LOCAL registry.session_provider = '123';
+DO $$ BEGIN
+  IF registry.publication_receipt(md5('1')::uuid)::jsonb->>'canApprove' IS DISTINCT FROM 'false'
+    OR registry.publication_receipt(md5('2')::uuid)::jsonb->'messages' IS DISTINCT FROM '["blocked capability"]'::jsonb
+    OR registry.publication_receipt(md5('3')::uuid)::jsonb->>'status' IS DISTINCT FROM 'pending-scan'
+    THEN RAISE EXCEPTION 'incorrect publisher receipt'; END IF;
+END $$;
+SET LOCAL registry.session_provider = 'revoked-identity';
+DO $$ BEGIN
+  IF registry.publication_receipt(md5('2')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'unauthorized receipt'; END IF;
+END $$;
+SET LOCAL registry.session_provider = '123';
+DO $$ BEGIN
+  BEGIN
+    UPDATE browser_sessions SET started_at=started_at-interval '1 second';
+    RAISE EXCEPTION 'immutable timestamp changed';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'browser session identity and start time are immutable' THEN RAISE; END IF;
+  END;
+END $$;
 SELECT pg_temp.require_denied('SELECT pg_temp.approve(1)');
 SELECT pg_temp.require_denied('INSERT INTO release_reviewers VALUES (md5(''alice'')::uuid)');
 RESET SESSION AUTHORIZATION;
@@ -59,10 +87,12 @@ DO $$ BEGIN
   THEN RAISE EXCEPTION 'approval routine accepted the wrong receipt or refused the approved version'; END IF;
 END $$;
 DO $$ BEGIN
+  IF registry.approve_submission(md5('1')::uuid,'sha256:'||repeat('1',64)) IS DISTINCT FROM md5('1')::uuid
+    THEN RAISE EXCEPTION 'lost response retry failed'; END IF;
   IF (SELECT count(*) FROM review_submissions) <> 3 THEN RAISE EXCEPTION 'missing review candidates'; END IF;
 END $$;
 SELECT pg_temp.require_denied('SELECT pg_temp.approve(2)'), pg_temp.require_denied('SELECT pg_temp.approve(3)');
-SELECT pg_temp.require_denied('INSERT INTO review_scans VALUES (md5(''3'')::uuid,''fake'',''accepted'',statement_timestamp())');
+SELECT pg_temp.require_denied('INSERT INTO review_scans VALUES (md5(''3'')::uuid,gen_random_uuid(),''fake'',''accepted'',statement_timestamp())');
 DELETE FROM release_approvals;
 UPDATE review_submissions SET ordinal=99;
 RESET SESSION AUTHORIZATION;

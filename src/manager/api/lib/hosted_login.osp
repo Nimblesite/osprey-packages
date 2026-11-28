@@ -157,12 +157,15 @@ module HostedLogin {
         else { Error { message: sessionRequired } })
 
     /// A cookie proves no authority until the sealed access token and active database binding both pass.
-    export fn readSession(oauth, token, load, open, verify, revalidate) = {
+    fn verifiedAction(oauth, token, load, open, verify, action) = {
         let digest = sessionDigest(token)
         andThen(load(digest), fn(envelope) => if envelope == "" { Error { message: sessionRequired } }
             else { andThen(open(sessionContext(oauth, digest), envelope), fn(credentials) =>
-                    andThen(verify(digest, envelope, credentials), fn(identity) => confirmed(oauth, token, digest, identity, revalidate))) })
+                    andThen(verify(digest, envelope, credentials), fn(identity) => action(digest, identity))) })
     }
+
+    export fn readSession(oauth, token, load, open, verify, revalidate) = verifiedAction(oauth, token, load, open, verify,
+        fn(digest, identity) => confirmed(oauth, token, digest, identity, revalidate))
 
     fn matchedSubject(oauth, access, subject) = andThen(Supabase::verify(oauth, access), fn(identity) =>
         if subject == identity.authSubject { Success { value: identity } } else { Error { message: sessionRequired } })
@@ -207,13 +210,24 @@ module HostedLogin {
         } else { Error { message: message } }
     }
 
-    fn nativeRead(config: Settings, token, revalidate) = if config.sessionKey == "" { unavailable() }
-    else { ProviderNative::transport()(fn() => readSession(config.oauth, token, BrowserSessions::read,
+    fn nativeAction(config: Settings, token, action) = if config.sessionKey == "" { unavailable() }
+    else { ProviderNative::transport()(fn() => verifiedAction(config.oauth, token, BrowserSessions::read,
                 fn(context, envelope) => LoginKms::openSession(config.sessionKey, context, envelope),
-                fn(digest, envelope, credentials) => validCredentials(config, digest, envelope, credentials), revalidate)) }
+                fn(digest, envelope, credentials) => validCredentials(config, digest, envelope, credentials), action)) }
 
-    export fn approve(config, token, id, digest) = nativeRead(config, token, fn(cookie, issuer, subject, github) =>
+    fn nativeRead(config, token, revalidate) = nativeAction(config, token,
+        fn(digest, identity) => confirmed(config.oauth, token, digest, identity, revalidate))
+
+    fn approve(config, token, id, digest) = nativeRead(config, token, fn(cookie, issuer, subject, github) =>
         BrowserSessions::approve(cookie, issuer, subject, github, id, digest))
+
+    fn receipt(config, token, id) = nativeAction(config, token, fn(cookie, identity: Supabase::Identity) =>
+        BrowserSessions::receipt(cookie, issuerOf(config.oauth), identity.authSubject, identity.githubId, id))
+
+    export fn reviewOperations(config) = HostedReview::Operations {
+        approve: fn(token, id, digest) => approve(config, token, id, digest),
+        receipt: fn(token, id) => receipt(config, token, id)
+    }
 
     export fn nativeSession(config, method, token) = if method == "POST" { BrowserSessions::logout(sessionDigest(token)) }
     else { nativeRead(config, token, BrowserSessions::revalidate) }

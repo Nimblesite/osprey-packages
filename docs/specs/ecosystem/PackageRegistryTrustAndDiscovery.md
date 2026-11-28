@@ -477,7 +477,7 @@ not recorded against the publisher.
 
 ### Recorded rejections `[PACKAGE-SECURITY-SCAN-REJECTIONS]`
 
-Each rejection is recorded against the publisher's account in Supabase: the
+The immutable `review_scans` decision references the frozen `review_submissions` row. A worker must present its unexpired database-issued claim ticket to record a decision. Together the rows record the rejection against the publisher’s account in Supabase: the
 publisher principal, organization, package key, submission and canonical
 source digests, the scan agent's identity and version, every failure message
 and the time of the decision ([PACKAGE-OWNERSHIP-DATABASE]). Rejection records

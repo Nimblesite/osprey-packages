@@ -11,6 +11,9 @@ module ReviewHttpTests {
         Success { value: id }
     } else { Error { message: HostedReview::denied } }
 
+    export fn receipt(cookie, id) = if cookie == token && id == submission { Success { value: "{}" } }
+    else { Error { message: HostedReview::missing } }
+
     fn status(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
         Error => -1
         Success { value } => {
@@ -33,6 +36,7 @@ module ReviewHttpTests {
                 status(value, replace(path, digest, "latest") ?: "", auth, "") == 400,
                 status(value, replace(path, digest, "sha256:" + (repeat("c", 64) ?: "")) ?: "", auth, "") == 403
             ])
+            ListenerTests::receiptChecks(port, edge, cookie, submission)
             let _closed = httpCloseClient(value)
         }
     }

@@ -12,22 +12,23 @@ import registry_host::Native
 module ScanJob {
     fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
     fn byId(routine, id) = Database::scan("SELECT registry." + routine + "(" + Database::decoded(1) + "::uuid)", [id])
-    fn receipt(id, revision, result) = Database::scan("SELECT registry.record_scan(" +
-        Database::decoded(1) + "::uuid," + Database::decoded(2) + "," + Database::decoded(3) + ")", [id, revision, result])
+    fn receipt(id, ticket, revision, result) = andThen(Database::scan("SELECT registry.record_scan(" +
+        Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid," + Database::decoded(3) + "," + Database::decoded(4) + ")",
+        [id, ticket, revision, result]), fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.scan-lease" } })
 
     fn frozen(digest) = {
         let path = "/run/registry-quarantine/" + Digests::hexOf(digest) + ".json"
         andThen(fileSize(path), fn(size) => if Bundle::sizeCode(size) == "" { readFile(path) } else { Error { message: "bundle.too-large" } })
     }
 
-    fn review(id, doc, config) = {
+    fn review(id, ticket, doc, config) = {
         let revision = field(config, "agentRevision")
         let configId = field(config, "configId")
-        if !Bytes::canonicalUuid(configId) || trim(revision) == "" { Error { message: "publication.scan-config" } }
+        if !Bytes::canonicalUuid(configId) || trim(revision) == "" || byteLength(revision) > 200 { Error { message: "publication.scan-config" } }
         else { andThen(Digests::parse(field(doc, "digest")), fn(digest) =>
                 andThen(frozen(digest), fn(bytes) => PublicationScan::run(field(doc, "dir"), digest, bytes,
                         fn(source) => PublicationScan::nap(configId, field(config, "apiKey"), source),
-                        fn(result) => receipt(id, revision, result)))) }
+                        fn(result) => receipt(id, ticket, configId + "@" + revision, result)))) }
     }
 
     fn document(raw) = match Json::parse(raw) {
@@ -35,13 +36,24 @@ module ScanJob {
         Error => Error { message: "publication.scan-input" }
     }
 
-    fn process(id) = andThen(byId("frozen_scan_job", id), fn(raw) =>
+    fn process(id, ticket) = andThen(byId("frozen_scan_job", id), fn(raw) =>
         andThen(document(raw), fn(doc) => andThen(readFile("/run/registry-scan/agent.json"), fn(settings) =>
-                andThen(document(settings), fn(config) => review(id, doc, config)))))
+                andThen(document(settings), fn(config) => review(id, ticket, doc, config)))))
 
-    export fn run(id) = if !Bytes::canonicalUuid(id) { Error { message: "publication.scan-job" } }
-    else { andThen(byId("completed_scan", id), fn(row) =>
-            if row == id { Success { value: id } } else { process(id) }) }
+    fn claimed(raw) = andThen(document(raw), fn(claim) => {
+        let id = field(claim, "id")
+        let ticket = field(claim, "ticket")
+        if !Bytes::canonicalUuid(id) || !Bytes::canonicalUuid(ticket) { Error { message: "publication.scan-lease" } }
+        else { process(id, ticket) }
+    })
+
+    /// With empty input, take one waiting job. A keyed retry of a committed receipt does no remote work.
+    export fn run(id) = if id != "" && !Bytes::canonicalUuid(id) { Error { message: "publication.scan-job" } }
+    else { andThen(Database::scan("SELECT registry.claim_pending_scan(NULLIF(" + Database::decoded(1) + ",'')::uuid)", [id]),
+        fn(raw) => if raw != "" { claimed(raw) } else if id == "" { Success { value: "idle" } }
+        else { andThen(byId("completed_scan", id), fn(done) => if done == id { Success { value: done } }
+            else { Error { message: "publication.scan-pending" } }) }) }
+
 }
 
 fn work() = ProviderNative::bounded(120000)(fn() => match ScanJob::run(input()) {
