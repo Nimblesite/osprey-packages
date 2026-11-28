@@ -14,7 +14,7 @@ module Conformance {
     // fixture: pins, never executable source ([PACKAGE-PYTHON-UV]).
     let declarativeExtensions = [".toml", ".json", ".yaml", ".yml", ".tf", ".hcl", ".md", ".td", ".txt", ".sql", ".expectedoutput", ".lock"]
 
-    let deploymentInputs = ["src/manager/web/assets/registry.css", "src/manager/web/assets/registry-mark.svg", "src/manager/web/assets/osprey-mark.svg", "src/manager/web/assets/_headers", "src/manager/web/assets/registry-form.mjs", "src/manager/web/assets/registry-catalog.mjs", "src/manager/web/assets/list-filter.mjs", "src/manager/ops/Dockerfile"]
+    let deploymentInputs = ["src/manager/web/assets/registry.css", "src/manager/web/assets/registry-mark.svg", "src/manager/web/assets/osprey-mark.svg", "src/manager/web/assets/_headers", "src/manager/web/assets/registry-form.mjs", "src/manager/web/assets/registry-catalog.mjs", "src/manager/web/assets/list-filter.mjs", "src/manager/ops/Dockerfile", "src/manager/ops/deploy.sh", "src/manager/ops/deploy.env.example", "src/manager/ops/cloudflare/edge.js", "src/manager/ops/supabase/supabase-root-2021.crt"]
 
     fn hasAny(path, extensions) = foldList(extensions, false, fn(found, ext) => found || endsWith(path, ext))
 
