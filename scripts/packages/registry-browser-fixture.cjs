@@ -21,16 +21,39 @@ async function withHostedPage(browser, run) {
   }
 }
 
+function parsePagesHeaders(text) {
+  const sections = [];
+  let current = null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    if (!/^\s/u.test(raw)) {
+      current = { pattern: line, headers: {} };
+      sections.push(current);
+    } else if (current) {
+      const delimiter = line.indexOf(':');
+      assert.ok(delimiter > 0, `invalid header line: ${line}`);
+      current.headers[line.slice(0, delimiter).trim().toLowerCase()] = line.slice(delimiter + 1).trim();
+    }
+  }
+  assert.equal(sections[0]?.pattern, '/*');
+  return sections;
+}
+
+function headersForPath(sections, pathname) {
+  const merged = {};
+  for (const section of sections) {
+    const regex = new RegExp('^' + section.pattern.replace(/[.+?^${}()|[\]\\]/gu, '\\$&').replace(/\*/gu, '.*') + '$');
+    if (regex.test(pathname)) Object.assign(merged, section.headers);
+  }
+  return merged;
+}
+
 async function packagedPage(browser, site) {
   const website = 'https://packages.example.test';
   const api = 'https://api.example.test';
   const page = await browser.newPage();
-  const policy = fs.readFileSync(path.join(site, '_headers'), 'utf8').trim().split('\n');
-  assert.equal(policy.shift(), '/*');
-  const siteHeaders = Object.fromEntries(policy.map(line => {
-    const delimiter = line.indexOf(':');
-    return [line.slice(0, delimiter).trim().toLowerCase(), line.slice(delimiter + 1).trim()];
-  }));
+  const sections = parsePagesHeaders(fs.readFileSync(path.join(site, '_headers'), 'utf8'));
   page.setDefaultTimeout(10000);
   const failures = [];
   page.on('pageerror', error => failures.push(error.message));
@@ -43,7 +66,7 @@ async function packagedPage(browser, site) {
     assert.ok(mime, pathname);
     const hash = /\.([0-9a-f]{12})\.(?:css|mjs|wasm)$/.exec(pathname);
     if (hash) assert.equal(createHash('sha256').update(body).digest('hex').slice(0,12), hash[1]);
-    await route.fulfill({body, headers:siteHeaders, contentType:mime});
+    await route.fulfill({body, headers:headersForPath(sections, pathname), contentType:mime});
   });
   return {page, website, api, failures};
 }
