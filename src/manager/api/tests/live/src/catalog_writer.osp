@@ -60,8 +60,8 @@ module CatalogWriter {
         let renewed = refreshed() && emptyCatalog(readerBody())
         let readerCannotWrite = refused(reader, "SELECT registry.refresh_public_catalog()") && refused(reader, "UPDATE registry.public_catalog SET body = 'x'")
         let writerScoped = refused(writer, "INSERT INTO registry.public_catalog VALUES (2, now(), now() + interval '1 hour', '{}')")
-            && refused(writer, "DELETE FROM registry.public_catalog") && refused(writer, "SELECT count(*) FROM registry.memberships")
-            && refused(writer, "UPDATE registry.releases SET state = 'eligible'")
+        && refused(writer, "DELETE FROM registry.public_catalog") && refused(writer, "SELECT count(*) FROM registry.memberships")
+        && refused(writer, "UPDATE registry.releases SET state = 'eligible'")
         let clean = cleaned()
         checkAll("the catalog functions refresh an empty registry into a live, decodable row", [none, first, again, rows, live, read, expired, renewed,
                 unelevated(), tableRights(), executeRights(), invoker(), readerCannotWrite, writerScoped, clean])

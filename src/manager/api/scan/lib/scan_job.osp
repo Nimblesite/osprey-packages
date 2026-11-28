@@ -17,8 +17,8 @@ module ScanJob {
     fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
     fn byId(routine, id) = query("SELECT registry." + routine + "(" + Database::decoded(1) + "::uuid)", [id])
     fn receipt(id, ticket, revision, result) = andThen(query("SELECT registry.record_scan(" +
-        Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid," + Database::decoded(3) + "," + Database::decoded(4) + ")",
-        [id, ticket, revision, result]), fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.scan-lease" } })
+            Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid," + Database::decoded(3) + "," + Database::decoded(4) + ")",
+            [id, ticket, revision, result]), fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.scan-lease" } })
 
     fn review(id, ticket, doc, config) = {
         let revision = field(config, "agentRevision")
@@ -40,17 +40,17 @@ module ScanJob {
                 andThen(document(settings), fn(config) => review(id, ticket, doc, config)))))
 
     fn claimed(raw) = andThen(document(raw), fn(claim) => {
-        let id = field(claim, "id")
-        let ticket = field(claim, "ticket")
-        if !Bytes::canonicalUuid(id) || !Bytes::canonicalUuid(ticket) { Error { message: "publication.scan-lease" } }
-        else { process(id, ticket) }
+            let id = field(claim, "id")
+            let ticket = field(claim, "ticket")
+            if !Bytes::canonicalUuid(id) || !Bytes::canonicalUuid(ticket) { Error { message: "publication.scan-lease" } }
+            else { process(id, ticket) }
     })
 
     /// With empty input, take one waiting job. A keyed retry of a committed receipt does no remote work.
     export fn run(id) = if id != "" && !Bytes::canonicalUuid(id) { Error { message: "publication.scan-job" } }
     else { andThen(query("SELECT registry.claim_pending_scan(NULLIF(" + Database::decoded(1) + ",'')::uuid)", [id]),
-        fn(raw) => if raw != "" { claimed(raw) } else if id == "" { Success { value: "idle" } }
-        else { andThen(byId("completed_scan", id), fn(done) => if done == id { Success { value: done } }
-            else { Error { message: "publication.scan-pending" } }) }) }
+            fn(raw) => if raw != "" { claimed(raw) } else if id == "" { Success { value: "idle" } }
+            else { andThen(byId("completed_scan", id), fn(done) => if done == id { Success { value: done } }
+                    else { Error { message: "publication.scan-pending" } }) }) }
 
 }

@@ -14,8 +14,8 @@ module ScanWorkerTests {
     let manifest = "[project]\nname = \"audio\"\nsource_roots = [\"src\"]\n[package]\nname = \"@org-1/audio\"\nlicense = \"MIT\"\nsummary = \"Audio fixture\"\nkeywords = [\"test\"]\n"
     fn job(n) = "22222222-2222-4222-8222-22222222222${n}"
     fn release(n) = ReleaseFiles::assemble("@org-1/audio/1.${n}", [
-        Release::File { relPath: "osprey.toml", content: manifest },
-        Release::File { relPath: "src/main.osp", content: "// scan fixture\nfn main() = ${n}\n" }
+            Release::File { relPath: "osprey.toml", content: manifest },
+            Release::File { relPath: "src/main.osp", content: "// scan fixture\nfn main() = ${n}\n" }
     ])
 
     fn response(status, body) = Success { value: Supabase::Reply { status: status, body: body } }
@@ -56,11 +56,11 @@ module ScanWorkerTests {
     export fn run(seed) = {
         let setup = CatalogWriter::sql("SET search_path=registry,pg_catalog;" + seed).status == 0
         checkAll("frozen collector jobs reach the real scanner and preserve publisher standing", [
-            setup, scenario(1, "accepted", job(1)), scenario(2, "[\"blocked capability\"]", job(2)),
-            scenario(3, "invalid", "pending"), scenario(4, "unavailable", "pending"), scenario(5, "accepted", "pending"),
-            (scanned(job(1), "", "", "unavailable") ?: "") == job(1),
-            CatalogWriter::answers("SELECT count(*)=2 AND count(*) FILTER(WHERE verdict='accepted')=1 AND count(*) FILTER(WHERE verdict='[\"blocked capability\"]')=1 FROM registry.review_scans", "t"),
-            CatalogWriter::answers("SELECT (SELECT count(*) FROM registry.releases)=0 AND (SELECT count(*) FROM registry.release_approvals)=0 AND (SELECT count(*) FROM registry.package_permissions WHERE state='active')=2 AND (SELECT count(*) FROM registry.principals WHERE state='active')=3", "t")
+                setup, scenario(1, "accepted", job(1)), scenario(2, "[\"blocked capability\"]", job(2)),
+                scenario(3, "invalid", "pending"), scenario(4, "unavailable", "pending"), scenario(5, "accepted", "pending"),
+                (scanned(job(1), "", "", "unavailable") ?: "") == job(1),
+                CatalogWriter::answers("SELECT count(*)=2 AND count(*) FILTER(WHERE verdict='accepted')=1 AND count(*) FILTER(WHERE verdict='[\"blocked capability\"]')=1 FROM registry.review_scans", "t"),
+                CatalogWriter::answers("SELECT (SELECT count(*) FROM registry.releases)=0 AND (SELECT count(*) FROM registry.release_approvals)=0 AND (SELECT count(*) FROM registry.package_permissions WHERE state='active')=2 AND (SELECT count(*) FROM registry.principals WHERE state='active')=3", "t")
         ])
         checkAll("scan scenario cleanup", [CatalogWriter::sql("SET search_path=registry; DELETE FROM review_scans; DELETE FROM scan_claims; DELETE FROM review_submissions; DELETE FROM package_permissions; DELETE FROM packages; DELETE FROM memberships; DELETE FROM organizations; DELETE FROM principals;").status == 0])
     }

@@ -75,5 +75,5 @@ module PublicationScan {
     export fn run(dir, digest, bytes, scan, record) = andThen(Bundle::verify(bytes, digest), fn(release) =>
         if ReleasePath::format(release.id) != dir || !namesPackage(release) { refused() }
         else { andThen(Bundle::encode(release), fn(source) => if source != bytes { refused() }
-            else { andThen(scan(source), fn(result) => andThen(verdict(result), record)) }) })
+                else { andThen(scan(source), fn(result) => andThen(verdict(result), record)) }) })
 }
