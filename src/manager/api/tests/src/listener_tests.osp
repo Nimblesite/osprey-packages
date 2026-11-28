@@ -40,10 +40,10 @@ module ListenerTests {
     export fn receiptChecks(port, edge, cookie, id) = {
         let base = HostedReview::receipts
         checkAll("private receipt requires scoped session and origin", [
-            startsWith(fetch(port, base + id, edge), "401|"),
-            startsWith(fetch(port, base + id, cookie), "200|"),
-            startsWith(fetch(port, base + "unknown", cookie), "400|"),
-            startsWith(fetch(port, base + "11111111-1111-4111-8111-111111111112", cookie), "404|")
+                startsWith(fetch(port, base + id, edge), "401|"),
+                startsWith(fetch(port, base + id, cookie), "200|"),
+                startsWith(fetch(port, base + "unknown", cookie), "400|"),
+                startsWith(fetch(port, base + "11111111-1111-4111-8111-111111111112", cookie), "404|")
         ])
     }
 

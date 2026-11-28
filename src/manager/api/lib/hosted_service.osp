@@ -153,10 +153,10 @@ module HostedService {
         else if cors == "" { problem(403, originRequired) }
         else if !Bytes::canonicalUuid(id) { problemWith(400, HostedReview::badRequest, cors) }
         else { match receipt(token, id) {
-            Success { value } => replyWith(200, jsonType, value, cors)
-            Error { message } => if message == HostedReview::missing { problemWith(404, message, cors) }
-            else if message == HostedLogin::sessionRequired { signedOut(cors) } else { unavailable(cors) }
-        } }
+                Success { value } => replyWith(200, jsonType, value, cors)
+                Error { message } => if message == HostedReview::missing { problemWith(404, message, cors) }
+                else if message == HostedLogin::sessionRequired { signedOut(cors) } else { unavailable(cors) }
+            } }
     }
 
     fn reviewRequest(headers, path, cors, approve) = {

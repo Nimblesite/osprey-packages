@@ -31,16 +31,16 @@ fn hostedPackage() = {
 fn publisherAccount(origin) = if origin == "" {
     "<p role=\"status\">Public uploads are unavailable.</p><a href=\"/publishing/\">Publish to a folder registry</a>"
 } else { join([
-    "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\" data-passkey-options=\"${origin}/v1/auth/passkey/options\" data-passkey-verify=\"${origin}/v1/auth/passkey/verify\" data-passkey-error=\"Passkey sign-in did not complete. Sign in with GitHub instead.\">",
-    "<p role=\"status\">Checking your registry session…</p><button hidden type=\"button\" class=\"prose-download prose-passkey\" data-passkey>Sign in with a passkey</button><a hidden class=\"prose-secondary\" href=\"${origin}/v1/auth/github/start\">Sign in with GitHub</a>",
-    "<button hidden type=\"button\" class=\"prose-download\" data-sign-out>Sign out</button></div>"
-], "") }
+            "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\" data-passkey-options=\"${origin}/v1/auth/passkey/options\" data-passkey-verify=\"${origin}/v1/auth/passkey/verify\" data-passkey-error=\"Passkey sign-in did not complete. Sign in with GitHub instead.\">",
+            "<p role=\"status\">Checking your registry session…</p><button hidden type=\"button\" class=\"prose-download prose-passkey\" data-passkey>Sign in with a passkey</button><a hidden class=\"prose-secondary\" href=\"${origin}/v1/auth/github/start\">Sign in with GitHub</a>",
+            "<button hidden type=\"button\" class=\"prose-download\" data-sign-out>Sign out</button></div>"
+        ], "") }
 
 fn receiptForm() = join([
-    "<section data-receipt-panel hidden><h2>Publication review</h2>",
-    "<form data-receipt-form><label>Submission ID <input name=\"submission\" required maxlength=\"36\" autocomplete=\"off\"></label><button>Check status</button></form>",
-    "<p role=\"status\"></p><ul data-findings></ul><button type=\"button\" data-approve hidden>Approve this version</button></section>"
-], "")
+        "<section data-receipt-panel hidden><h2>Publication review</h2>",
+        "<form data-receipt-form><label>Submission ID <input name=\"submission\" required maxlength=\"36\" autocomplete=\"off\"></label><button>Check status</button></form>",
+        "<p role=\"status\"></p><ul data-findings></ul><button type=\"button\" data-approve hidden>Approve this version</button></section>"
+    ], "")
 
 fn upload() = {
     let origin = trim(input())
@@ -53,25 +53,25 @@ fn upload() = {
 }
 
 fn releaseForm(origin, adapter) = join([
-    "<section><h2>Prepare a release</h2><form data-collection-form data-review=\"review\" data-collection=\"${origin}/v1/packages\" data-empty=\"The registry has no packages.\" data-error=\"Could not load packages from the registry. Reload to retry.\">",
-    "<fieldset disabled><label for=\"package\">Package</label><select id=\"package\" name=\"package\" data-collection-key=\"packages\" data-value-key=\"key\" required><option value=\"\">Choose a package</option></select>",
-    "<label for=\"commit\">Git commit</label><input id=\"commit\" name=\"commit\" required pattern=\"[a-fA-F0-9]{40}\" maxlength=\"40\" title=\"Enter the full 40-character Git commit hash\"><button class=\"prose-download\">Review release</button></fieldset><p role=\"status\">Loading packages…</p></form>",
-    "<article id=\"review\" tabindex=\"-1\" hidden><h3>Review release</h3><p>Package <strong data-field=\"package\"></strong><br>Commit <code data-field=\"commit\"></code></p><p>Publication requires an authorized account and a signature.</p></article></section><script type=\"module\" src=\"/${adapter}\"></script>"
-], "")
+        "<section><h2>Prepare a release</h2><form data-collection-form data-review=\"review\" data-collection=\"${origin}/v1/packages\" data-empty=\"The registry has no packages.\" data-error=\"Could not load packages from the registry. Reload to retry.\">",
+        "<fieldset disabled><label for=\"package\">Package</label><select id=\"package\" name=\"package\" data-collection-key=\"packages\" data-value-key=\"key\" required><option value=\"\">Choose a package</option></select>",
+        "<label for=\"commit\">Git commit</label><input id=\"commit\" name=\"commit\" required pattern=\"[a-fA-F0-9]{40}\" maxlength=\"40\" title=\"Enter the full 40-character Git commit hash\"><button class=\"prose-download\">Review release</button></fieldset><p role=\"status\">Loading packages…</p></form>",
+        "<article id=\"review\" tabindex=\"-1\" hidden><h3>Review release</h3><p>Package <strong data-field=\"package\"></strong><br>Commit <code data-field=\"commit\"></code></p><p>Publication requires an authorized account and a signature.</p></article></section><script type=\"module\" src=\"/${adapter}\"></script>"
+    ], "")
 
 fn browseNav() = "<nav class=\"prose-browse\" aria-label=\"Browse packages\"><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a></nav>"
 
 fn main() = print(match trim(input()) {
-    "missing" => Shell::withEscapedTitle("Page not found · Osprey Packages", "<main><h1>Page not found</h1><a href=\"/\">Browse packages</a></main>")
-    "guide" => Guides::packages()
-    "publishing" => Guides::publishers()
-    "upload" => upload()
-    "hosted-package" => hostedPackage()
-    "hosted-results" => {
-        let path = input()
-        let query = input()
-        let content = input()
-        HostedCatalog::render(path, query, input(), content)
-    }
-    _ => catalog(trim(input()))
+        "missing" => Shell::withEscapedTitle("Page not found · Osprey Packages", "<main><h1>Page not found</h1><a href=\"/\">Browse packages</a></main>")
+        "guide" => Guides::packages()
+        "publishing" => Guides::publishers()
+        "upload" => upload()
+        "hosted-package" => hostedPackage()
+        "hosted-results" => {
+            let path = input()
+            let query = input()
+            let content = input()
+            HostedCatalog::render(path, query, input(), content)
+        }
+        _ => catalog(trim(input()))
 })

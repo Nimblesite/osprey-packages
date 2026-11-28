@@ -50,8 +50,8 @@ module ScanTests {
     }
 
     fn assemble(manifest) = ReleaseFiles::assemble(dir, [
-        Release::File { relPath: "osprey.toml", content: manifest },
-        Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }
+            Release::File { relPath: "osprey.toml", content: manifest },
+            Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }
     ])
 
     fn blocked(files) = match ReleaseFiles::assemble(dir, files) {
@@ -62,14 +62,14 @@ module ScanTests {
     let manifest = "[project]\nname = \"one\"\nsource_roots = [\"src\"]\n[package]\nname = \"@team/one\"\nlicense = \"MIT\"\nsummary = \"Fixture\"\nkeywords = [\"test\"]\n"
 
     export fn run() = test("publication scan gates frozen bytes [PACKAGE-SECURITY-SCAN-VERDICT]", fn() => {
-        let file = Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }
-        checkAll("the immutable source manifest identifies the requested package", [
-            blocked([file]), blocked([file, Release::File { relPath: "osprey.toml", content: "invalid" }]),
-            blocked([file, Release::File { relPath: "osprey.toml", content: replace(manifest, "@team/one", "@foreign/one") ?: "" }])
-        ])
-        match assemble(manifest) {
-            Success { value } => outcomes(value, Bundle::encode(value) ?: "")
-            Error { message } => check("frozen fixture", "ok", message)
-        }
+            let file = Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }
+            checkAll("the immutable source manifest identifies the requested package", [
+                    blocked([file]), blocked([file, Release::File { relPath: "osprey.toml", content: "invalid" }]),
+                    blocked([file, Release::File { relPath: "osprey.toml", content: replace(manifest, "@team/one", "@foreign/one") ?: "" }])
+            ])
+            match assemble(manifest) {
+                Success { value } => outcomes(value, Bundle::encode(value) ?: "")
+                Error { message } => check("frozen fixture", "ok", message)
+            }
     })
 }

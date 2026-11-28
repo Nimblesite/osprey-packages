@@ -31,10 +31,10 @@ module ReviewHttpTests {
             let cookie = origin + "\r\nCookie: __Host-registry=" + token
             let auth = cookie + "\r\nX-Csrf-Token: " + HostedLogin::csrfToken(token)
             checkAll("review POST requires the browser, origin, CSRF token and digest", [
-                status(value, path, origin, "") == 401, status(value, path, cookie, "") == 403,
-                status(value, path, auth, "data") == 400, status(value, path, auth, "") == 204,
-                status(value, replace(path, digest, "latest") ?: "", auth, "") == 400,
-                status(value, replace(path, digest, "sha256:" + (repeat("c", 64) ?: "")) ?: "", auth, "") == 403
+                    status(value, path, origin, "") == 401, status(value, path, cookie, "") == 403,
+                    status(value, path, auth, "data") == 400, status(value, path, auth, "") == 204,
+                    status(value, replace(path, digest, "latest") ?: "", auth, "") == 400,
+                    status(value, replace(path, digest, "sha256:" + (repeat("c", 64) ?: "")) ?: "", auth, "") == 403
             ])
             ListenerTests::receiptChecks(port, edge, cookie, submission)
             let _closed = httpCloseClient(value)
