@@ -11,3 +11,5 @@ GRANT INSERT, SELECT ON registry.review_scans TO registry_scan_worker;
 GRANT SELECT ON registry.release_reviewers TO registry_session_runtime;
 GRANT SELECT(submission_id, verdict) ON registry.review_scans TO registry_session_runtime;
 GRANT INSERT ON registry.release_approvals TO registry_session_runtime;
+GRANT SELECT(id, organization_id, name) ON registry.packages TO registry_scan_worker;
+GRANT SELECT(id, handle) ON registry.organizations TO registry_scan_worker;

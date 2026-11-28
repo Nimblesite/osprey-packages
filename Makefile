@@ -52,7 +52,7 @@ ci: build _lint
 #        strategy: the client (CLI_MEMORY), the folder registry and the hosted API (API_MEMORY). Each
 #        crash it finds is replayed natively; a reproduced crash or a compile failure exits 1. Reports
 #        land in target/hunt/<program>.
-HUNT_PROGRAMS = cli:$(CLI_MEMORY) api:$(API_MEMORY) api/hosted:$(API_MEMORY)
+HUNT_PROGRAMS = cli:$(CLI_MEMORY) api:$(API_MEMORY) api/hosted:$(API_MEMORY) api/scan:$(API_MEMORY)
 .PHONY: _hunt
 _hunt: $(TOOLCHAIN)
 	set -e; for entry in $(HUNT_PROGRAMS); do p=$${entry%%:*}; memory=$${entry##*:}; \

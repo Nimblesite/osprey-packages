@@ -75,7 +75,11 @@ tables:
     primaryKey: { columns: [id] }
     uniqueConstraints:
       - { name: uq_organizations_handle, columns: [handle] }
-    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scan_scope, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.organization_id = organizations.id)" }
 
   - name: memberships
     schema: registry
@@ -139,7 +143,11 @@ tables:
     foreignKeys:
       - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [organization_id, admin_membership_id, admin_membership_state, admin_principal_kind], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id, state, principal_kind], onDelete: Restrict, onUpdate: Restrict }
-    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scan_package, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
 
   - name: package_permissions
     schema: registry

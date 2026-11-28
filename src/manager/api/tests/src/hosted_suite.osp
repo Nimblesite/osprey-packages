@@ -10,6 +10,7 @@ module HostedSuite {
         RequestTests::run()
         ListenerTests::run()
         MemoTests::run()
+        ScanTests::run()
         0
     }
 

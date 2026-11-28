@@ -40,8 +40,8 @@ module ProviderNative {
         }
     }
 
-    fn request(method, base, path, headers, body) = {
-        match httpCreateClient(base, timeoutMs) {
+    fn request(timeout, method, base, path, headers, body) = {
+        match httpCreateClient(base, timeout) {
             Success { value } => performRequest(value, method, path, headers, body)
             Error => Error { message: transportFailure }
         }
@@ -49,7 +49,8 @@ module ProviderNative {
 
     /// Install only after OAuth::configCode succeeds. TLS requires peer and
     /// hostname verification; redirects are returned, never followed.
-    export fn transport() = handler Supabase::Provider {
-        request method base path headers body => request(method, base, path, headers, body)
+    export fn bounded(timeout) = handler Supabase::Provider {
+        request method base path headers body => request(timeout, method, base, path, headers, body)
     }
+    export fn transport() = bounded(timeoutMs)
 }

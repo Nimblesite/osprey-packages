@@ -1,0 +1,55 @@
+namespace registry_api_tests;
+import registry_api::PublicationScan
+import registry_api::Supabase
+import registry::Release
+import registry::ReleaseFiles
+import registry::Bundle
+import registry::Json
+import registry::Canonical
+
+module ScanTests {
+    let session = "11111111-1111-4111-8111-111111111111"
+    let dir = "@team/one/1.1"
+    fn reply(status, body) = Success { value: Supabase::Reply { status: status, body: body } }
+
+    fn provider(text, stop, jobSession) = {
+        let encoded = Canonical::serialize(Json::str(text)) ?: ""
+        "{\"stopReason\":\"" + stop + "\",\"_meta\":{\"nap\":{\"sessionId\":\"" + jobSession + "\"}},\"updates\":[{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":" + encoded + "}}]}"
+    }
+
+    fn scan(body, status, source) = {
+        handle Supabase::Provider {
+            request method base path headers payload =>
+            if method != "POST" || base != "https://api.nimblesite.ai" || !contains(headers, "X-API-Key: fixture") { reply(400, "") }
+            else if endsWith(path, "/new") && payload == "{\"cwd\":\"/\",\"mcpServers\":[]}" { reply(200, "{\"sessionId\":\"" + session + "\"}") }
+            else if endsWith(path, "/prompt") && contains(payload, "REVIEW_THIS_BYTE") { reply(status, body) }
+            else { reply(400, "") }
+        }
+        PublicationScan::nap(session, "fixture", source)
+    }
+
+    fn receipt(release: Release::Served, path, bytes, answer, status) =
+    PublicationScan::run(path, release.id.digest, bytes, fn(source) => scan(answer, status, source), fn(result) => Success { value: result }) ?: "pending"
+
+    fn outcomes(release, bytes) = {
+        let accepted = provider("accepted", "end_turn", session)
+        let failures = "[\"unsafe dependency\",\"undeclared source\"]"
+        checkAll("frozen submission, strict scan verdict and retryable failures", [
+                receipt(release, dir, bytes, accepted, 200) == "accepted",
+                receipt(release, dir, bytes, provider(failures, "end_turn", session), 200) == failures,
+                foldList(["[]", "[1]", "[\" \"]", "accepted!", "{}"], true, fn(ok, verdict) =>
+                    receipt(release, dir, bytes, provider(verdict, "end_turn", session), 200) == "pending" && ok),
+                receipt(release, dir, bytes, provider("accepted", "max_tokens", session), 200) == "pending",
+                receipt(release, dir, bytes, provider("accepted", "end_turn", "other"), 200) == "pending",
+                receipt(release, dir, bytes, accepted, 503) == "pending",
+                receipt(release, "@team/one/1.2", bytes, accepted, 200) == "pending",
+                receipt(release, dir, replace(bytes, "REVIEW_THIS_BYTE", "CHANGED") ?: "", accepted, 200) == "pending"
+        ])
+    }
+
+    export fn run() = test("publication scan gates frozen bytes [PACKAGE-SECURITY-SCAN-VERDICT]", fn() => match
+        ReleaseFiles::assemble(dir, [Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }]) {
+            Success { value } => outcomes(value, Bundle::encode(value) ?: "")
+            Error { message } => check("frozen fixture", "ok", message)
+    })
+}
