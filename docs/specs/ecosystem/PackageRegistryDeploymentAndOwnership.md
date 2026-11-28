@@ -259,7 +259,7 @@ An accepted scan allows a registry release reviewer to approve the exact pending
 
 ## Release and recovery gates `[PACKAGE-HOSTED-RELEASE]`
 
-Pin external actions referenced in repository workflows and composite actions to full upstream commit SHAs. Pin supplemental Osprey native host sources and the browser WASI shim to the release commit and verify their SHA-256 digests before accepting a fresh or cached installation. Verify downloaded WASI sysroot and Wasmtime archive bytes against reviewed SHA-256 pins before extraction.
+Pin external actions referenced in repository workflows and composite actions to full upstream commit SHAs. Pin supplemental Osprey native host sources and the browser WASI shim to the release commit and verify their SHA-256 digests before accepting a fresh or cached installation. Verify the installed Osprey compiler, runtime archives and package source paths and bytes against a platform-specific digest before reusing a toolchain cache. Reject unexpected files and links. Verify downloaded WASI sysroot and Wasmtime archive bytes against reviewed SHA-256 pins before extraction.
 
 Build a native Osprey API container and static WASM artifact from one reviewed commit, with immutable image/artifact digests and a manifest binding compiler, policy, schema, frontend, API and tests. Deploy the identical artifacts to production, the only environment, with pinned secret versions; a test environment, if one is ever needed, is an exact paused copy of production. Runtime secrets are in Secret Manager and Supabase's provider configuration; deployment uses short-lived federated CI identity with separate deploy/migration/runtime permissions. No secrets enter an image, build argument, log or frontend.
 

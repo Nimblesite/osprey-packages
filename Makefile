@@ -12,7 +12,9 @@ help:
 	@grep -h -E '^## ' Makefile | sed 's/^## //'
 
 # _toolchain: Lay the released Osprey toolchain pinned in scripts/osprey-toolchain.sh into target/osprey.
-_toolchain $(TOOLCHAIN): scripts/osprey-toolchain.sh
+_toolchain: $(TOOLCHAIN)
+.PHONY: _check_toolchain_cache
+$(TOOLCHAIN): scripts/osprey-toolchain.sh _check_toolchain_cache
 	scripts/osprey-toolchain.sh
 
 REGISTRY_CLIENT_SOURCES = $(shell find src/manager -type f \( -name '*.osp' -o -name '*.ospml' -o -name 'osprey.toml' \))

@@ -35,6 +35,8 @@ jobs:
       - &toolchain
         name: The pinned Osprey toolchain
         run: make _toolchain
+      - name: Check cached compiler and runtime integrity
+        run: scripts/packages/test-toolchain-cache.sh
       - uses: ./.github/actions/setup-wasm
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
