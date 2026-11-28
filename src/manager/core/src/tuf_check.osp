@@ -67,9 +67,12 @@ module TufCheck {
         else if servedDigest != expectedDigest { arbitraryCode }
         else { "" }
 
-    fn fieldInt(record, key) = Json::intAt(record, key) ?: -1
-
-    fn fieldText(record, key) = Json::textAt(record, key) ?: ""
+    /// True only when the read succeeded and holds exactly `expected`; an
+    /// absent or unreadable field never equals anything.
+    fn holds(read, expected) = match read {
+        Success { value } => value == expected
+        Error => false
+    }
 
     fn hasField(record, key) = Checked::succeeded(Json::get(record, key))
 
@@ -91,12 +94,31 @@ module TufCheck {
         Error => ""
     }
 
-    fn releaseKey(record) = Canonical::serialize(Json::get(record, "release") ?: Json::Null) ?: ""
+    /// The preceding record's sequence plus one; an absent sequence follows nothing.
+    fn follows(previous, next) = match Json::intAt(previous, "sequence") {
+        Success { value } => holds(Json::intAt(next, "sequence"), value + 1)
+        Error => false
+    }
 
-    /// `H("osprey.release-status.v1", canonical preceding record)`: the
-    /// previousStatus binding of the Package Domain Model spec. Implements
+    /// `previousStatus == H("osprey.release-status.v1", canonical preceding
+    /// record)`: the previousStatus binding of the Package Domain Model spec.
+    /// A record that has no canonical form chains to nothing. Implements
     /// [PACKAGE-TYPE-INVARIANTS].
-    fn recordDigest(previous) = Digests::hashText(Domains::releaseStatusDomain(), Canonical::serialize(previous) ?: "")
+    fn chained(previous, next) = match Canonical::serialize(previous) {
+        Success { value } => holds(Json::textAt(next, "previousStatus"), Digests::hashText(Domains::releaseStatusDomain(), value))
+        Error => false
+    }
+
+    fn releaseOf(record) = match Json::get(record, "release") {
+        Success { value } => Canonical::serialize(value)
+        Error { message } => Error { message: message }
+    }
+
+    /// Both records name the same release; an absent release matches nothing.
+    fn sameRelease(previous, next) = match releaseOf(previous) {
+        Success { value } => holds(releaseOf(next), value)
+        Error => false
+    }
 
     /// Only Eligible-to-Yanked, Eligible-to-Revoked and Yanked-to-Revoked;
     /// never reverse. Implements [PACKAGE-TRUST].
@@ -110,7 +132,7 @@ module TufCheck {
     /// with no previousStatus and no reasonDigest. Implements
     /// [PACKAGE-TYPE-INVARIANTS].
     fn initialStatus(next) =
-        if fieldInt(next, "sequence") != 1 { sequenceCode }
+        if !holds(Json::intAt(next, "sequence"), 1) { sequenceCode }
         else if stateOf(next) != "Eligible" { transitionCode }
         else if hasField(next, "previousStatus") { chainCode }
         else if hasField(next, "reasonDigest") { reasonCode }
@@ -121,11 +143,11 @@ module TufCheck {
     /// record, a reason is carried, and the release never changes.
     /// Implements [PACKAGE-TYPE-INVARIANTS].
     fn laterStatus(previous, next) =
-        if fieldInt(next, "sequence") != fieldInt(previous, "sequence") + 1 { sequenceCode }
+        if !follows(previous, next) { sequenceCode }
         else if !allowedMove(stateOf(previous), stateOf(next)) { transitionCode }
-        else if fieldText(next, "previousStatus") != recordDigest(previous) { chainCode }
+        else if !chained(previous, next) { chainCode }
         else if !hasField(next, "reasonDigest") { reasonCode }
-        else if releaseKey(previous) != releaseKey(next) { releaseCode }
+        else if !sameRelease(previous, next) { releaseCode }
         else { "" }
 
     /// The release-status state machine over two full ReleaseStatus records

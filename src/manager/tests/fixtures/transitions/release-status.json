@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-TYPE-INVARIANTS]",
-  "description": "Release-status state transitions per the Package Domain Model spec: sequence starts at one and increments exactly; only Eligible-to-Yanked, Eligible-to-Revoked and Yanked-to-Revoked; later records carry previousStatus = H(\"osprey.release-status.v1\", precedingRecord) and a reason digest, initial Eligible carries neither. Records follow src/manager/schemas/package-registry.td type ReleaseStatus; digests computed independently with python hashlib.",
+  "description": "Release-status state transitions per the Package Domain Model spec: sequence starts at one and increments exactly; only Eligible-to-Yanked, Eligible-to-Revoked and Yanked-to-Revoked; later records carry previousStatus = H(\"osprey.release-status.v1\", precedingRecord) and a reason digest, initial Eligible carries neither. Records follow src/manager/schemas/package-registry.td type ReleaseStatus; digests computed independently with python hashlib. `malformed` chains break the record schema on purpose: the transition check must still refuse them, never treat an absent field as a value.",
   "chains": [
     {
       "description": "valid Eligible(1) -> Yanked(2) -> Revoked(3) for @finch/ledger",
@@ -568,6 +568,77 @@
               "ordinal": 7,
               "digest": "sha256:8dfe0a3d7cc0f6b40149496babbedc97c71a8fa66133deeb4d2f08b0102af53f"
             },
+            "roleMetadataVersion": 12,
+            "sequence": 2,
+            "state": {
+              "Yanked": {}
+            }
+          },
+          "expect": "status.release"
+        }
+      ]
+    }
+  ],
+  "malformed": [
+    {
+      "description": "preceding record has no sequence: the next record cannot follow it, even at sequence 0",
+      "steps": [
+        {
+          "previous": {
+            "effectiveAt": "2026-02-01T09:00:00.000Z",
+            "release": {
+              "package": {
+                "scope": "finch",
+                "name": "ledger"
+              },
+              "epoch": 1,
+              "ordinal": 3,
+              "digest": "sha256:d9c1e14d5ff07b093a1682e1881e93e28cdb0be8e210691bd0053cc362c856e3"
+            },
+            "roleMetadataVersion": 11,
+            "state": {
+              "Eligible": {}
+            }
+          },
+          "next": {
+            "effectiveAt": "2026-02-03T12:30:00.000Z",
+            "previousStatus": "sha256:86a13a3f22e4ec8e711dd583ca9af11e189dcfeb0fd537ee7281184fab6169d1",
+            "reasonDigest": "sha256:6dd1f114e7de1c0f06d178774d0702f0af4daf988ef850781f0f41c7340db00b",
+            "release": {
+              "package": {
+                "scope": "finch",
+                "name": "ledger"
+              },
+              "epoch": 1,
+              "ordinal": 3,
+              "digest": "sha256:d9c1e14d5ff07b093a1682e1881e93e28cdb0be8e210691bd0053cc362c856e3"
+            },
+            "roleMetadataVersion": 12,
+            "sequence": 0,
+            "state": {
+              "Yanked": {}
+            }
+          },
+          "expect": "status.sequence"
+        }
+      ]
+    },
+    {
+      "description": "neither record names a release: an absent release never matches",
+      "steps": [
+        {
+          "previous": {
+            "effectiveAt": "2026-02-01T09:00:00.000Z",
+            "roleMetadataVersion": 11,
+            "sequence": 1,
+            "state": {
+              "Eligible": {}
+            }
+          },
+          "next": {
+            "effectiveAt": "2026-02-03T12:30:00.000Z",
+            "previousStatus": "sha256:3432c4cb18db3d4e859e640345fe46d89dd560d7837fde64e38ec1427c436267",
+            "reasonDigest": "sha256:6dd1f114e7de1c0f06d178774d0702f0af4daf988ef850781f0f41c7340db00b",
             "roleMetadataVersion": 12,
             "sequence": 2,
             "state": {

@@ -64,7 +64,11 @@ module TufTests {
     fn chainSteps(chains) = foldList(chains, [], fn(steps, chain) =>
         listConcat(steps, Fixtures::itemsOf(chain, "steps")))
 
-    fn transitionTable() = Fixtures::report("release-status transitions", chainSteps(chains()), fn(step) =>
+    /// Chains whose records break the schema on purpose: an absent field is
+    /// never a value, so each must still be refused.
+    fn malformedChains() = Fixtures::loadItems("transitions/release-status.json", "malformed")
+
+    fn transitionTable() = Fixtures::report("release-status transitions", chainSteps(listConcat(chains(), malformedChains())), fn(step) =>
         TufCheck::statusTransition(JsonRead::field(step, "previous"), JsonRead::field(step, "next"))
             == Fixtures::textOf(step, "expect"))
 
