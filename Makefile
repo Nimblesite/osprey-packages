@@ -113,6 +113,7 @@ _test_registry:
 	$(OSPREY) test src/manager/core/fixture-check --memory=$(CLI_MEMORY) $(call registry_coverage,core-fixture-check)
 	@echo "==> Registry manifest (TOML parser and manifest rules) tests..."
 	$(OSPREY) test src/manager/manifest/tests --memory=$(CLI_MEMORY) $(call registry_coverage,manifest-tests)
+	$(OSPREY) test src/manager/resolver/tests --memory=$(CLI_MEMORY) $(call registry_coverage,resolver-tests)
 	@echo "==> Registry CLI (package frontend) tests..."
 	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY) $(call registry_coverage,cli-tests)
 	@echo "==> Registry (Osprey package system) tests..."
