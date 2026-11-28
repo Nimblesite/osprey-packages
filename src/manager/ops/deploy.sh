@@ -122,7 +122,8 @@ tf_init() {
 
 tfvars() { # IMAGE
   local others='[]'
-  [[ "$ENV_NAME" == production ]] && others="$(jq -nc --arg a "packages-api-staging.$DOMAIN" --arg c "packages-content-staging.$DOMAIN" '[$a,$c]')"
+  [[ "$ENV_NAME" == production ]] && others="$(jq -nc --arg a "packages-api-staging.$DOMAIN" --arg c "packages-content-staging.$DOMAIN" \
+    --arg extra "${RATE_LIMIT_EXTRA_HOSTS:-}" '[$a,$c] + ($extra | split(" ") | map(select(. != "")))')"
   jq -n --slurpfile s "$WORK/supabase.json" --arg env "$ENV_NAME" --arg project "$GCP_PROJECT_ID" \
     --arg billing "$GCP_BILLING_ACCOUNT" --arg cfa "$CLOUDFLARE_ACCOUNT_ID" --arg cfz "$CLOUDFLARE_ZONE_ID" \
     --arg api "$(host packages-api)" --arg web "$(host packages)" --arg content "$(host packages-content)" \
