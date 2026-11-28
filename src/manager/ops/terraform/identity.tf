@@ -69,6 +69,11 @@ output "github_environment" {
   }
 }
 
+output "pages_token" {
+  value     = cloudflare_account_token.pages.value
+  sensitive = true
+}
+
 output "run_host" {
   value = local.run_host
 }

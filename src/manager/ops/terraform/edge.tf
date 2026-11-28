@@ -50,6 +50,22 @@ resource "cloudflare_pages_project" "website" {
   production_branch = "main"
 }
 
+# CI's Pages Direct Upload credential: minted here, scoped to Pages on this account only.
+data "cloudflare_account_api_token_permission_groups_list" "pages_write" {
+  account_id = var.cloudflare_account_id
+  name       = "Pages Write"
+}
+
+resource "cloudflare_account_token" "pages" {
+  account_id = var.cloudflare_account_id
+  name       = "${local.name}-pages"
+  policies = [{
+    effect            = "allow"
+    permission_groups = [{ id = one(data.cloudflare_account_api_token_permission_groups_list.pages_write.result).id }]
+    resources         = jsonencode({ "com.cloudflare.api.account.${var.cloudflare_account_id}" = "*" })
+  }]
+}
+
 resource "cloudflare_dns_record" "website" {
   zone_id = var.cloudflare_zone_id
   name    = var.website_hostname

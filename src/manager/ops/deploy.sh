@@ -23,17 +23,49 @@ die() { printf '\033[1;31m[deploy %s] FATAL: %s\033[0m\n' "$ENV_NAME" "$*" >&2; 
 
 load_config() {
   case "$ENV_NAME" in staging|production) ;; *) die "environment must be staging or production" ;; esac
-  [[ -f "$OPS/deploy.env" ]] || die "copy $OPS/deploy.env.example to $OPS/deploy.env and fill it (docs/DEPLOY.md)"
+  [[ -f "$OPS/deploy.env" ]] || die "copy $OPS/deploy.env.example to $OPS/deploy.env (docs/DEPLOY.md)"
   set -a; . "$OPS/deploy.env"; set +a
   local var
-  for var in GCP_PROJECT_ID GCP_BILLING_ACCOUNT CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_ZONE_ID DOMAIN SUPABASE_ORG_ID \
-             SUPABASE_REGION CLOUDFLARE_API_TOKEN CLOUDFLARE_PAGES_TOKEN SUPABASE_ACCESS_TOKEN; do
-    [[ -n "${!var:-}" ]] || die "$var is empty in deploy.env"
-  done
   for var in terraform gcloud gh jq curl psql dotnet openssl; do
     command -v "$var" >/dev/null || die "missing command: $var"
   done
+  for var in GCP_PROJECT_ID DOMAIN SUPABASE_ORG_ID SUPABASE_REGION CLOUDFLARE_API_TOKEN; do
+    [[ -n "${!var:-}" ]] || die "$var is empty in deploy.env"
+  done
+  derive_config
   mkdir -p "$WORK"
+}
+
+# Everything an account already knows is looked up, never typed.
+derive_config() {
+  : "${SUPABASE_ACCESS_TOKEN:=$(supabase_cli_token)}"
+  [[ -n "$SUPABASE_ACCESS_TOKEN" ]] || die "run \`supabase login\` (or set SUPABASE_ACCESS_TOKEN)"
+  local zone; zone="$(cloudflare_api "/zones?name=$DOMAIN" | jq -c '.result[0] // empty')"
+  [[ -n "$zone" ]] || die "zone $DOMAIN is not on Cloudflare, or CLOUDFLARE_API_TOKEN cannot read it"
+  CLOUDFLARE_ZONE_ID="$(jq -r .id <<<"$zone")"; CLOUDFLARE_ACCOUNT_ID="$(jq -r .account.id <<<"$zone")"
+  export SUPABASE_ACCESS_TOKEN CLOUDFLARE_ZONE_ID CLOUDFLARE_ACCOUNT_ID
+}
+
+# The token `supabase login` stored in the OS keychain (go-keyring encoding).
+supabase_cli_token() {
+  local raw; raw="$(security find-generic-password -s "Supabase CLI" -a supabase -w 2>/dev/null || true)"
+  [[ "$raw" == go-keyring-base64:* ]] && raw="$(printf '%s' "${raw#go-keyring-base64:}" | base64 -d)"
+  printf '%s' "$raw"
+}
+
+cloudflare_api() { curl -sS --fail-with-body -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+
+# Creates the project and links billing when missing; the billing account defaults to the caller's only open one.
+ensure_project() {
+  gcloud projects describe "$GCP_PROJECT_ID" >/dev/null 2>&1 \
+    || { log "creating GCP project $GCP_PROJECT_ID"; gcloud projects create "$GCP_PROJECT_ID" --name="Osprey Registry" >&2; }
+  GCP_BILLING_ACCOUNT="$(gcloud billing projects describe "$GCP_PROJECT_ID" --format='value(billingAccountName)' | sed 's|.*/||')"
+  if [[ -z "$GCP_BILLING_ACCOUNT" ]]; then
+    local open; open="$(gcloud billing accounts list --filter=open=true --format='value(name)' | sed 's|.*/||')"
+    [[ "$(wc -l <<<"$open" | tr -d ' ')" == 1 && -n "$open" ]] || die "link a billing account: gcloud billing projects link $GCP_PROJECT_ID --billing-account=<ID>"
+    gcloud billing projects link "$GCP_PROJECT_ID" --billing-account="$open" >/dev/null
+    GCP_BILLING_ACCOUNT="$open"
+  fi
 }
 
 # Production owns the bare names; staging appends -staging.
@@ -61,9 +93,9 @@ BUDGET_USD=50
 # Both environments share the project, so the budget is one project singleton, not per-environment Terraform.
 ensure_budget() {
   gcloud services enable billingbudgets.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
-  local existing; existing="$(gcloud billing budgets list --billing-account="$GCP_BILLING_ACCOUNT" \
+  local existing; existing="$(gcloud billing budgets list --billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" \
     --filter="displayName=osprey-registry" --format='value(name)' 2>/dev/null)"
-  local args=(--billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="${BUDGET_USD}USD")
+  local args=(--billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="${BUDGET_USD}USD")
   if [[ -n "$existing" ]]; then
     gcloud billing budgets update "$existing" "${args[@]}" >/dev/null
   else
@@ -203,7 +235,7 @@ step_github() {
   tf output -json github_environment | jq -r 'to_entries[] | "\(.key)\t\(.value)"' | while IFS=$'\t' read -r key value; do
     gh variable set "$key" --env "$env" --repo "$REPO" --body "$value"
   done
-  printf '%s' "$CLOUDFLARE_PAGES_TOKEN" | gh secret set CLOUDFLARE_PAGES_TOKEN --env "$env" --repo "$REPO"
+  tf output -raw pages_token | gh secret set CLOUDFLARE_PAGES_TOKEN --env "$env" --repo "$REPO"
   log "GitHub environment $env synced"
 }
 
@@ -259,6 +291,7 @@ step_release() {
 
 main() {
   load_config
+  ensure_project
   ensure_budget
   [[ "$STEP" == supabase ]] || tf_init
   case "$STEP" in
