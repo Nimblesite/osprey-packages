@@ -235,7 +235,7 @@ _registry-infra-check:
 
 .PHONY: deploy
 ## deploy: Stand up or converge a hosted environment: Cloudflare → Cloud Run → Supabase (src/manager/ops/README.md).
-##         make deploy [STEP=local|supabase|infra|github|database|release|ship|website|smoke] (production only)
+##         make deploy [STEP=local|supabase|infra|github|database|reviewer|release|ship|website|smoke] (production only)
 ENV ?= production
 STEP ?= all
 deploy:

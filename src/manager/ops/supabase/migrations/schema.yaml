@@ -961,6 +961,16 @@ functions:
       ON CONFLICT(principal_id) DO NOTHING)
       SELECT id FROM candidate
 
+  # The owner names a reviewer by GitHub account; the registry account is looked up, never typed.
+  - schema: registry
+    name: release_reviewer_candidate
+    arguments: [{ name: verified_issuer, type: text }, { name: github_account, type: text }]
+    returns: uuid
+    executeRoles: []
+    body: >-
+      SELECT b.principal_id FROM registry.auth_bindings b WHERE b.issuer=verified_issuer
+      AND b.provider='github' AND b.provider_subject=github_account AND b.state='active'
+
   - schema: registry
     name: remove_release_reviewer
     arguments: [{ name: person, type: uuid }]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Implements [PACKAGE-HOSTED-TOPOLOGY] and [PACKAGE-HOSTED-RELEASE]: one idempotent operator command
 # that stands up (or converges) an environment: Cloudflare → Cloud Run → Supabase.
-#   src/manager/ops/deploy.sh production [all|local|supabase|infra|github|database|release|ship|website|smoke]
+#   src/manager/ops/deploy.sh production [all|local|supabase|infra|github|database|reviewer|release|ship|website|smoke]
 # Reads src/manager/ops/deploy.env (template: deploy.env.example). Secrets go through stdin,
 # environment variables or Secret Manager, never argv. Every step is safe to re-run.
 set -euo pipefail
@@ -329,6 +329,22 @@ migrate_build() {
     --substitutions="_HOST=$2,_USER=postgres.$3,_SECRET=$NAME-db-owner" >&2
 }
 
+owner_connection() { export PGHOST="$1" PGPORT=5432 PGUSER="postgres.$2" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGCONNECT_TIMEOUT=10; }
+
+# [PACKAGE-SECURITY-SCAN-APPROVAL] The owner appoints a release reviewer by numeric GitHub account ID.
+# The account must already have signed in: appointment binds the registry account that sign-in created.
+step_reviewer() (
+  [[ "${REVIEWER_GITHUB_ID:-}" =~ ^[1-9][0-9]*$ ]] || die "set REVIEWER_GITHUB_ID to the reviewer's numeric GitHub account ID (gh api users/<login> --jq .id)"
+  local ref appointed; ref="$(jq -r .ref "$WORK/supabase.json")"
+  owner_connection "$(jq -r .pooler_host "$WORK/supabase.json")" "$ref"
+  appointed="$(PGPASSWORD="$(owner_password)" psql -XAtq -v ON_ERROR_STOP=1 -v issuer="https://$ref.supabase.co/auth/v1" -v github="$REVIEWER_GITHUB_ID" <<'PSQL'
+SELECT registry.appoint_release_reviewer(registry.release_reviewer_candidate(:'issuer', :'github'), :'issuer', :'github');
+PSQL
+)"
+  [[ "$appointed" =~ ^[0-9a-f-]{36}$ ]] || die "GitHub account $REVIEWER_GITHUB_ID has no registry account: sign in at /register/ first, then re-run"
+  log "GitHub account $REVIEWER_GITHUB_ID is a release reviewer"
+)
+
 step_database() (
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
   log "applying src/manager/ops/supabase/migrations/schema.yaml in Cloud Build"
@@ -341,7 +357,7 @@ step_database() (
   local role secret logins password
   logins="$(tf output -json database_logins | jq -er 'select(type == "object" and length > 0) | to_entries[] | "\(.key) \(.value)"')"
   password="$(owner_password)"
-  export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGCONNECT_TIMEOUT=10
+  owner_connection "$pooler" "$ref"
   PGPASSWORD="$password" psql -XAt -v ON_ERROR_STOP=1 -f "$ROOT/scripts/packages/registry-table-inventory.sql" | \
     ruby "$ROOT/scripts/packages/check-registry-tables.rb"
   local revision
@@ -432,7 +448,7 @@ main() {
     all|release) step_supabase; step_infra; step_github; step_database; dispatch; step_smoke ;;
     # Straight from this checkout's HEAD, without the GitHub workflow.
     local) step_supabase; step_infra; step_database; step_website; step_smoke ;;
-    supabase|infra|github|database|ship|website) "step_$STEP" ;;
+    supabase|infra|github|database|reviewer|ship|website) "step_$STEP" ;;
     *) die "unknown step $STEP" ;;
   esac
   log "$STEP done"

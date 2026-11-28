@@ -28,7 +28,8 @@ Do this before the site is announced: a handle goes to the first account that as
 
 ## 4. The reviewer
 
-- [ ] 🚧 Make the user a release reviewer. Owning a package grants no review authority, and production has no way to appoint the first reviewer yet.
+- [ ] ✅ Make the user a release reviewer. Owning a package grants no review authority; only the database owner appoints one, from a clean `main`, after the user's first sign-in:
+  - `REVIEWER_GITHUB_ID=$(gh api users/<login> --jq .id) make deploy STEP=reviewer`
 
 ## 5. Release
 

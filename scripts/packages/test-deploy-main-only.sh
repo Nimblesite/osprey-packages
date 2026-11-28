@@ -13,7 +13,7 @@ GIT_LFS_SKIP_SMUDGE=1 git clone -q --no-hardlinks "$root" "$work/repo"
 cp "$root/src/manager/ops/deploy.sh" "$work/repo/src/manager/ops/deploy.sh"
 cp "$root/scripts/packages/check-website-release.sh" "$work/repo/scripts/packages/"
 git -C "$work/repo" checkout -q -b not-main
-for step in all local supabase infra github database release ship website; do
+for step in all local supabase infra github database reviewer release ship website; do
   if out="$(cd "$work/repo" && src/manager/ops/deploy.sh production "$step" 2>&1)"; then
     echo "deploy.sh production $step ran on a branch other than main" >&2; exit 1
   fi
@@ -96,6 +96,26 @@ failed=$?
 set -e
 [[ "$failed" != 0 && "$(tail -1 "$work/steps")" == step_database ]] || { echo "failed migration did not stop release" >&2; exit 1; }
 
+# The reviewer step names a GitHub account, never a registry ID, and stops when nobody was appointed.
+appoint() (
+  source "$root/src/manager/ops/deploy.sh" production reviewer
+  WORK="$work/repo/target/deploy/production"
+  printf '{"ref":"fixture","pooler_host":"pooler.example.test"}\n' > "$WORK/supabase.json"
+  owner_password() { echo private-fixture-password; }
+  log() { :; }
+  psql() {
+    [[ "$*" != *private-fixture* && "$PGPASSWORD" == private-fixture-password && "$PGUSER" == postgres.fixture && "$PGSSLMODE" == verify-full ]] || exit 95
+    [[ "$*" == *"issuer=https://fixture.supabase.co/auth/v1"* && "$*" == *"github=$REVIEWER_GITHUB_ID"* ]] || exit 96
+    grep -Fxq "SELECT registry.appoint_release_reviewer(registry.release_reviewer_candidate(:'issuer', :'github'), :'issuer', :'github');" || exit 97
+    echo "$APPOINTED"
+  }
+  step_reviewer
+)
+REVIEWER_GITHUB_ID=421 APPOINTED=11111111-1111-4111-8111-111111111111 appoint
+for refused in "REVIEWER_GITHUB_ID=421 APPOINTED=" "REVIEWER_GITHUB_ID= APPOINTED=x" "REVIEWER_GITHUB_ID=octocat APPOINTED=x" "REVIEWER_GITHUB_ID=042 APPOINTED=x"; do
+  if (export $refused; appoint) 2>/dev/null; then echo "reviewer step accepted: $refused" >&2; exit 1; fi
+done
+
 # Assert provider requests carry credentials to the destination without placing them in argv.
 (
   source "$root/src/manager/ops/deploy.sh" production release
@@ -154,4 +174,4 @@ need .github/workflows/deploy.yml 'run: test "$GITHUB_SHA" = "$EXPECTED_SHA"'
 need .github/workflows/pages.yml 'run: test "$GITHUB_REF" = refs/heads/main'
 need src/manager/ops/terraform/identity.tf "assertion.ref == 'refs/heads/main'"
 need src/manager/ops/deploy.sh '--ref main'
-echo "deploys run from main only: 9 deploy.sh steps refused, 5 guards present"
+echo "deploys run from main only: 10 deploy.sh steps refused, 5 guards present"
