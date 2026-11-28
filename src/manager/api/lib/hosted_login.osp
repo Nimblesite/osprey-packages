@@ -240,7 +240,8 @@ module HostedLogin {
         createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name)),
         bind: fn(token, pkg, repository, branch, dir) => Forge::closed()(fn() => owned(config, token, fn(cookie, issuer, subject, github) =>
                 bound(cookie, issuer, subject, github, pkg, repository, branch, dir))),
-        release: fn(token, pkg, commit, epoch, ordinal) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal))
+        release: fn(token, pkg, commit, epoch, ordinal) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal)),
+        account: fn(token) => owned(config, token, BrowserSessions::account)
     }
 
     /// Bind only a repository the forge says this GitHub account administers [PACKAGE-HOSTED-PUBLISH-FLOW].

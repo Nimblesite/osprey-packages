@@ -47,6 +47,15 @@ module ListenerTests {
         ])
     }
 
+    /// The account listing needs the browser cookie and the website origin [PACKAGE-OWNERSHIP-RLS].
+    export fn accountChecks(port, edge, cookie, originless) = {
+        let reply = fetch(port, "/v1/account", cookie)
+        checkAll("account listing requires the session and origin", [
+                startsWith(fetch(port, "/v1/account", edge), "401|"), startsWith(reply, "200|no-store|application/json|"),
+                endsWith(reply, "|{\"organizations\":[],\"packages\":[]}"), startsWith(fetch(port, "/v1/account", originless), "403|")
+        ])
+    }
+
     /// The reply `path` serves behind `extra` starts with `prefix`.
     fn serving(port, path, extra, prefix) = startsWith(fetch(port, path, extra), prefix)
 

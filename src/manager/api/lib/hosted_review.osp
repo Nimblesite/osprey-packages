@@ -4,10 +4,11 @@ import registry::Digests
 
 /// The administrator confirms exactly the immutable submission and digest on screen.
 module HostedReview {
-    /// Everything a signed-in person does through the session runtime: approve and read submissions, found organizations, create packages, bind repositories, request releases.
+    /// Everything a signed-in person does through the session runtime: approve and read submissions, found organizations, create packages, bind repositories, request releases, list their own organizations and packages.
     export type Operations = { approve: fn(string, string, string) -> Result<string, string>, receipt: fn(string, string) -> Result<string, string>,
         organize: fn(string, string, string) -> Result<string, string>, createPackage: fn(string, string, string) -> Result<string, string>,
-        bind: fn(string, string, string, string, string) -> Result<string, string>, release: fn(string, string, string, string, string) -> Result<string, string> }
+        bind: fn(string, string, string, string, string) -> Result<string, string>, release: fn(string, string, string, string, string) -> Result<string, string>,
+        account: fn(string) -> Result<string, string> }
     export let receipts = "/v1/publications/"
     export let missing = "publication.unknown-submission"
     export let prefix = "/v1/reviews/"

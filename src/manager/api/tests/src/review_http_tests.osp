@@ -34,7 +34,10 @@ module ReviewHttpTests {
     export fn release(cookie, owner, sha, epoch, ordinal) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
     else if owner == pkg && sha == commit && epoch == "1" && ordinal == "2" { Success { value: intent } } else { Error { message: HostedOwnership::refused } }
 
-    export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage, bind: bind, release: release }
+    let listing = "{\"organizations\":[],\"packages\":[]}"
+    export fn account(cookie) = if cookie == token { Success { value: listing } } else { Error { message: HostedLogin::sessionRequired } }
+
+    export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage, bind: bind, release: release, account: account }
 
     fn releases(client, cookie, auth) = {
         let repository = HostedOwnership::packages + pkg + "/repository"
@@ -117,6 +120,7 @@ module ReviewHttpTests {
                     status(value, replace(path, digest, "sha256:" + (repeat("c", 64) ?: "")) ?: "", auth, "") == 403
             ])
             ListenerTests::receiptChecks(port, edge, cookie, submission)
+            ListenerTests::accountChecks(port, edge, cookie, edge + "\r\nCookie: __Host-registry=" + token)
             ownership(value, origin, cookie, auth)
             releases(value, cookie, auth)
             let _closed = httpCloseClient(value)

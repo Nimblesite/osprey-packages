@@ -16,6 +16,7 @@ import registry_host::Host
 /// published before approval, a stranger cannot approve, a replay publishes nothing new, and the
 /// scanner cannot write a release the reviewer did not approve. Leaves no rows behind.
 module Publication {
+    let accountListing = "registry.account_listing()"
     let commit = "0123456789abcdef0123456789abcdef01234567"
     let manifest = "[project]\nname = \"net\"\nsource_roots = [\"src\"]\n[package]\nname = \"@atlas/net\"\nlicense = \"MIT\"\nsummary = \"HTTP tools\"\nkeywords = [\"http\", \"web\"]\n"
     fn files() = [
@@ -78,6 +79,11 @@ module Publication {
         let job = Ownership::asSession(ada, "registry.request_release('${pkg}','${commit}',1,1)")
         let duplicate = Ownership::asSession(ada, "registry.request_release('${pkg}','${commit}',1,1)") == ""
         let submitted = collect(digest, bytes) == job && collect(digest, bytes) == "idle"
+        let listing = Ownership::asSession(ada, accountListing)
+        let accounted = contains(listing, "\"key\" : \"@atlas/net\"") && contains(listing, "\"bound\" : true") && contains(listing, "\"repositoryId\" : \"4242\"")
+        && contains(listing, "\"nextOrdinal\" : 2") && contains(listing, "\"handle\" : \"atlas\"")
+        let private = Ownership::asSession(eve, accountListing) == "{\"organizations\" : [], \"packages\" : []}"
+        && Ownership::asSession(ada { digest: "sha256:" + (repeat("9", 64) ?: "") }, accountListing) == ""
         let scanned = (worker(job, digest, bytes, fn() => ScanWorkerTests::agent("accepted")(fn() => ScanJob::run(job))) ?: "") == job
         let early = (worker(job, digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','HTTP tools','[]','[]')") == ""
         let strangerDenied = Ownership::asSession(eve, "registry.approve_submission('${job}','${digest}')") == ""
@@ -89,7 +95,7 @@ module Publication {
         let listed = CatalogWriter::refreshed() && catalogLists(digest, adaId)
         let clean = Ownership::owner(cleanup).status == 0
         checkAll("an approved version reaches the public catalog", [ada.digest != "", rex.digest != "", eve.digest != "", reviewer, unbound, strangerBinds, bound, rebound,
-                strangerRequests, registry::Bytes::canonicalUuid(job), duplicate, submitted, scanned,
+                strangerRequests, registry::Bytes::canonicalUuid(job), duplicate, submitted, accounted, private, scanned,
                 early, strangerDenied, substituted, approved, forged, published, replayed, listed, clean])
     }
 

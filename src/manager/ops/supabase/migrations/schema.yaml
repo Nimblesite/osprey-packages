@@ -1209,3 +1209,22 @@ functions:
       JOIN registry.packages p ON p.id=i.package_id JOIN registry.organizations o ON o.id=p.organization_id
       WHERE registry.can_submit_version(i.publisher_id,i.package_id) AND NOT registry.intent_is_frozen(i.id,i.publisher_id)
       ORDER BY i.requested_at,i.id LIMIT 1
+
+  # [PACKAGE-OWNERSHIP-RLS] The live session's organizations and their packages, each with its bound repository
+  # and the next version to request, as `{"organizations":[...],"packages":[...]}`; RLS limits every row.
+  - schema: registry
+    name: account_listing
+    returns: text
+    executeRoles: [registry_session_runtime]
+    body: >-
+      SELECT json_build_object(
+      'organizations',COALESCE((SELECT json_agg(json_build_object('id',o.id,'handle',o.handle,'name',o.display_name) ORDER BY o.handle)
+      FROM registry.organizations o WHERE o.state='active'),'[]'::json),
+      'packages',COALESCE((SELECT json_agg(json_build_object('id',p.id,'key','@'||o.handle||'/'||p.name,'organizationId',o.id,
+      'epoch',v.epoch,'nextOrdinal',COALESCE((SELECT max(i.ordinal) FROM registry.release_intents i WHERE i.package_id=p.id AND i.epoch=v.epoch),0)+1,
+      'bound',r.package_id IS NOT NULL,'repositoryId',r.repository_id::text,'branch',r.branch,'subdirectory',r.subdirectory) ORDER BY o.handle,p.name)
+      FROM registry.packages p JOIN registry.organizations o ON o.id=p.organization_id
+      LEFT JOIN registry.package_repositories r ON r.package_id=p.id
+      CROSS JOIN LATERAL (SELECT COALESCE(max(i.epoch),1) AS epoch FROM registry.release_intents i WHERE i.package_id=p.id) v
+      WHERE p.state='active' AND o.state='active'),'[]'::json))::text
+      WHERE registry.review_session_principal() IS NOT NULL

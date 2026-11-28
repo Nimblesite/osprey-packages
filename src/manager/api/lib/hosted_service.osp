@@ -21,6 +21,7 @@ module HostedService {
     let authorizationHeader = "authorization"
     let publisherPrefix = "/v1/publishers/"
     let originRequired = "req.origin-required"
+    let accountPath = "/v1/account"
     let logoutPath = "/v1/auth/logout"
     let passkeyOptionsPath = "/v1/auth/passkey/options"
     let passkeyVerifyPath = "/v1/auth/passkey/verify"
@@ -142,6 +143,7 @@ module HostedService {
         else if method == "GET" && Bytes::before(path, "?") == OAuth::callbackPath {
             callbackResponse(callback(path, headers), cors)
         }
+        else if method == "GET" && path == accountPath { sessionRead(headers, cors, reviews.account) }
         else if method == "GET" && path == "/v1/auth/session" { sessionRequest(headers, session, cors) }
         else if method == "POST" && startsWith(path, HostedReview::prefix) { reviewRequest(headers, path, cors, reviews.approve) }
         else if method == "POST" && path == logoutPath { logoutRequest(headers, session, cors) }
@@ -151,17 +153,22 @@ module HostedService {
         else { unavailable(cors) }
     }
 
-    fn receiptRequest(headers, path, cors, receipt) = {
+    /// A signed-in, same-origin read: `read(token)`'s JSON, or the session, origin, request or lookup refusal.
+    fn sessionRead(headers, cors, read) = {
         let token = HostedLogin::browserToken(headers)
-        let id = drop(path, byteLength(HostedReview::receipts))
         if token == "" { signedOut(cors) }
         else if cors == "" { problem(403, originRequired) }
-        else if !Bytes::canonicalUuid(id) { problemWith(400, HostedReview::badRequest, cors) }
-        else { match receipt(token, id) {
+        else { match read(token) {
                 Success { value } => replyWith(200, jsonType, value, cors)
-                Error { message } => if message == HostedReview::missing { problemWith(404, message, cors) }
+                Error { message } => if message == HostedReview::badRequest { problemWith(400, message, cors) }
+                else if message == HostedReview::missing { problemWith(404, message, cors) }
                 else if message == HostedLogin::sessionRequired { signedOut(cors) } else { unavailable(cors) }
             } }
+    }
+
+    fn receiptRequest(headers, path, cors, receipt) = {
+        let id = drop(path, byteLength(HostedReview::receipts))
+        sessionRead(headers, cors, fn(token) => if Bytes::canonicalUuid(id) { receipt(token, id) } else { Error { message: HostedReview::badRequest } })
     }
 
     fn reviewRequest(headers, path, cors, approve) = {
