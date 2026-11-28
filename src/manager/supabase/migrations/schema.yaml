@@ -420,3 +420,105 @@ tables:
           withCheck: >-
             current_setting('session_authorization') = 'registry_session_revoker'
             AND cookie_digest = current_setting('registry.session_digest') AND revoked_at IS NOT NULL AND token_envelope IS NULL
+
+  # [PACKAGE-SECURITY-SCAN-APPROVAL] The collector inserts a durable scan job.
+  # All decisions reference this immutable identity. Absence of a receipt is pending.
+  - name: review_submissions
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: epoch, type: BigInt, isNullable: false, checkConstraint: "epoch > 0" }
+      - { name: ordinal, type: BigInt, isNullable: false, checkConstraint: "ordinal > 0" }
+      - { name: digest, type: Text, isNullable: false, checkConstraint: "digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: publisher_id, type: Uuid, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_review_candidate, columns: [package_id, epoch, ordinal, digest] }
+      - { name: uq_review_binding, columns: [id, package_id, epoch, ordinal, digest] }
+    foreignKeys:
+      - { columns: [package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [id] }
+      - { columns: [publisher_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: collector_submit, permissive: true, operations: [Insert], roles: [], withCheck: "current_setting('session_authorization') = 'registry_publication_collector'" }
+        - { name: scanner_queue, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+
+  - name: release_reviewers
+    schema: registry
+    columns:
+      - { name: principal_id, type: Uuid, isNullable: false }
+    primaryKey: { columns: [principal_id] }
+    foreignKeys:
+      - { columns: [principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: current_reviewer
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: >-
+            current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS
+            (SELECT 1 FROM registry.browser_sessions s WHERE s.principal_id = release_reviewers.principal_id
+            AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = s.principal_id AND p.credential_epoch = s.credential_epoch)
+            AND EXISTS (SELECT 1 FROM registry.auth_bindings b WHERE b.id = s.binding_id AND b.principal_id = s.principal_id))
+
+  - name: review_scans
+    schema: registry
+    columns:
+      - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: agent_revision, type: Text, isNullable: false, checkConstraint: "length(agent_revision) BETWEEN 1 AND 256 AND agent_revision ~ '[^[:space:]]'" }
+      - { name: verdict, type: Text, isNullable: false, checkConstraint: "octet_length(verdict) BETWEEN 1 AND 65536" }
+      - { name: decided_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [submission_id] }
+    foreignKeys:
+      - { columns: [submission_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: scanner_decision
+          permissive: true
+          operations: [Insert]
+          roles: []
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_scan_worker' AND decided_at = statement_timestamp()
+            AND CASE WHEN verdict = 'accepted' THEN true
+            ELSE jsonb_path_match(verdict::jsonb,
+            '$.type() == "array" && $[0].type() == "string" && !(exists($[*] ? (@.type() != "string" || @ like_regex "^\\s*$")))') END
+        - { name: scanner_decided, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        - { name: reviewer_accepted, permissive: true, operations: [Select], roles: [], using: "current_setting('session_authorization') = 'registry_session_runtime' AND verdict = 'accepted' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
+
+  - name: release_approvals
+    schema: registry
+    columns:
+      - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: epoch, type: BigInt, isNullable: false }
+      - { name: ordinal, type: BigInt, isNullable: false }
+      - { name: digest, type: Text, isNullable: false }
+      - { name: reviewer_id, type: Uuid, isNullable: false }
+      - { name: approved_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [submission_id] }
+    uniqueConstraints:
+      - { name: uq_approved_version, columns: [package_id, epoch, ordinal] }
+    foreignKeys:
+      - { columns: [submission_id, package_id, epoch, ordinal, digest], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id, package_id, epoch, ordinal, digest] }
+      - { columns: [submission_id], referencedSchema: registry, referencedTable: review_scans, referencedColumns: [submission_id] }
+      - { columns: [reviewer_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: approve_scanned_version
+          permissive: true
+          operations: [Insert]
+          roles: []
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_session_runtime' AND approved_at = statement_timestamp()
+            AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = reviewer_id)
+            AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id = release_approvals.submission_id AND s.verdict = 'accepted')

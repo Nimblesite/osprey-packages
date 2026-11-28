@@ -198,6 +198,7 @@ _registry-migration-verify:
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
 	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 18 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
+	  "$$pg/psql" -Xq -f src/manager/api/tests/live/review.sql; \
 	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/api/tests/live --memory=$(API_MEMORY) $(call registry_coverage,api-tests-live)
 
 .PHONY: _registry-integration-check _registry-integration-verify

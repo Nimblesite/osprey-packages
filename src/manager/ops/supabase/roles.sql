@@ -48,4 +48,5 @@ GRANT SELECT(id, principal_id) ON registry.auth_bindings TO registry_session_rev
 GRANT SELECT(id, credential_epoch) ON registry.principals TO registry_session_revoker;
 GRANT SELECT(id, cookie_digest, last_used_at, revoked_at), UPDATE(revoked_at, token_envelope)
   ON registry.browser_sessions TO registry_session_revoker;
+\ir review-grants.sql
 COMMIT;
