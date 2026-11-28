@@ -5,7 +5,8 @@
 # Reads src/manager/ops/deploy.env (template: deploy.env.example). Secrets go through stdin,
 # environment variables or Secret Manager, never argv. Every step is safe to re-run.
 set -euo pipefail
-shopt -s inherit_errexit # a failure inside $(…) stops the run too
+shopt -s inherit_errexit
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1 # never block on a gcloud question # a failure inside $(…) stops the run too
 
 OPS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$OPS/../../.." && pwd)"
@@ -95,6 +96,7 @@ CAP_REGION=australia-southeast1
 # Both environments share the project, so the cap is one project singleton, not per-environment Terraform.
 ensure_spend_cap() {
   gcloud services enable billingbudgets.googleapis.com cloudbilling.googleapis.com pubsub.googleapis.com \
+    storage.googleapis.com secretmanager.googleapis.com \
     workflows.googleapis.com eventarc.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
   gcloud pubsub topics describe "$CAP_NAME" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
     || gcloud pubsub topics create "$CAP_NAME" --project="$GCP_PROJECT_ID" >/dev/null
@@ -192,7 +194,6 @@ tf() { TF_DATA_DIR="$WORK/terraform" terraform -chdir="$TF_DIR" "$@"; }
 
 tf_init() {
   local bucket="$GCP_PROJECT_ID-osprey-registry-tfstate"
-  gcloud services enable storage.googleapis.com secretmanager.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
   if ! gcloud storage buckets describe "gs://$bucket" >/dev/null 2>&1; then
     log "creating private versioned state bucket gs://$bucket"
     gcloud storage buckets create "gs://$bucket" --project="$GCP_PROJECT_ID" --location=australia-southeast1 \
