@@ -6,7 +6,7 @@ import registry_host::Host
 /// The public catalog's one writer, src/manager/ops/supabase/catalog.sql, on real PostgreSQL
 /// [PACKAGE-HOSTED-ROUTES-CATALOG]: applied twice (idempotent), its NOLOGIN owner holds no
 /// right beyond the catalog row, PUBLIC cannot run the refresh, and an empty registry
-/// yields a live row the restricted reader sees and the API decodes. Cleans up after itself.
+/// yields a live row the restricted reader sees and the API decodes. Drops both roles after.
 module CatalogWriter {
     let owner = "psql -XqAt --no-password -p 18873 -U registry_check -d postgres -v ON_ERROR_STOP=1 "
     fn onFixture(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
@@ -27,22 +27,29 @@ module CatalogWriter {
             Error => false
         }
     }
-    fn grants() = [
-        answers("SELECT rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname = '${writer}'", "f"),
-        answers("SELECT string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type) FROM information_schema.role_table_grants WHERE grantee = '${writer}'",
-            "public_catalog:INSERT,public_catalog:SELECT,public_catalog:UPDATE"),
-        answers("SELECT p.prosecdef AND pg_get_userbyid(p.proowner) = '${writer}' AND p.proconfig = ARRAY['search_path=pg_catalog'] AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) FROM pg_proc p WHERE p.oid = '${refresh}'::regprocedure", "t")
-    ]
+    fn loginless() = answers("SELECT rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname = '${writer}'", "f")
+    fn tableRights() = answers("SELECT string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type) FROM information_schema.role_table_grants WHERE grantee = '${writer}'",
+        "public_catalog:INSERT,public_catalog:SELECT,public_catalog:UPDATE")
+    fn definer() = answers("SELECT p.prosecdef AND pg_get_userbyid(p.proowner) = '${writer}' AND p.proconfig = ARRAY['search_path=pg_catalog'] AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) FROM pg_proc p WHERE p.oid = '${refresh}'::regprocedure", "t")
+    /// schema.yaml's three writer policies reach PostgreSQL naming the writer; their predicate calls
+    /// pg_catalog."current_user"() because the generator quotes a bare current_user into a column (42703).
+    fn policies() = answers("SELECT string_agg(policyname || ':' || cmd, ',' ORDER BY policyname) FROM pg_policies WHERE schemaname = 'registry' AND tablename = 'public_catalog' AND coalesce(qual, with_check) LIKE '%registry_catalog_writer%' AND coalesce(qual, with_check) LIKE '%current_user%'",
+        "catalog_writer_insert:INSERT,catalog_writer_select:SELECT,catalog_writer_update:UPDATE")
     fn lifetime() = answers("SELECT expires_at - verified_at = interval '1 hour' AND verified_at <= now() FROM registry.public_catalog WHERE id = 1", "t")
-    fn cleaned() = sql("DELETE FROM registry.public_catalog; DROP OWNED BY ${writer}; DROP ROLE ${writer};").status == 0
+    fn cleaned() = sql("DELETE FROM registry.public_catalog; DROP OWNED BY ${writer}, registry_catalog_reader; DROP ROLE ${writer}, registry_catalog_reader;").status == 0
 
     export fn check() = {
         let first = applied()
         let again = applied()
         let rows = answers("SELECT count(*) FROM registry.public_catalog", "1")
-        let results = listConcat([first, again, rows, lifetime(), readerSees()], grants())
+        let live = lifetime()
+        let read = readerSees()
+        let loginOff = loginless()
+        let rights = tableRights()
+        let safe = definer()
+        let policed = policies()
         let refreshed = answers("UPDATE registry.public_catalog SET verified_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'; SELECT ${refresh}; SELECT expires_at > now() FROM registry.public_catalog", "t")
         let clean = cleaned()
-        checkAll("the public catalog writer refreshes an empty registry into a live, decodable row", listConcat(results, [refreshed, clean]))
+        checkAll("the public catalog writer refreshes an empty registry into a live, decodable row", [first, again, rows, live, read, loginOff, rights, safe, policed, refreshed, clean])
     }
 }
