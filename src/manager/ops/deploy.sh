@@ -5,8 +5,8 @@
 # Reads src/manager/ops/deploy.env (template: deploy.env.example). Secrets go through stdin,
 # environment variables or Secret Manager, never argv. Every step is safe to re-run.
 set -euo pipefail
-shopt -s inherit_errexit
-export CLOUDSDK_CORE_DISABLE_PROMPTS=1 # never block on a gcloud question # a failure inside $(…) stops the run too
+shopt -s inherit_errexit # a failure inside $(…) stops the run too
+export CLOUDSDK_CORE_DISABLE_PROMPTS=1 # never block on a gcloud question
 
 OPS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$OPS/../../.." && pwd)"
