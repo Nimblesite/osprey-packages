@@ -17,6 +17,7 @@ fn suites() = {
     OverlayTests::run()
     PublishTests::run()
     YankTests::run()
+    AuditTests::run()
     PythonTests::run()
     TreeTests::run()
     TreeGraphTests::run()

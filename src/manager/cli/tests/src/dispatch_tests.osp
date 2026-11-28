@@ -52,16 +52,16 @@ module DispatchTests {
         let help = reportOf([])
         let explicit = reportOf(["help"])
         let unknown = reportOf(["frobnicate"])
-        let planned = reportOf(["audit"])
+        let audit = reportOf(["audit", "--bogus"])
         let release = reportOf(["build", "--bogus"])
-        checkAll("help is the default, unknown commands are usage errors, specified ones say not implemented", [
+        checkAll("help is the default, unknown commands are usage errors, audit is routed", [
                 structuralEquals([help.status, explicit.status, unknown.status], [0, 0, 2]),
-                structuralEquals([planned.status, release.status], [3, 2]),
+                structuralEquals([audit.status, release.status], [2, 2]),
                 Fixture::line(help, 0) == "usage: osprey-pkg [--json] <command>",
                 length(explicit.lines) == length(help.lines),
                 structuralEquals([Fixture::line(unknown, 0), Fixture::line(unknown, 1)],
                     ["unknown command: frobnicate", "usage: osprey-pkg [--json] <command>"]),
-                Fixture::line(planned, 0) == "not implemented: audit ([PLAN-ENGINE])",
+                Fixture::line(audit, 0) == "audit.usage",
                 Fixture::line(release, 0) == "build.usage"
         ])
     }

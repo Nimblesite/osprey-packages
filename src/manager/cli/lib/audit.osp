@@ -1,0 +1,42 @@
+namespace registry_cli;
+import registry::Identity
+import registry::Names
+
+/// `osprey-pkg audit [--registry <base-url>] [--project <dir>]`: every release
+/// `osprey.lock` pins, checked against the registry's current listing. A
+/// locked release the registry now marks yanked is `audit.yanked`, one whose
+/// slot the listing no longer holds is `audit.vanished`, and one whose slot
+/// now names other bytes is `audit.replaced`; each finding is a line and the
+/// status is 1. An unreadable registry fails the audit rather than reporting
+/// it clean ([PACKAGE-API], [PACKAGE-RESOLUTION], [PACKAGE-TRUST]).
+module Audit {
+    let usageCode = "audit.usage"
+    let noLockCode = "audit.no-lock"
+    let registryCode = "audit.registry"
+    let usageText = ["usage: osprey-pkg audit [--registry <base-url>] [--project <dir>]"]
+
+    fn sameSlot(a, b) = Names::same(Identity::keyOf(a), Identity::keyOf(b)) && Identity::epochOf(a) == Identity::epochOf(b) && Identity::ordinalOf(a) == Identity::ordinalOf(b)
+
+    fn slotted(listed, release) = filterList(listed, fn(l) => sameSlot(l, release))
+
+    fn findingOf(marked, release) = {
+        let slot = slotted(Listing::releasesOf(marked), release)
+        if isEmpty(slot) { ["audit.vanished ${Lockfile::compact(release)}"] }
+        else if !Folds::any(slot, fn(l) => Identity::same(l, release)) { ["audit.replaced ${Lockfile::compact(release)}"] }
+        else if Listing::isYanked(marked, release) { ["audit.yanked ${Lockfile::compact(release)}"] }
+        else { [] }
+    }
+
+    fn audited(lock, marked) = {
+        let releases = mapList(Lockfile::packagesOf(lock), Lockfile::releaseOf)
+        let found = Folds::flatMap(releases, fn(r) => findingOf(marked, r))
+        if isEmpty(found) { Reports::success(["audited ${length(releases)} packages: none yanked, vanished or replaced"]) } else { Reports::failure(found) }
+    }
+
+    fn at(base, project) = Reports::checkedWith(Project::readLockAt(project), noLockCode,
+        fn(lock) => Reports::checkedWith(Listing::fetchMarked(base), registryCode, fn(marked) => audited(lock, marked)))
+
+    /// The whole command.
+    export fn run(args) = Flags::dispatch(args, Transaction::flags, [], usageCode, usageText,
+        fn(parsed) => at(Flags::given(parsed, Fetch::registryFlag, Fetch::defaultRegistry), Flags::project(parsed)))
+}
