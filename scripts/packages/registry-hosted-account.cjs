@@ -7,6 +7,7 @@ const checkHostedAccount = async (browser, livePort) => {
   if (!livePort) await checkHostedPasskey(browser);
 };
 async function checkPackagedAccount({page, website, api, failures}, livePort) {
+  await page.route('https://www.ospreylang.dev/**', route => route.abort('blockedbyclient'));
   const headers = {'access-control-allow-origin':website,'access-control-allow-credentials':'true'};
   async function waitForFirstRelease() {
     await page.getByRole('heading', {name:'e1.r1'}).waitFor();

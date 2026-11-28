@@ -24,7 +24,7 @@ module BuildTests {
     /// commands, each "" when none.
     type Attempt = { report: Reports::Report, derived: Fixture::ReadRoute, ensures: string, commands: string }
 
-    fn runBuild(reads, walks, args) = {
+    fn runWith(entry, reads, walks, args) = {
         mut derived = Fixture::readRoute("", "")
         mut ensures = ""
         mut commands = ""
@@ -53,9 +53,11 @@ module BuildTests {
                 Host::Run { status: 0, stdout: "built\n", stderr: "" }
             }
         }
-        let report = RegistryFixture::over(process, files, tree, web, Build::run, args)
+        let report = RegistryFixture::over(process, files, tree, web, entry, args)
         Attempt { report: report, derived: derived, ensures: ensures, commands: commands }
     }
+
+    fn runBuild(reads, walks, args) = runWith(Build::run, reads, walks, args)
 
     // ---- the project and its two packages ----
 
@@ -202,10 +204,38 @@ module BuildTests {
         ])
     }
 
+    /// Bare `run` and `test` invoke the compiler without network, selecting the
+    /// release lock when no override is active and the development lock when an
+    /// overlay is active ([PACKAGE-LOCAL-OVERRIDE]).
+    fn runAndTestCommands() = {
+        let packages = standardPackages()
+        let lock = matchingLock(mapList(packages, pkgOf))
+        let reads = readsOf(lock, packages)
+        let walks = walksOf(packages)
+        let ran = runWith(Build::exec, reads, walks, ["--project", project])
+        let tested = runWith(Build::runTest, reads, walks, ["--project", project])
+        let overlay = Fixture::readRoute("${project}/.osprey/local-overrides.json", "{\"overrides\":[{\"key\":\"@demo/one\",\"path\":\"../one\"}]}")
+        let localLock = Fixture::readRoute("${project}/osprey.local.lock", lock)
+        let localReads = listConcat([overlay, localLock], reads)
+        let ranLocal = runWith(Build::exec, localReads, walks, ["--project", project])
+        let testedLocal = runWith(Build::runTest, localReads, walks, ["--project", project])
+        checkAll("bare run and test select release or development lock offline", [
+                ran.report.status == 0,
+                ran.commands == "'${compilerPath}' '${project}/.osprey/build' --run|",
+                tested.report.status == 0,
+                tested.commands == "'${compilerPath}' test '${project}/.osprey/build'|",
+                ranLocal.report.status == 0,
+                ranLocal.commands == "'${compilerPath}' '${project}/.osprey/build' --run|",
+                testedLocal.report.status == 0,
+                testedLocal.commands == "'${compilerPath}' test '${project}/.osprey/build'|"
+        ])
+    }
+
     /// Every build test.
     export fn run() = {
         test("build: derived project bytes and compiler invocation", derived)
         test("build: --run invokes the run form", runForm)
+        test("build: bare run and test select lock offline", runAndTestCommands)
         test("build: default and relative source paths", relativeBuilds)
         test("build: Python sources remain manifest-relative", relativePythonSources)
         test("build: a verify failure compiles nothing", verifyFailure)

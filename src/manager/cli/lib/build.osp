@@ -30,19 +30,22 @@ module Build {
     let buildDir = ".osprey/build"
     let buildManifest = ".osprey/build/osprey.toml"
 
-    type CommandLine = { run: bool, release: bool, compiler: string, project: string, docsDir: string }
+    type CommandLine = { run: bool, test: bool, release: bool, compiler: string, project: string, docsDir: string }
     /// One locked package's tree and its accepted manifest.
     type PackageManifest = { dir: string, manifest: ManifestModel::Manifest }
 
     let usageText = ["usage: osprey-pkg build [--run] [--release] [--compiler <path>] [--project <dir>]"]
 
-    fn commandLine(parsed) = CommandLine {
+    fn commandLineFor(parsed, run, isTest) = CommandLine {
         docsDir: Flags::given(parsed, "--docs-dir", ""),
-        run: Flags::has(parsed, runFlag),
+        run: run,
+        test: isTest,
         release: Flags::has(parsed, releaseFlag),
         compiler: Flags::given(parsed, compilerFlag, defaultCompiler),
         project: Flags::project(parsed)
     }
+
+    fn commandLine(parsed) = commandLineFor(parsed, Flags::has(parsed, runFlag), false)
 
     fn escaped(text) = replace(text, "\\", "\\\\") ?: text
 
@@ -131,6 +134,8 @@ module Build {
     /// The compiler invocation, every variable word shell-quoted ([PACKAGE-HARDENING] C6).
     fn command(cmd, manifest) = if cmd.docsDir != "" {
         "${compilerWord(cmd)} --docs ${derivedWord(cmd)} --docs-format html --docs-no-builtins --docs-dir ${Host::shellWord(cmd.docsDir)}"
+    } else if cmd.test {
+        "${compilerWord(cmd)} test ${derivedWord(cmd)}"
     } else if cmd.run {
         "${compilerWord(cmd)} ${derivedWord(cmd)} --run"
     } else {
@@ -173,6 +178,13 @@ module Build {
 
     export fn docs(args) = Flags::dispatch(args, [compilerFlag, Flags::projectFlag, "--docs-dir"], [], "docs.usage", ["usage: osprey-pkg docs --docs-dir <directory> [--compiler <path>] [--project <dir>]"],
         fn(parsed) => if Flags::given(parsed, "--docs-dir", "") == "" { Reports::usage(["missing --docs-dir"]) } else { build(commandLine(parsed)) })
+
+    fn runCommandLine(parsed) = commandLineFor(parsed, true, false)
+    fn testCommandLine(parsed) = commandLineFor(parsed, false, true)
+
+    export fn exec(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [], "run.usage", ["usage: osprey-pkg run [--compiler <path>] [--project <dir>]"], runCommandLine, build)
+
+    export fn runTest(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [], "test.usage", ["usage: osprey-pkg test [--compiler <path>] [--project <dir>]"], testCommandLine, build)
 
     /// The whole command: verify, then compile; `--run` runs the built program.
     export fn run(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [runFlag, releaseFlag], usageCode, usageText, commandLine, build)
