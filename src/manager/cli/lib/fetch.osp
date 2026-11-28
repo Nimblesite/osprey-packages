@@ -40,14 +40,19 @@ module Fetch {
     let statusPrefix = "fetch.registry-status"
     let noReleaseCode = "fetch.no-release"
     let shapeCode = "fetch.package-shape"
+    let yankedStatus = "Yanked"
     let writePrefix = "fetch.write"
     let usageText = [
         "usage: osprey-pkg fetch <target> [--registry <base-url>]",
         "target: @scope/name[@e<epoch>] or sha256:<64 hex>; offline: fetch <digest> --bundle <file>"
     ]
 
-    /// One `{"digest","epoch","ordinal"}` row of a package listing.
-    export type Row = { digest: string, epoch: int, ordinal: int }
+    /// One `{"digest","epoch","ordinal"[,"status"]}` row of a package listing;
+    /// `yanked` when its status is `Yanked` ([PACKAGE-RESOLUTION]).
+    export type Row = { digest: string, epoch: int, ordinal: int, yanked: bool }
+
+    /// One listed release and whether the registry marks it yanked.
+    export type Listed = { release: Identity::ReleaseId, yanked: bool }
 
     /// What the target word asks for: the newest release, the newest ordinal
     /// of one epoch, or the release of one digest.
@@ -127,11 +132,22 @@ module Fetch {
 
     fn sourcePath(digest) = "${sourcePrefix}${digest}${sourceSuffix}"
 
-    /// One `{"digest","epoch","ordinal"}` row; any member missing or of
-    /// another kind is `fetch.package-shape`.
+    /// The optional `status`: absent is Eligible, `Yanked` is yanked, and any
+    /// other value is `fetch.package-shape`, so an unknown state never reads as Eligible.
+    fn yankedOf(item) = match Json::get(item, "status") {
+        Error => Success { value: false }
+        Success { value } => match value {
+            Json::Str { text } => if text == yankedStatus { Success { value: true } } else { Error { message: shapeCode } }
+            _ => Error { message: shapeCode }
+        }
+    }
+
+    /// One `{"digest","epoch","ordinal"[,"status"]}` row; any member missing or
+    /// of another kind is `fetch.package-shape`.
     fn rowOf(item) = andThen(JsonRead::requiredText(item, "digest", shapeCode), fn(digest) =>
         andThen(JsonRead::requiredInt(item, "epoch", shapeCode), fn(epoch) =>
-            Folds::mapped(JsonRead::requiredInt(item, "ordinal", shapeCode), fn(ordinal) => Row { digest: digest, epoch: epoch, ordinal: ordinal })))
+            andThen(JsonRead::requiredInt(item, "ordinal", shapeCode), fn(ordinal) =>
+                Folds::mapped(yankedOf(item), fn(yanked) => Row { digest: digest, epoch: epoch, ordinal: ordinal, yanked: yanked }))))
 
     fn rowsOf(items) = Checked::collectAll(items, rowOf)
 
@@ -147,34 +163,42 @@ module Fetch {
 
     fn releaseOf(key, row: Row) = Identity::ReleaseId { key: key, epoch: row.epoch, ordinal: row.ordinal, digest: row.digest }
 
-    fn keyedRows(key, rows) = Folds::mapped(rows, fn(value) => mapList(value, fn(row) => releaseOf(key, row)))
+    fn listedOf(key, row) = Listed { release: releaseOf(key, row), yanked: row.yanked }
+
+    fn keyedRows(key, rows) = Folds::mapped(rows, fn(value) => mapList(value, fn(row) => listedOf(key, row)))
 
     /// The `key` member as a package key; one that does not parse is `fetch.package-shape`.
     fn keyOfItem(item) = andThen(JsonRead::requiredText(item, "key", shapeCode), fn(value) => Checked::mapError(Names::parse(value), fn(_reason) => shapeCode))
 
-    /// The releases of one `{"key","releases"}` package item as identities.
+    /// The releases of one `{"key","releases"}` package item, each with its yank mark.
     fn packageReleases(item) = andThen(keyOfItem(item), fn(value) => keyedRows(value, releasesOf(item)))
 
     /// The `packages` array of the listing document, every item's releases in order.
     fn packagesOf(root) = andThen(JsonRead::requiredItems(root, "packages", shapeCode), fn(items) =>
         Folds::collect(items, Success { value: [] }, fn(done, item) => Folds::mapped(packageReleases(item), fn(value) => listConcat(done, value))))
 
-    /// Every release of `{"packages":[{"key","releases":[…]}]}` as identities
-    /// in listing order, so `lock` reads the whole registry in one request;
-    /// any other shape is `"fetch.package-shape"`.
+    /// Every release of `{"packages":[{"key","releases":[…]}]}` with its yank
+    /// mark, in listing order, so `lock` reads the whole registry in one
+    /// request; any other shape is `"fetch.package-shape"`.
     export fn parsePackages(text) = parsedDocument(text, packagesOf)
 
     // `Row` shares `digest`/`epoch`/`ordinal` with `Identity::ReleaseId`;
     // issue #273 needs the receivers spelled out.
-    fn missingRow() = Row { digest: "", epoch: 0, ordinal: 0 }
+    fn missingRow() = Row { digest: "", epoch: 0, ordinal: 0, yanked: false }
 
     fn later(a: Row, b: Row) = Order::compareSpots(a.epoch, a.ordinal, b.epoch, b.ordinal) > 0
 
     fn keepBest(best, row) = if later(row, best) { row } else { best }
 
-    fn bestRow(rows) = match isEmpty(rows) {
+    fn eligibleRows(rows) = filterList(rows, fn(row: Row) => !row.yanked)
+
+    /// The newest row a fresh fetch may choose: never a yanked one.
+    fn bestRow(all) = {
+        let rows = eligibleRows(all)
+        match isEmpty(rows) {
         true => Error { message: noReleaseCode }
-        false => Success { value: foldList(rows, listGet(rows, 0) ?: missingRow(), keepBest) }
+            false => Success { value: foldList(rows, listGet(rows, 0) ?: missingRow(), keepBest) }
+        }
     }
 
     fn rowsOfEpoch(rows, epoch) = filterList(rows, fn(row: Row) => row.epoch == epoch)

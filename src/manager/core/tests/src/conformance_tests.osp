@@ -17,7 +17,7 @@ module ConformanceTests {
             length(Conformance::violations(["src/manager/web/assets/registry.css", "src/manager/web/assets/registry-mark.svg", "src/manager/web/assets/_headers", "src/manager/web/assets/registry-form.mjs", "src/manager/web/assets/registry-catalog.mjs", "src/manager/web/assets/list-filter.mjs"])) == 0,
             length(Conformance::violations(["src/manager/web/assets/app.js", "src/manager/core/_headers"])) == 2,
             length(Conformance::violations(["src/manager/ops/Dockerfile", "src/manager/core/Dockerfile"])) == 1,
-            length(Conformance::violations(["src/manager/supabase/migrations/schema.yaml", "src/manager/ops/terraform/api.tf", "src/manager/ops/terraform/.terraform.lock.hcl"])) == 0,
+            length(Conformance::violations(["src/manager/ops/supabase/migrations/schema.yaml", "src/manager/ops/terraform/api.tf", "src/manager/ops/terraform/.terraform.lock.hcl"])) == 0,
             join(Conformance::violations(["src/manager/host/shim.c", "src/manager/cli/launch.sh", "src/manager/web/app.js", "src/manager/ops/migrate.py", "src/manager/core/src/lib.rs", "src/manager/web/index.html"]), ",") == "src/manager/host/shim.c,src/manager/cli/launch.sh,src/manager/web/app.js,src/manager/ops/migrate.py,src/manager/core/src/lib.rs,src/manager/web/index.html",
             join(Conformance::violations(["src/manager/core/tests/golden.ospx", "src/manager/Makefile", "src/manager/core/src/notes"]), ",") == "src/manager/core/tests/golden.ospx,src/manager/Makefile,src/manager/core/src/notes"
     ])

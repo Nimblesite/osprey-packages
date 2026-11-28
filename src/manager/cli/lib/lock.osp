@@ -38,8 +38,9 @@ module Lock {
     let localFlag = "--local"
     let usageText = ["usage: osprey-pkg lock [--local] [--registry <base-url>] [--project <dir>] [--accept-removals]"]
 
-    /// One listed release after its verified fetch: its identity and its verified files.
-    type Fetched = { fetchedRelease: Identity::ReleaseId, bundle: Release::Served }
+    /// One listed release after its verified fetch: its identity, its verified
+    /// files and its activation state (`Yanked` when the listing marks it, else `Eligible`).
+    type Fetched = { fetchedRelease: Identity::ReleaseId, bundle: Release::Served, activation: string }
     /// The resolver's catalog plus the warning lines gathered on the way.
     type Catalog = { candidates: List<Resolution::Entry>, warnings: List<string> }
     /// The current lock: its releases and its packages, both empty without a lock.
@@ -114,19 +115,23 @@ module Lock {
     // ---- fetching the listing ----
 
     /// One listed release fetched, verified and installed under `project`, its files kept.
-    fn fetchedOne(base, project, release) = Folds::mapped(Fetch::fetched(project, base, Identity::digestOf(release)), fn(value) => Fetched { fetchedRelease: release, bundle: value })
+    fn activationOf(marked, release) = if Listing::isYanked(marked, release) { "Yanked" } else { "Eligible" }
 
-    /// Every listed release fetched in listing order; the first failure stops the run.
-    fn fetchAll(base, project, listing) = Checked::collectAll(listing, fn(release) => fetchedOne(base, project, release))
+    fn fetchedOne(base, project, marked, release) = Folds::mapped(Fetch::fetched(project, base, Identity::digestOf(release)), fn(value) => Fetched { fetchedRelease: release, bundle: value, activation: activationOf(marked, release) })
+
+    /// Every listed release fetched in listing order, yanked ones included so a
+    /// locked yank stays reproducible; the first failure stops the run.
+    fn fetchAll(base, project, marked) = Checked::collectAll(Listing::releasesOf(marked), fn(release) => fetchedOne(base, project, marked, release))
 
     // ---- the catalog ----
 
-    /// A folder registry carries no target data, so every candidate is
-    /// Eligible for the empty target; its capabilities are the surface
+    /// A folder registry carries no target data, so every candidate is for the
+    /// empty target, Eligible or Yanked as listed (the resolver chooses a yank
+    /// only when the current lock holds it); its capabilities are the surface
     /// recomputed from its verified files ([PACKAGE-CAPABILITY-CONFINEMENT]).
-    fn entryOf(release, manifest, fileList) = Resolution::Entry {
+    fn entryOf(release, activation, manifest, fileList) = Resolution::Entry {
         release: release,
-        activation: "Eligible",
+        activation: activation,
         targets: [""],
         capabilities: Surface::ofRelease(fileList, systemCapabilities(manifest)),
         dependencies: ManifestModel::edgesOf(manifest)
@@ -138,7 +143,7 @@ module Lock {
     /// An accepted manifest is a candidate; a rejected one is excluded with a warning.
     fn classified(acc, f: Fetched) = match Manifest::accepted(Manifest::parse(Install::manifestTextIn(Release::filesOf(f.bundle)))) {
         Error { message } => withWarning(acc, "${invalidCode} ${Lockfile::compact(f.fetchedRelease)} ${message}")
-        Success { value } => withCandidate(acc, entryOf(f.fetchedRelease, value, Release::filesOf(f.bundle)))
+        Success { value } => withCandidate(acc, entryOf(f.fetchedRelease, f.activation, value, Release::filesOf(f.bundle)))
     }
 
     fn catalogOf(fetched, warnings) = foldList(fetched, Catalog { candidates: [], warnings: warnings }, classified)
@@ -177,7 +182,7 @@ module Lock {
 
     fn treeOf(m, fileList, mf, digest, manifestDigest) = LocalTree {
         tree: fileList,
-        candidate: entryOf(localRelease(m, digest), mf, fileList),
+        candidate: entryOf(localRelease(m, digest), "Eligible", mf, fileList),
         override: Lockfile::Override { package: Overlay::keyOf(m), path: Overlay::pathOf(m), epoch: Overlay::epochOf(m), manifestDigest: manifestDigest }
     }
 
@@ -300,18 +305,18 @@ module Lock {
     fn resolved(cmd, manifest, prev, locals, listing, warnings) = Reports::checked(fetchAll(cmd.base, cmd.project, listing), fn(value) => solved(cmd, manifest, prev, withLocals(catalogOf(value, warnings), locals), locals, value))
 
     fn withRemovals(cmd, manifest, prev, locals, listing) = {
-        let gone = vanished(published(prev.current, locals), listing)
+        let gone = vanished(published(prev.current, locals), Listing::releasesOf(listing))
         if isEmpty(gone) { resolved(cmd, manifest, prev, locals, listing, []) }
         else if cmd.acceptRemovals { resolved(cmd, manifest, prev, locals, listing, mapList(gone, vanishedLine)) }
         else { Reports::failure(mapList(gone, vanishedRefusal)) }
     }
 
     fn checked(cmd, manifest, prev, locals, listing) = {
-        let replaced = replacedLine(published(prev.current, locals), listing)
+        let replaced = replacedLine(published(prev.current, locals), Listing::releasesOf(listing))
         if replaced == "" { withRemovals(cmd, manifest, prev, locals, listing) } else { Reports::failure([replaced]) }
     }
 
-    fn withLocalsOf(cmd, manifest, prev, locals) = Reports::checked(Listing::fetch(cmd.base), fn(value) => checked(cmd, manifest, prev, locals, value))
+    fn withLocalsOf(cmd, manifest, prev, locals) = Reports::checked(Listing::fetchMarked(cmd.base), fn(value) => checked(cmd, manifest, prev, locals, value))
 
     fn withPrevious(cmd, manifest, prev) = Reports::checked(localsAt(cmd), fn(value) => withLocalsOf(cmd, manifest, prev, value))
 

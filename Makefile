@@ -200,7 +200,7 @@ _registry-migration-verify:
 	  "$$pg/initdb" -D "$$db/data" -U "$$PGUSER" --auth-local=trust --auth-host=reject --no-locale >/dev/null; \
 	  "$$pg/pg_ctl" -D "$$db/data" -l "$$db/server.log" -o "-k $$db -p $$PGPORT -c listen_addresses=''" -w start; \
 	  "$$pg/psql" -X -v ON_ERROR_STOP=1 -c 'CREATE SCHEMA registry'; \
-	  migrate() { "$(abspath $(REGISTRY_MIGRATOR))" migrate --provider postgres --schema src/manager/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
+	  migrate() { "$(abspath $(REGISTRY_MIGRATOR))" migrate --provider postgres --schema src/manager/ops/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
 	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 20 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \

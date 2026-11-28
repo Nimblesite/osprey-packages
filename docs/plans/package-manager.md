@@ -159,7 +159,7 @@ Visitors browse and search packages at `/`, open a result to view or download a 
 
 ## Hosted rollout: Supabase ownership and RLS `[PLAN-ROLLOUT-OWNERSHIP]`
 
-Governed by the Organization Package Governance spec and `src/osprey/packages/manager/supabase/migrations/schema.yaml`: provision the private `registry` schema as a platform resource before table migration, keep the bootstrap FORCE-RLS/default-deny with no runtime grants, and reject `ownership.not-ready` until policies, handlers and tests ship together.
+Governed by the Organization Package Governance spec and `src/manager/ops/supabase/migrations/schema.yaml`: provision the private `registry` schema as a platform resource before table migration, keep the bootstrap FORCE-RLS/default-deny with no runtime grants, and reject `ownership.not-ready` until policies, handlers and tests ship together.
 
 - [ ] Create the isolated local and production projects and apply the pinned DataProvider migration YAML (same-org composite FKs, one non-null active-member administrator, organization/name uniqueness, immutable identities, non-cascading history; no handwritten SQL or ORM schema) [PACKAGE-OWNERSHIP-DATABASE].
 - [ ] Provision restricted runtime logins with no owner, BYPASSRLS or elevated role membership, separated migration, collector, eligibility and audit permissions and no default grants or unused Data API, GraphQL or Realtime exposure; implement one transaction and context boundary with the exact RLS predicates and column permissions for organization memberships and package permissions, proving pooled request isolation across success, cancellation and rollback [PACKAGE-OWNERSHIP-RLS].

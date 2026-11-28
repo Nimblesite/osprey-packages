@@ -3,7 +3,7 @@
 **Osprey package manager:** `osprey-pkg` client, registry API (local folder registry + hosted Cloud Run on Supabase), registry website, VS Code package workspace. 🌐 <https://nimblesite.github.io/osprey-packages/>
 
 - 🗄️ Backend = Osprey + Supabase, ❌ Rust. APIs beside Supabase go on GCP
-- 🧱 DB migrations = [DataProvider Migrations](https://dataprovider.tech/docs/migrations/) (`src/manager/supabase/migrations/schema.yaml`); ❌ SQL, DDL: SQL is illegal in this repo
+- 🧱 DB migrations = [DataProvider Migrations](https://dataprovider.tech/docs/migrations/) (`src/manager/ops/supabase/migrations/schema.yaml`); ❌ SQL, DDL: SQL is illegal in this repo
 - 🗃️ Data access = stored procedures + functions, declared in `schema.yaml` `functions:` and called by the API. DataProvider is ONLY the migration tool: ❌ DataProvider or LQL for querying data, ❌ ad-hoc query text in application code
 - 🔐 Package integrity is the product: hashes, locks and trust checks never fail open
 - 🧠 One memory strategy per app, never a matrix: client = GC, folder + hosted API = ARC, WASM (editor, website) = ARC. `CLI_MEMORY` / `API_MEMORY` / `WASM_MEMORY` in `Makefile`

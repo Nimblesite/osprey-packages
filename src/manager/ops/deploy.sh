@@ -302,12 +302,12 @@ step_database() {
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
   local password; password="$(owner_password)"
   export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGPASSWORD="$password"
-  log "applying src/manager/supabase/migrations/schema.yaml in Cloud Build"
+  log "applying src/manager/ops/supabase/migrations/schema.yaml in Cloud Build"
   gcloud secrets add-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None >/dev/null \
     --member="serviceAccount:$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
     --role=roles/secretmanager.secretAccessor
   local context="$WORK/migrate.tar.gz"
-  git -C "$ROOT" archive --format=tar.gz --output="$context" HEAD Makefile src/manager/supabase/migrations/schema.yaml \
+  git -C "$ROOT" archive --format=tar.gz --output="$context" HEAD Makefile src/manager/ops/supabase/migrations/schema.yaml \
     src/manager/ops/supabase/supabase-root-2021.crt src/manager/ops/cloudbuild-migrate.yaml
   gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region="$REGION" --config="$OPS/cloudbuild-migrate.yaml" \
     --substitutions="_HOST=$pooler,_USER=postgres.$ref,_SECRET=$NAME-db-owner" >&2
