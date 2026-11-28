@@ -302,7 +302,7 @@ dispatch() {
 }
 
 # --- Database: schema, migration, restricted logins [PACKAGE-OWNERSHIP-RLS] -------------------
-step_database() {
+step_database() (
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
   log "applying src/manager/ops/supabase/migrations/schema.yaml in Cloud Build"
   gcloud secrets add-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None >/dev/null \
@@ -318,15 +318,17 @@ step_database() {
   local role secret logins password
   logins="$(tf output -json database_logins | jq -er 'select(type == "object" and length > 0) | to_entries[] | "\(.key) \(.value)"')"
   password="$(owner_password)"
+  export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGCONNECT_TIMEOUT=10
+  PGPASSWORD="$password" psql -XAt -v ON_ERROR_STOP=1 -f "$ROOT/scripts/packages/registry-table-inventory.sql" | \
+    ruby "$ROOT/scripts/packages/check-registry-tables.rb"
   while read -r role secret; do
-    PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" \
-      PGPASSWORD="$password" ROLE_PASSWORD="$secret" psql -X -q -v ON_ERROR_STOP=1 -v role="$role" <<'PSQL'
+    PGPASSWORD="$password" ROLE_PASSWORD="$secret" psql -X -q -v ON_ERROR_STOP=1 -v role="$role" <<'PSQL'
 \getenv secret ROLE_PASSWORD
 ALTER ROLE :"role" PASSWORD :'secret';
 PSQL
   done <<< "$logins"
   log "schema migrated and restricted logins converged"
-}
+)
 
 # --- Smoke [PACKAGE-HOSTED-CONFORMANCE] origin row ------------------------------------------------
 status() { curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true; }

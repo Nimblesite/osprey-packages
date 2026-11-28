@@ -203,7 +203,8 @@ _registry-migration-verify:
 	  migrate() { "$(abspath $(REGISTRY_MIGRATOR))" migrate --provider postgres --schema src/manager/ops/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
-	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 20 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
+	  "$$pg/psql" -XAt -v ON_ERROR_STOP=1 -f scripts/packages/registry-table-inventory.sql > "$$db/tables.jsonl"; \
+	  ruby scripts/packages/check-registry-tables.rb < "$$db/tables.jsonl"; \
 	  "$$pg/psql" -Xq -f src/manager/api/tests/live/review.sql; \
 	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/api/tests/live --memory=$(API_MEMORY) $(call registry_coverage,api-tests-live)
 
