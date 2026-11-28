@@ -239,7 +239,7 @@ module HostedLogin {
         organize: fn(token, slug, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createOrganization(cookie, issuer, subject, github, slug, name)),
         createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name)),
         bind: fn(token, pkg, repository, branch, dir) => Forge::closed()(fn() => owned(config, token, fn(cookie, issuer, subject, github) =>
-                    bound(cookie, issuer, subject, github, pkg, repository, branch, dir))),
+                bound(cookie, issuer, subject, github, pkg, repository, branch, dir))),
         release: fn(token, pkg, commit, epoch, ordinal) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal))
     }
 
