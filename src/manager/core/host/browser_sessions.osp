@@ -14,7 +14,7 @@ module BrowserSessions {
     let principal = "registry.auth_bindings b JOIN registry.principals p ON p.id=b.principal_id"
     fn claims(cookie) = "s.cookie_digest=${cookie} AND b.id=s.binding_id AND " + samePrincipal + " AND " + eligibility + " AND " + live
 
-    fn insert(cookie, issuer, subject, github, envelope) = "INSERT INTO registry.browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at) SELECT gen_random_uuid(),${cookie},b.id,p.id,p.credential_epoch,${envelope},statement_timestamp(),statement_timestamp() FROM " + principal + " WHERE " + eligibility + " AND " + binding(issuer, subject, github) + " RETURNING id"
+    fn insert(cookie, issuer, subject, github, envelope) = "SELECT id FROM registry.issue_browser_session(${cookie},${issuer},${subject},${github},${envelope}) AS id WHERE id IS NOT NULL"
 
     /// Issue only for an approved and active binding, never by email or provider username.
     export fn issue() = insert("$1", "$2", "$3", "$4", "$5")
@@ -117,7 +117,7 @@ module BrowserSessions {
     export fn finishRefresh(cookie, issuer, subject, github, previous, claim, envelope) =
     runtime(finishRefreshScript(cookie, issuer, subject, github, previous, claim, envelope))
 
-    fn markRevoked(cookie) = "UPDATE registry.browser_sessions SET revoked_at=GREATEST(last_used_at,statement_timestamp()),token_envelope=NULL WHERE cookie_digest=${cookie} AND revoked_at IS NULL RETURNING id"
+    fn markRevoked(cookie) = "SELECT changed FROM registry.revoke_browser_session(${cookie}) AS changed WHERE changed IS NOT NULL"
 
     export fn revoke() = markRevoked("$1")
 

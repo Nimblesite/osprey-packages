@@ -403,22 +403,17 @@ tables:
       enabled: true
       forced: true
       policies:
-        - name: session_issuer_result
+        - name: session_issuer_insert
           permissive: true
-          operations: [Select]
-          roles: []
-          using: &session_issuance >-
+          operations: [Insert]
+          roles: [registry_session_issuer]
+          withCheck: >-
             current_setting('session_authorization') = 'registry_session_issuer'
             AND cookie_digest = current_setting('registry.session_digest')
             AND EXISTS (SELECT 1 FROM registry.auth_bindings b
             WHERE b.id = browser_sessions.binding_id AND b.principal_id = browser_sessions.principal_id)
             AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = browser_sessions.principal_id
             AND p.credential_epoch = browser_sessions.credential_epoch)
-        - name: session_issuer_insert
-          permissive: true
-          operations: [Insert]
-          roles: []
-          withCheck: *session_issuance
         - name: session_issuer_new_session
           permissive: false
           operations: [Insert]
@@ -447,13 +442,6 @@ tables:
             AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = browser_sessions.principal_id
             AND p.credential_epoch = browser_sessions.credential_epoch)
           withCheck: *session_runtime_identity
-        - name: session_revoker_result
-          permissive: true
-          operations: [Select]
-          roles: []
-          using: >-
-            current_setting('session_authorization') = 'registry_session_revoker'
-            AND cookie_digest = current_setting('registry.session_digest')
         - name: session_revoker_update
           permissive: true
           operations: [Update]
@@ -644,8 +632,9 @@ grants:
   - { schema: registry, target: Table, objectName: pending_logins, privileges: [INSERT, SELECT, DELETE], roles: [registry_login_runtime] }
   - { schema: registry, target: Table, objectName: auth_bindings, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
   - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
-  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT, SELECT], roles: [registry_session_issuer] }
-  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [UPDATE], roles: [registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: memberships, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [INSERT], roles: [registry_publication_collector] }
@@ -669,6 +658,35 @@ grants:
   - { schema: registry, target: Table, objectName: package_permissions, privileges: [SELECT], roles: [registry_publication_collector] }
 functions:
   # The live catalog row as `<expires_at unix seconds> <body>`, or NULL [PACKAGE-HOSTED-ROUTES-CATALOG].
+  - schema: registry
+    name: issue_browser_session
+    arguments: [{name: cookie, type: text}, {name: verified_issuer, type: text}, {name: subject, type: uuid}, {name: github, type: text}, {name: envelope, type: text}]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_session_issuer]
+    body: >-
+      WITH candidate AS MATERIALIZED (
+        SELECT gen_random_uuid() AS id,b.id AS binding,p.id AS principal,p.credential_epoch
+        FROM registry.auth_bindings b JOIN registry.principals p ON p.id=b.principal_id
+        WHERE b.issuer=verified_issuer AND b.auth_subject=subject AND b.provider_subject=github
+        AND b.provider='github' AND b.state='active' AND p.kind='human' AND p.state='active'),
+      issued AS (
+        INSERT INTO registry.browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at)
+        SELECT id,cookie,binding,principal,credential_epoch,envelope,statement_timestamp(),statement_timestamp() FROM candidate
+        RETURNING 1)
+      SELECT candidate.id FROM candidate CROSS JOIN issued
+
+  - schema: registry
+    name: revoke_browser_session
+    arguments: [{name: cookie, type: text}]
+    returns: integer
+    volatility: volatile
+    executeRoles: [registry_session_revoker]
+    body: >-
+      UPDATE registry.browser_sessions SET revoked_at=statement_timestamp(),token_envelope=NULL
+      WHERE current_user='registry_session_revoker' AND cookie=current_setting('registry.session_digest',true)
+      RETURNING 1
+
   - schema: registry
     name: public_catalog_timed
     returns: text

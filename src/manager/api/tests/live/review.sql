@@ -141,4 +141,32 @@ DO $$ BEGIN
   IF jsonb_array_length((SELECT body::jsonb FROM registry.public_catalog)->'packages'->0->'releases') IS DISTINCT FROM 1
     THEN RAISE EXCEPTION 'public reader must see only the approved version'; END IF;
 END $$;
+RESET SESSION AUTHORIZATION;
+INSERT INTO browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at)
+SELECT gen_random_uuid(),'sha256:'||repeat('d',64),binding_id,principal_id,credential_epoch,'second-envelope',now(),now()
+FROM browser_sessions WHERE cookie_digest='sha256:'||repeat('c',64);
+SET LOCAL SESSION AUTHORIZATION registry_session_revoker;
+SELECT set_config('registry.session_digest','sha256:'||repeat('c',64),true);
+DO $$ BEGIN
+  IF registry.revoke_browser_session('sha256:'||repeat('d',64)) IS NOT NULL
+    OR registry.revoke_browser_session('sha256:'||repeat('c',64)) IS DISTINCT FROM 1
+    OR registry.revoke_browser_session('sha256:'||repeat('c',64)) IS NOT NULL
+    THEN RAISE EXCEPTION 'logout cookie scope or retry failed'; END IF;
+END $$;
+SELECT pg_temp.require_denied('SELECT token_envelope FROM browser_sessions');
+RESET SESSION AUTHORIZATION;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM browser_sessions WHERE revoked_at IS NULL AND token_envelope='second-envelope') <> 1
+    OR (SELECT count(*) FROM browser_sessions WHERE revoked_at IS NOT NULL AND token_envelope IS NULL) <> 1
+    THEN RAISE EXCEPTION 'logout changed a different session'; END IF;
+END $$;
+GRANT SELECT ON browser_sessions TO registry_session_issuer, registry_session_revoker;
+SET LOCAL SESSION AUTHORIZATION registry_session_issuer;
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM browser_sessions) THEN RAISE EXCEPTION 'issuer RLS exposed a session'; END IF;
+END $$;
+SET LOCAL SESSION AUTHORIZATION registry_session_revoker;
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM browser_sessions) THEN RAISE EXCEPTION 'revoker RLS exposed a session'; END IF;
+END $$;
 ROLLBACK;

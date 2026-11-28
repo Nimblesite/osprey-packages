@@ -177,7 +177,7 @@ fn stableSessionChecks() = checkAll("live session checks exact provider binding 
         answer(sessionSql() + sessionIssue(sessionIssuer, "md5('other')::uuid,'421'") + sessionIssue(sessionIssuer, "md5('subject')::uuid,'422'") + lookup, ""),
         sessionRun("EXECUTE touch(${sessionCookie},${sessionIssuer},md5('other')::uuid,'421');" + lookup, 2, "encrypted-provider-token"),
         sessionRun("EXECUTE touch(${sessionCookie},${sessionIssuer},${sessionIdentity});" + lookup, 3, "encrypted-provider-token"),
-        sessionRun("EXECUTE revoke(${sessionCookie}); EXECUTE revoke(${sessionCookie}); " + lookup + "SELECT token_envelope IS NULL FROM browser_sessions;", 3, "t")
+        sessionRun("SET LOCAL SESSION AUTHORIZATION registry_session_revoker; SET LOCAL registry.session_digest='${issuerDigest()}'; EXECUTE revoke(${sessionCookie}); EXECUTE revoke(${sessionCookie}); RESET SESSION AUTHORIZATION; " + lookup + "SELECT token_envelope IS NULL FROM browser_sessions;", 3, "t")
 ])
 fn sessionRun(suffix, expectedLines, expected) = {
     let result = execute(sessionSql() + issued() + suffix)
@@ -195,7 +195,7 @@ let issuerOrigin = "https://supabase.example.test/auth/v1"
 fn digest(fill) = "sha256:" + (repeat(fill, 64) ?: "")
 fn issuerDigest() = digest("1")
 fn issuerCreated() = {
-    let result = execute(issuerScope(issuerOrigin, issuerDigest()) + issued() + "SELECT count(id) FROM browser_sessions;")
+    let result = execute(issuerScope(issuerOrigin, issuerDigest()) + issued() + "RESET SESSION AUTHORIZATION; SELECT count(id) FROM browser_sessions;")
     let lines = split(trim(result.stdout), "\n") ?: []
     result.status == 0 && length(lines) == 2 && Bytes::canonicalUuid(listGet(lines, 0) ?: "") && (listGet(lines, 1) ?: "") == "1"
 }
