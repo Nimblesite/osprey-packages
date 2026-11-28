@@ -172,18 +172,15 @@ tf_init() {
 }
 
 tfvars() { # IMAGE
-  local others='[]'
-  [[ "$ENV_NAME" == production ]] && others="$(jq -nc --arg a "packages-api-staging.$DOMAIN" --arg c "packages-content-staging.$DOMAIN" \
-    --arg extra "${RATE_LIMIT_EXTRA_HOSTS:-}" '[$a,$c] + ($extra | split(" ") | map(select(. != "")))')"
   jq -n --slurpfile s "$WORK/supabase.json" --arg env "$ENV_NAME" --arg project "$GCP_PROJECT_ID" \
     --arg cfa "$CLOUDFLARE_ACCOUNT_ID" --arg cfz "$CLOUDFLARE_ZONE_ID" \
     --arg api "$(host packages-api)" --arg web "$(host packages)" --arg content "$(host packages-content)" \
-    --arg image "$1" --argjson others "$others" '{
+    --arg image "$1" '{
       environment:$env, project_id:$project,
       cloudflare_account_id:$cfa, cloudflare_zone_id:$cfz,
       api_hostname:$api, website_hostname:$web, content_hostname:$content, image:$image,
       supabase_project_ref:$s[0].ref, supabase_publishable_key:$s[0].publishable_key,
-      supabase_pooler_host:$s[0].pooler_host, rate_limit_other_hostnames:$others }' > "$WORK/terraform.tfvars.json"
+      supabase_pooler_host:$s[0].pooler_host }' > "$WORK/terraform.tfvars.json"
 }
 
 image_repo() { printf 'australia-southeast1-docker.pkg.dev/%s/%s' "$GCP_PROJECT_ID" "$NAME"; }

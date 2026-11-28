@@ -1,13 +1,13 @@
 # Registry operations
 
-Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy ENV=staging|production`. This file says what the pieces are. The shape is NAP and TradiSite's: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
+Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy ENV=staging|production`. This file says what the pieces are. Shape: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
 
 ```mermaid
 flowchart LR
     Browser --> Pages["Cloudflare Pages<br/>packages[-staging].DOMAIN"]
     Browser --> Edge
-    CLI["osprey-pkg"] --> Edge["Cloudflare edge<br/>rate limit, TLS ≥ 1.2"]
-    Edge --> Worker["edge.js Worker<br/>X-Edge-Secret + X-Edge-Host"]
+    CLI["osprey-pkg"] --> Edge["Cloudflare edge"]
+    Edge --> Worker["edge.js Worker<br/>TLS ≥ 1.2, per-IP rate limit<br/>X-Edge-Secret + X-Edge-Host"]
     Worker --> Run["Cloud Run run.app<br/>8080 ingress, 8081 probe"]
     Run --> Supabase["Supabase Auth + Postgres<br/>transaction pooler, verify-full TLS"]
     Run --> KMS["Cloud KMS<br/>login + session keys"]
@@ -17,7 +17,7 @@ flowchart LR
 | Path | What |
 | --- | --- |
 | `terraform/` | Every GCP and Cloudflare resource. Remote state lives in `gs://<project>-osprey-registry-tfstate`, one prefix per environment. `make _registry-infra-check` validates it with no backend (run in CI) |
-| `cloudflare/edge.js` | Transport-only Worker: HTTPS redirect, overwrite `X-Edge-Secret` and `X-Edge-Host`, fetch the `run.app` origin |
+| `cloudflare/edge.js` | Transport-only Worker: HTTPS redirect, TLS ≥ 1.2 (426), per-IP rate limit (429), overwrite `X-Edge-Secret` and `X-Edge-Host`, fetch the `run.app` origin |
 | `supabase/roles.sql` | Restricted runtime logins and their exact column grants; idempotent, passwords through `\getenv` |
 | `supabase/supabase-root-2021.crt` | Supabase's public root CA (SHA-256 `700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7`), mounted as `/run/catalog-ca/ca.pem` |
 | `deploy.sh` | The operator command behind `make deploy` |

@@ -2,14 +2,7 @@
 # Cloudflare → Worker → Cloud Run run.app URL. No GCP load balancer: the Worker sets
 # Host for Cloud Run and the API's edge-secret gate refuses direct origin hits.
 locals {
-  run_host               = trimprefix(google_cloud_run_v2_service.api.uri, "https://")
-  rate_limited_hostnames = sort(distinct(concat(values(local.edge_hostnames), var.rate_limit_other_hostnames)))
-}
-
-variable "rate_limit_other_hostnames" {
-  description = "Production only: the other environments' API and content hostnames sharing this zone's single rule."
-  type        = list(string)
-  default     = []
+  run_host = trimprefix(google_cloud_run_v2_service.api.uri, "https://")
 }
 
 resource "cloudflare_workers_script" "edge" {
@@ -21,6 +14,8 @@ resource "cloudflare_workers_script" "edge" {
   bindings = [
     { type = "plain_text", name = "RUN_HOST", text = local.run_host },
     { type = "secret_text", name = "EDGE_SECRET", text = random_password.edge_secret.result },
+    # Per-IP, per-location: 50 requests per 10 s. Namespace IDs are account-unique integers.
+    { type = "ratelimit", name = "LIMITER", namespace_id = var.environment == "production" ? "7701" : "7702", simple = { limit = 50, period = 10 } },
   ]
 }
 
@@ -80,33 +75,4 @@ resource "cloudflare_pages_domain" "website" {
   project_name = cloudflare_pages_project.website.name
   name         = var.website_hostname
   depends_on   = [cloudflare_dns_record.website]
-}
-
-# Zone singletons (free plan: one rate-limit rule per zone) cover every registry
-# hostname in the zone and are owned by the production state only.
-resource "cloudflare_ruleset" "rate_limit" {
-  count   = local.zone_owner ? 1 : 0
-  zone_id = var.cloudflare_zone_id
-  name    = "osprey-registry-rate-limit"
-  kind    = "zone"
-  phase   = "http_ratelimit"
-  rules = [{
-    description = "osprey-registry: 50 requests per 10 s per IP"
-    enabled     = true
-    expression  = "(http.host in {${join(" ", [for host in local.rate_limited_hostnames : "\"${host}\""])}})"
-    action      = "block"
-    ratelimit = {
-      characteristics     = ["ip.src", "cf.colo.id"]
-      period              = 10
-      requests_per_period = 50
-      mitigation_timeout  = 10
-    }
-  }]
-}
-
-resource "cloudflare_zone_setting" "min_tls" {
-  count      = local.zone_owner ? 1 : 0
-  zone_id    = var.cloudflare_zone_id
-  setting_id = "min_tls_version"
-  value      = "1.2"
 }

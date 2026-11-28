@@ -4,11 +4,9 @@ Stack: Cloudflare → Cloud Run → Supabase (`[PACKAGE-HOSTED-TOPOLOGY]`). I ru
 
 The domain is `nimblesite.ai` (already on Cloudflare); `ospreylang.dev` is still on GoDaddy DNS. Everything else is created or looked up by `make deploy`: the GCP project, billing link, US$50 budget, Cloudflare IDs, the Supabase token from your `supabase login`, and CI's Pages token.
 
-1. Cloudflare → My Profile → API Tokens → Create → Custom token **"osprey-registry-terraform"**. Permissions: Account › Workers Scripts › Edit, Account › Cloudflare Pages › Edit, Account › Account API Tokens › Edit, Zone › DNS › Edit, Zone › Workers Routes › Edit, Zone › Zone Settings › Edit, Zone › Zone WAF › Edit, Zone › Zone › Read. Resources: your account and the `nimblesite.ai` zone. Paste it as `CLOUDFLARE_API_TOKEN=` in `src/manager/ops/deploy.env`.
-2. Before production only: delete NAP's `nap-rate-all` rule (Cloudflare → `nimblesite.ai` → Security → WAF → Rate limiting rules). The free plan allows one rule per zone; the registry's rule keeps covering `api.nimblesite.ai`.
-
-3. Merge PR #1 (`deslop-cleanup`) to `main`: the deploy workflow runs from `main`, and agents never merge.
-4. GitHub sign-in (no API exists for this): GitHub → Settings → Developer settings → OAuth Apps → New, once per environment. Homepage `https://packages-staging.nimblesite.ai` (production: `https://packages.nimblesite.ai`); callback is the URL `make deploy` prints. Paste the ID and secret into `GITHUB_OAUTH_CLIENT_{ID,SECRET}_{STAGING,PRODUCTION}` in `deploy.env`.
+1. Cloudflare → My Profile → API Tokens → Create → Custom token **"osprey-registry-terraform"**. Permissions: Account › Workers Scripts › Edit, Account › Cloudflare Pages › Edit, Account › Account API Tokens › Edit, Zone › DNS › Edit, Zone › Workers Routes › Edit, Zone › Zone › Read. Resources: your account and the `nimblesite.ai` zone. Paste it as `CLOUDFLARE_API_TOKEN=` in `src/manager/ops/deploy.env`.
+2. Merge PR #1 (`deslop-cleanup`) to `main`: the deploy workflow runs from `main`, and agents never merge.
+3. GitHub sign-in (no API exists for this): GitHub → Settings → Developer settings → OAuth Apps → New, once per environment. Homepage `https://packages-staging.nimblesite.ai` (production: `https://packages.nimblesite.ai`); callback is the URL `make deploy` prints. Paste the ID and secret into `GITHUB_OAUTH_CLIENT_{ID,SECRET}_{STAGING,PRODUCTION}` in `deploy.env`.
 
 I run `make deploy ENV=staging`, then `ENV=production`. It is done when the run ends with `smoke done`.
 

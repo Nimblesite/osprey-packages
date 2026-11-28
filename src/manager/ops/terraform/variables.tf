@@ -104,10 +104,8 @@ locals {
   public_hostnames = [var.website_hostname, var.api_hostname, var.content_hostname]
   hostname_pattern = "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
   name             = "osprey-registry-${var.environment}"
-  # One Cloudflare zone hosts both environments; zone-wide singletons belong to production.
-  zone_owner      = var.environment == "production"
-  edge_hostnames  = { api = var.api_hostname, content = var.content_hostname }
-  supabase_origin = "https://${var.supabase_project_ref}.supabase.co"
+  edge_hostnames   = { api = var.api_hostname, content = var.content_hostname }
+  supabase_origin  = "https://${var.supabase_project_ref}.supabase.co"
   required_services = toset([
     "artifactregistry.googleapis.com", "run.googleapis.com", "storage.googleapis.com", "cloudkms.googleapis.com",
     "secretmanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com",
