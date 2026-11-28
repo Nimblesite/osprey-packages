@@ -94,6 +94,37 @@ failed=$?
 set -e
 [[ "$failed" != 0 && "$(tail -1 "$work/steps")" == step_database ]] || { echo "failed migration did not stop release" >&2; exit 1; }
 
+# Assert provider requests carry credentials to the destination without placing them in argv.
+(
+  source "$root/src/manager/ops/deploy.sh" production release
+  export SUPABASE_ACCESS_TOKEN=private-fixture-token CLOUDFLARE_API_TOKEN=private-fixture-cloud
+  export GITHUB_OAUTH_CLIENT_ID_PRODUCTION=test-client GITHUB_OAUTH_CLIENT_SECRET_PRODUCTION=private-fixture-oauth
+  DOMAIN=example.test SUPABASE_ORG_ID=fixture SUPABASE_REGION=fixture
+  jq() {
+    [[ "$*" != *private-fixture* ]] || exit 93
+    command jq "$@"
+  }
+  curl() {
+    [[ "$*" != *private-fixture* ]] || exit 94
+    local previous="" arg auth=""
+    for arg do
+      if [[ "$previous" == -H && "$arg" == @* ]]; then auth="$(cat "${arg#@}")"; fi
+      previous="$arg"
+    done
+    case "${!#}" in
+      *cloudflare*) [[ "$auth" == "Authorization: Bearer $CLOUDFLARE_API_TOKEN" ]] ;;
+      *) [[ "$auth" == "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" ]] && cat > "$work/request.json" ;;
+    esac
+  }
+  openssl() { echo private-fixture-password; }
+  secret_put() { cat >/dev/null; }
+  cloudflare_api /zones
+  supabase_create
+  command jq -e '.db_pass == "private-fixture-password"' "$work/request.json" >/dev/null
+  supabase_auth fixture
+  command jq -e '.external_github_secret == "private-fixture-oauth"' "$work/request.json" >/dev/null
+)
+
 # The dispatch response identifies the only run this operator may accept.
 verify_dispatch() (
   source "$root/src/manager/ops/deploy.sh" production release

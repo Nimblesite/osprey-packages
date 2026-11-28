@@ -58,7 +58,7 @@ supabase_cli_token() {
   printf '%s' "$raw"
 }
 
-cloudflare_api() { curl -sS --fail-with-body -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4$1"; }
+cloudflare_api() { curl -sS --fail-with-body -H @<(printf 'Authorization: Bearer %s\n' "$CLOUDFLARE_API_TOKEN") "https://api.cloudflare.com/client/v4$1"; }
 
 # Creates the project and links billing when missing; the billing account defaults to the caller's only open one.
 ensure_project() {
@@ -77,7 +77,7 @@ host() { printf '%s.%s' "$1" "$DOMAIN"; }
 upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 
 supabase_api() { # METHOD PATH [stdin body]
-  curl -sS --fail-with-body -X "$1" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  curl -sS --fail-with-body -X "$1" -H @<(printf 'Authorization: Bearer %s\n' "$SUPABASE_ACCESS_TOKEN") \
     -H "Content-Type: application/json" ${3:+--data-binary @-} "$SUPABASE_API$2"
 }
 
@@ -149,8 +149,8 @@ supabase_create() {
   log "creating Supabase project $NAME in $SUPABASE_REGION (owner password → Secret Manager $NAME-db-owner)"
   local password; password="$(openssl rand -hex 32)"
   printf '%s' "$password" | secret_put "$NAME-db-owner"
-  jq -nc --arg n "$NAME" --arg o "$SUPABASE_ORG_ID" --arg r "$SUPABASE_REGION" --arg p "$password" \
-    '{name:$n, organization_slug:$o, region:$r, db_pass:$p, desired_instance_size:"micro"}' | supabase_api POST /projects body >/dev/null
+  PROJECT_PASSWORD="$password" jq -nc --arg n "$NAME" --arg o "$SUPABASE_ORG_ID" --arg r "$SUPABASE_REGION" \
+    '{name:$n, organization_slug:$o, region:$r, db_pass:env.PROJECT_PASSWORD, desired_instance_size:"micro"}' | supabase_api POST /projects body >/dev/null
 }
 
 supabase_wait() {
@@ -168,17 +168,17 @@ supabase_auth() { # REF
   id_var="GITHUB_OAUTH_CLIENT_ID_$(upper "$ENV_NAME")"; secret_var="GITHUB_OAUTH_CLIENT_SECRET_$(upper "$ENV_NAME")"
   local github='{}'
   if [[ -n "${!id_var:-}" && -n "${!secret_var:-}" ]]; then
-    github="$(jq -nc --arg i "${!id_var}" --arg s "${!secret_var}" \
-      '{external_github_enabled:true, external_github_client_id:$i, external_github_secret:$s}')"
+    github="$(OAUTH_SECRET="${!secret_var}" jq -nc --arg i "${!id_var}" \
+      '{external_github_enabled:true, external_github_client_id:$i, external_github_secret:env.OAUTH_SECRET}')"
   else
     log "GitHub sign-in stays off: create a GitHub OAuth app with callback https://$1.supabase.co/auth/v1/callback, set $id_var/$secret_var, re-run"
   fi
   # [PACKAGE-HOSTED-AUTH]: ten-minute tokens; Supabase redirects only to the exact API callback.
   # Passkeys are the first sign-in method; the relying party is the website host.
-  jq -nc --arg site "https://$(host packages)" --arg rp "$(host packages)" \
-    --arg cb "https://$(host packages-api)/v1/auth/github/callback" --argjson gh "$github" \
+  jq -c --arg site "https://$(host packages)" --arg rp "$(host packages)" \
+    --arg cb "https://$(host packages-api)/v1/auth/github/callback" <<<"$github" \
     '{site_url:$site, uri_allow_list:$cb, jwt_exp:600, mailer_autoconfirm:false, passkey_enabled:true,
-      webauthn_rp_id:$rp, webauthn_rp_origins:$site, webauthn_rp_display_name:"Osprey Packages"} + $gh' \
+      webauthn_rp_id:$rp, webauthn_rp_origins:$site, webauthn_rp_display_name:"Osprey Packages"} + .' \
     | supabase_api PATCH "/projects/$1/config/auth" body >/dev/null
 }
 
