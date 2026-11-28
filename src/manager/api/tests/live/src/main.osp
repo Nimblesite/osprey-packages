@@ -1,5 +1,4 @@
 namespace registry_live_tests;
-import registry_api::HostedReview
 import registry_api::HostedService
 import registry_api::HostedLogin
 import registry_api::CatalogMemo
