@@ -225,6 +225,8 @@ Build a native Osprey API container and static WASM artifact from one reviewed c
 
 The release dispatch must bind the workflow to the same main commit used for migration. Watch only the run returned by that dispatch and fail if its identity is unavailable.
 
+Both Pages release paths must install the publisher and its transitive dependencies from the reviewed integrity lockfile with install scripts disabled. The operator must build with a freshly verified release compiler.
+
 Both operator and workflow Pages uploads must verify the singular hostname preserves the upload path and query in its permanent redirect. Fetch the canonical homepage, upload page, JavaScript, CSS and WASM over HTTPS and compare their bytes with the uploaded archive before reporting success.
 
 Standalone production smoke checks use read-only requests and existing service metadata. They must fail when the public catalog returns an error. They must never provision resources, change IAM, link billing or run migrations.

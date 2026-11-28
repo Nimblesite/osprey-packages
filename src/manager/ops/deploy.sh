@@ -344,22 +344,23 @@ step_smoke() {
 }
 
 # Website: the content-addressed archive, uploaded to Pages with the Terraform-minted token.
-# Built from a `git archive` of HEAD, never the working tree, reusing the checkout's SHA-pinned toolchain.
+# Built from a git archive of HEAD with a fresh digest-verified toolchain.
 step_website() {
   local src="$WORK/site-src" revision
   revision="$(git -C "$ROOT" rev-parse HEAD)"
   log "publishing Pages from $revision"
   rm -rf "$src" && mkdir -p "$src/target"
   git -C "$ROOT" archive "$revision" | tar -x -C "$src"
-  [[ -d "$ROOT/target/osprey" ]] || make -s -C "$ROOT" _toolchain >&2
-  ln -s "$ROOT/target/osprey" "$src/target/osprey"
+  make -s -C "$src" _toolchain >&2
   REGISTRY_API_ORIGIN="https://$(host packages-api)" REGISTRY_CONTENT_ORIGIN="https://$(host packages-content)" \
     make -s -C "$src" _registry-website-archive >&2
   local archive upload="$WORK/pages-upload"; archive="$(ls "$src"/target/registry-artifacts/*.zip)"
   [[ "$(wc -l <<<"$archive" | tr -d ' ')" == 1 ]] || die "expected one website archive, found: $archive"
   rm -rf "$upload" && mkdir -p "$upload" && unzip -q "$archive" -d "$upload"
+  local publisher="$src/src/manager/ops/cloudflare"
+  npm ci --prefix "$publisher" --ignore-scripts --no-audit --no-fund >&2
   CLOUDFLARE_API_TOKEN="$(tf output -raw pages_token)" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
-    npx --yes wrangler@4.146.0 pages deploy "$upload" --project-name="$NAME" --branch=main \
+    "$publisher/node_modules/.bin/wrangler" pages deploy "$upload" --project-name="$NAME" --branch=main \
     --commit-hash="$revision" >&2
   "$ROOT/scripts/packages/check-website-release.sh" "https://$(host packages)" "$upload"
 }
