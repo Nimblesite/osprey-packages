@@ -167,6 +167,8 @@ type ReleaseChallenge {
   challengeNonce: String
 }
 type SignedReleaseChallenge { payload: ReleaseChallenge proofs: List<AuthorizationProof> }
+# [PACKAGE-SECURITY-SCAN-APPROVAL] Organization-private review progress for one frozen version.
+type PublicationReceipt { submissionId: Uuid digest: Digest epoch: CompatibilityEpoch ordinal: ReleaseOrdinal status: String canApprove: Bool messages: List<String> }
 type PublicationAuthorization { challengeEnvelopeDigest: Digest }
 type SignedPublicationAuthorization { payload: PublicationAuthorization proofs: List<AuthorizationProof> }
 union ReleaseState { Submitted { submittedAt: DateTime } Quarantined { reason: String } Published { publishedAt: DateTime } }

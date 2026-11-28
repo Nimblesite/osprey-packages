@@ -457,6 +457,13 @@ and separate collector, scanner and reviewer privileges. The database checks
 the reviewer's live session and current permission on insertion. Runtime roles
 cannot grant themselves permission or edit an existing job, receipt or approval.
 
+The private `GET /v1/publications/{submissionId}` returns a `PublicationReceipt`
+to an authenticated organization member or registry reviewer. Its status is
+`pending-scan`, `rejected`, `awaiting-admin` or `approved`. Only an authorized
+reviewer sees `canApprove` for an accepted, undecided version. Approval uses
+an empty same-origin, CSRF-protected `POST /v1/reviews/{submissionId}/{digest}/approve`.
+Both responses carry `Cache-Control: no-store`.
+
 ### Verdict `[PACKAGE-SECURITY-SCAN-VERDICT]`
 
 The scan returns exactly one verdict:
