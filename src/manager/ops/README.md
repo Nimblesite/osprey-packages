@@ -49,7 +49,7 @@ The only operator-held credentials are the Cloudflare tokens, the Supabase acces
 
 `.github/workflows/deploy.yml` (dispatched by `make deploy`, or by hand from the Actions tab) reruns CI at the exact SHA. It then builds the image from that commit, pushes `api:<sha>` and rolls Cloud Run to the resolved `@sha256` digest. The website is built as a content-addressed archive (`make _registry-website-archive`) and uploaded with Pages Direct Upload. Terraform creates the service from the first CI-built digest and then ignores image changes. Rolling back means redeploying an older digest: `gcloud run services update osprey-registry-<env> --image=<repo>/api@sha256:…`.
 
-Migrations are explicit: `make deploy ENV=<env> STEP=database`, never at build or startup.
+Migrations are explicit: `make deploy STEP=database`, never at build or startup.
 
 ## Edge credential rotation [PACKAGE-HOSTED-EDGE]
 

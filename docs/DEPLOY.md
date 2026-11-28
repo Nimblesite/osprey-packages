@@ -8,7 +8,7 @@ The domain is `nimblesite.ai` (already on Cloudflare); `ospreylang.dev` is still
 2. Merge PR #1 (`deslop-cleanup`) to `main`: the deploy workflow runs from `main`, and agents never merge.
 3. GitHub sign-in (no API exists for this): GitHub → Settings → Developer settings → OAuth Apps → New. Homepage `https://packages.nimblesite.ai`; callback `https://cnmamauzldimglbahdpf.supabase.co/auth/v1/callback`. Paste the ID and secret into `GITHUB_OAUTH_CLIENT_ID_PRODUCTION` / `GITHUB_OAUTH_CLIENT_SECRET_PRODUCTION` in `deploy.env`.
 
-I run `make deploy ENV=production`. It is done when the run ends with `smoke done`.
+I run `make deploy`. It is done when the run ends with `smoke done`.
 
 Production is the only environment. A test environment, when one exists, is an exact copy of production (Prod → Dev), never built from scratch. Test environments are paused.
 
@@ -33,6 +33,6 @@ The names are single-label on purpose: Cloudflare's free certificate covers `*.<
 
 ## Later
 
-- Ship code: `make deploy ENV=<env> STEP=release`, or Actions → Deploy.
+- Ship code: `make deploy STEP=release`, or Actions → Deploy.
 - Schema change: `STEP=database`.
 - Details: [src/manager/ops/README.md](../src/manager/ops/README.md).
