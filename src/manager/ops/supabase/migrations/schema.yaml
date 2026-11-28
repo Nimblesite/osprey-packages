@@ -855,6 +855,30 @@ functions:
 # [PACKAGE-SECURITY-SCAN-APPROVAL] Invoker rights preserve the caller's grants
 # and row policies throughout admission, scanning and approval.
   - schema: registry
+    name: appoint_release_reviewer
+    arguments: [{ name: person, type: uuid }, { name: verified_issuer, type: text }, { name: github_account, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: []
+    body: >-
+      WITH candidate AS MATERIALIZED (
+      SELECT p.id FROM registry.principals p JOIN registry.auth_bindings b ON b.principal_id=p.id
+      WHERE p.id=person AND p.kind='human' AND p.state='active' AND b.issuer=verified_issuer
+      AND b.provider='github' AND b.provider_subject=github_account AND github_account ~ '^[1-9][0-9]*$'
+      AND b.state='active' FOR SHARE OF p,b),
+      enrolled AS (INSERT INTO registry.release_reviewers(principal_id) SELECT id FROM candidate
+      ON CONFLICT(principal_id) DO NOTHING)
+      SELECT id FROM candidate
+
+  - schema: registry
+    name: remove_release_reviewer
+    arguments: [{ name: person, type: uuid }]
+    returns: void
+    volatility: volatile
+    executeRoles: []
+    body: DELETE FROM registry.release_reviewers WHERE principal_id=person
+
+  - schema: registry
     name: review_session_principal
     returns: uuid
     executeRoles: [registry_session_runtime]

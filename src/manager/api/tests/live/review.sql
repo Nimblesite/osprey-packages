@@ -150,8 +150,29 @@ DO $$ BEGIN
 END $$;
 SELECT pg_temp.require_denied('SELECT pg_temp.approve(1)');
 SELECT pg_temp.require_denied('INSERT INTO release_reviewers VALUES (md5(''alice'')::uuid)');
+SELECT pg_temp.require_denied($cmd$SELECT registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123')$cmd$);
 RESET SESSION AUTHORIZATION;
-INSERT INTO release_reviewers VALUES (md5('alice')::uuid);
+DO $$ BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname LIKE 'registry\_%' AND rolname <> current_user AND rolcanlogin AND
+      (has_function_privilege(oid, 'registry.appoint_release_reviewer(uuid,text,text)', 'execute') OR
+       has_function_privilege(oid, 'registry.remove_release_reviewer(uuid)', 'execute')))
+    THEN RAISE EXCEPTION 'reviewer administration granted to runtime login'; END IF;
+  UPDATE registry.auth_bindings SET state='revoked' WHERE id=md5('binding')::uuid;
+  IF registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS NOT NULL
+    THEN RAISE EXCEPTION 'revoked binding enrolled as reviewer'; END IF;
+  UPDATE registry.auth_bindings SET state='active' WHERE id=md5('binding')::uuid;
+  UPDATE registry.principals SET state='suspended' WHERE id=md5('alice')::uuid;
+  IF registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS NOT NULL
+    THEN RAISE EXCEPTION 'suspended person enrolled as reviewer'; END IF;
+  UPDATE registry.principals SET state='active' WHERE id=md5('alice')::uuid;
+  IF registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','456') IS NOT NULL
+    OR registry.appoint_release_reviewer(md5('alice')::uuid,'foreign','123') IS NOT NULL
+    OR registry.appoint_release_reviewer(md5('other')::uuid,'issuer','123') IS NOT NULL
+    THEN RAISE EXCEPTION 'incorrect reviewer binding accepted'; END IF;
+  IF registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS DISTINCT FROM md5('alice')::uuid
+    OR registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS DISTINCT FROM md5('alice')::uuid
+    THEN RAISE EXCEPTION 'reviewer enrollment or retry failed'; END IF;
+END $$;
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
 -- Permission and browser identity are rechecked at the table on every approval.
 CREATE FUNCTION pg_temp.expect_closed_review() RETURNS void LANGUAGE plpgsql AS $$
@@ -162,7 +183,7 @@ BEGIN
 END $$;
 SAVEPOINT live_reviewer;
 RESET SESSION AUTHORIZATION;
-DELETE FROM release_reviewers WHERE principal_id=md5('alice')::uuid;
+SELECT registry.remove_release_reviewer(md5('alice')::uuid);
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
 SELECT pg_temp.expect_closed_review();
 ROLLBACK TO live_reviewer;

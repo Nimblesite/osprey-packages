@@ -449,7 +449,7 @@ durable scan job. The collector may repeat admission after a lost response while
 agent leaves the job pending. Before contacting the agent, validate the canonical bundle and its root `osprey.toml`. Its declared package key must match the frozen job. A scanner receipt identifies the job and agent revision. When no submission ID is specified, a worker claims an unattempted version first, then retries the oldest expired lease. A keyed retry remains bound to the requested submission.
 
 After an accepted scan, an active human with the registry-wide release-review
-permission must approve that exact version. Package ownership, publication rights
+permission must approve that exact version. Only the database operator may appoint a reviewer. Enrollment matches the existing active human principal to an active binding for the expected issuer and numeric GitHub account ID. Removing the appointment takes effect for subsequent approvals, including existing browser sessions. Package ownership, publication rights
 and approval of an earlier version confer no review permission. Approval is
 append-only. Independent signing and eligibility gates still apply before public
 listing, metadata, licenses or source downloads become available.
