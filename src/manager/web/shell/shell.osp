@@ -37,18 +37,28 @@ module Shell {
     }
 
     fn navigation() = {
-        let upload = "<a href=\"/upload/\">Upload a package</a>"
+        let upload = "<a href=\"/signin/\">Sign in</a><a href=\"/upload/\">Upload a package</a>"
         "<nav class=\"prose-desktop-nav\" aria-label=\"Primary\">${upload}</nav><details class=\"prose-mobile-menu\"><summary>Menu</summary><nav aria-label=\"Primary\"><a href=\"/\">Browse packages</a><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a>${upload}</nav></details>"
     }
 
+    let docs = "https://www.ospreylang.dev/"
+    let source = "https://github.com/Nimblesite/osprey-packages"
+    fn link(pair) = "<a href=\"${listGet(pair, 1) ?: ""}\">${listGet(pair, 0) ?: ""}</a>"
+    fn column(heading, links) = "<nav aria-label=\"${heading}\"><h2>${heading}</h2>${join(mapList(links, link), "")}</nav>"
+
+    /// Four link columns, then the mark and copyright [PACKAGE-REGISTRY-WEBSITE].
     fn footer() = join([
-            "<footer class=\"prose-footer\"><a class=\"prose-footer-mark\" href=\"https://www.ospreylang.dev/\"><img src=\"/osprey-mark.svg?v=6efc798a098d\" width=\"56\" height=\"44\" alt=\"\">A package registry for the Osprey language</a>",
-            "<nav aria-label=\"Osprey\"><a href=\"https://www.ospreylang.dev/\">Osprey</a><a href=\"https://www.ospreylang.dev/docs/\">Docs</a><a href=\"https://www.ospreylang.dev/docs/package-manager/\">Package manager</a><a href=\"https://www.ospreylang.dev/docs/installation/\">Install</a><a href=\"https://github.com/Nimblesite/osprey-packages\">Source</a></nav>",
+            "<footer class=\"prose-footer\"><div class=\"prose-footer-columns\">",
+            column("Packages", [["Browse packages", "/"], ["By publisher", "/publishers/"], ["By tag", "/tags/"], ["Upload a package", "/upload/"]]),
+            column("Publish", [["Publishing guide", "/publishing/"], ["Package guide", "/guide/"], ["Package manager docs", docs + "docs/package-manager/"]]),
+            column("Osprey", [["Website", docs], ["Install", docs + "docs/installation/"], ["Documentation", docs + "docs/"], ["Specification", docs + "spec/"]]),
+            column("Community", [["Discord", "https://discord.gg/EGk3XhcGyy"], ["GitHub", source], ["Issues", source + "/issues"]]),
+            "</div><a class=\"prose-footer-mark\" href=\"${docs}\"><img src=\"/osprey-mark.svg?v=6efc798a098d\" width=\"56\" height=\"44\" alt=\"\">A package registry for the Osprey language</a>",
             "<p>© 2026 <a href=\"https://nimblesite.co/\">Nimblesite</a></p></footer>"], "")
 
     /// Shell for an already escaped title or a trusted text literal.
     export fn withEscapedTitle(title, body) = join([
             "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
-            title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.bb8fd0c0df65.css\"></head><body>",
+            title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.1ac25024ec3a.css\"></head><body>",
             "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer(), "</body></html>"], "")
 }

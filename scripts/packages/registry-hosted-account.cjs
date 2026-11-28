@@ -120,6 +120,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
     const markHash = require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync('src/manager/web/assets/osprey-mark.svg')).digest('hex');
     assert.equal(new URL(mark, page.url()).searchParams.get('v'), markHash.slice(0, 12));
     assert.equal(await osprey.locator('img').evaluate(img => img.naturalWidth > 0 && getComputedStyle(img).opacity < 1), true);
+    if (code === 401) await checkFooter(page);
     const panel = page.locator('[data-session-url]');
     const login = panel.getByRole('link', {includeHidden:true});
     if (code === 401) {
@@ -227,6 +228,33 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
   await assertPublicCatalogUnavailable();
   assert.deepEqual(failures, []);
   await page.close();
+}
+
+const footerColumns = {
+  Packages: [['Browse packages', '/'], ['By publisher', '/publishers/'], ['By tag', '/tags/'], ['Upload a package', '/upload/']],
+  Publish: [['Publishing guide', '/publishing/'], ['Package guide', '/guide/'], ['Package manager docs', 'https://www.ospreylang.dev/docs/package-manager/']],
+  Osprey: [['Website', 'https://www.ospreylang.dev/'], ['Install', 'https://www.ospreylang.dev/docs/installation/'], ['Documentation', 'https://www.ospreylang.dev/docs/'], ['Specification', 'https://www.ospreylang.dev/spec/']],
+  Community: [['Discord', 'https://discord.gg/EGk3XhcGyy'], ['GitHub', 'https://github.com/Nimblesite/osprey-packages'], ['Issues', 'https://github.com/Nimblesite/osprey-packages/issues']],
+};
+
+// The footer [PACKAGE-REGISTRY-WEBSITE]: four labelled link columns side by side on a desktop, stacked on a phone, then the copyright line.
+async function checkFooter(page) {
+  const footer = page.locator('footer.prose-footer');
+  const headings = await footer.locator('nav h2').allTextContents();
+  assert.deepEqual(headings, Object.keys(footerColumns));
+  for (const [heading, links] of Object.entries(footerColumns)) {
+    const column = footer.getByRole('navigation', { name: heading });
+    const found = await column.getByRole('link').evaluateAll(as => as.map(a => [a.textContent, a.getAttribute('href')]));
+    assert.deepEqual(found, links);
+  }
+  const tops = async () => footer.locator('nav').evaluateAll(navs => navs.map(n => Math.round(n.getBoundingClientRect().top)));
+  assert.equal(new Set(await tops()).size, 1);
+  assert.match(await footer.locator('p').last().textContent(), /^© 2026 Nimblesite$/);
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(new Set(await tops()).size, 4);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.setViewportSize(size);
 }
 
 module.exports = { checkHostedAccount };

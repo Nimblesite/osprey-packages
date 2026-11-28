@@ -55,6 +55,7 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 .prose-search input { margin: 0; flex: 1; min-width: 0 }
 .prose-search button, .prose-bar nav a { padding: .75rem 1rem; border: 0; border-radius: .35rem; background: var(--pine); color: white; font: inherit; font-weight: 650; text-decoration: none }
 .prose-bar nav a { display: inline-block; white-space: nowrap }
+.prose-desktop-nav a + a { margin-left: .5rem }
 .prose-search button:enabled { cursor: pointer }
 .prose-search button:disabled { opacity: .6 }
 .prose-package { padding: 1rem 0; border-top: 1px solid var(--line) }
@@ -174,7 +175,11 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 .prose-footer a { color: inherit }
 .prose-footer a:is(:hover, :focus-visible) { color: var(--ink) }
 .prose-footer-mark { display: inline-flex; flex-direction: column; align-items: center; gap: .55rem; text-decoration: none }
-.prose-footer nav { display: flex; flex-wrap: wrap; justify-content: center; gap: .4rem 1.25rem }
+.prose-footer-columns { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2rem; inline-size: 100%; padding-block-end: 1.5rem; border-bottom: 1px solid var(--line); text-align: start }
+.prose-footer nav { display: flex; flex-direction: column; gap: .55rem }
+.prose-footer h2 { font-family: inherit; font-size: .78rem; font-weight: 650; line-height: 1.2; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); margin: 0 0 .35rem }
+.prose-footer nav a { text-decoration: none }
+@media (max-width: 40rem) { .prose-footer-columns { grid-template-columns: minmax(0, 1fr) } }
 .prose-footer p { margin: 0 }
 .prose-footer img { opacity: .45; transition: opacity .2s }
 .prose-footer-mark:is(:hover, :focus-visible) img { opacity: .9 }
