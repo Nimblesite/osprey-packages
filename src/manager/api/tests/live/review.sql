@@ -160,6 +160,27 @@ DO $$ BEGIN
     OR registry.publication_receipt(md5('3')::uuid)::jsonb->>'status' IS DISTINCT FROM 'pending-scan'
     THEN RAISE EXCEPTION 'incorrect publisher receipt'; END IF;
 END $$;
+-- A package binds once. Roll back every successful positive control independently.
+DO $$
+DECLARE name text;
+BEGIN
+  FOREACH name IN ARRAY ARRAY['/main','main/','main//next','HEAD','-option','.hidden','a/.hidden',
+      'end.','a.lock','a.lock/b','a..b','a b','a~b',repeat('a',256)] LOOP
+    BEGIN
+      PERFORM registry.bind_repository(md5('pkg')::uuid,42,name,'');
+      RAISE EXCEPTION 'invalid branch admitted: %',name;
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+  END LOOP;
+  FOREACH name IN ARRAY ARRAY['main','Release/V1.2','a./b','a.locked/b','release/-2',repeat('a',255)] LOOP
+    BEGIN
+      IF registry.bind_repository(md5('pkg')::uuid,42,name,'') IS DISTINCT FROM md5('pkg')::uuid THEN
+        RAISE EXCEPTION 'valid branch refused: %',name; END IF;
+      RAISE SQLSTATE 'ZX001';
+    EXCEPTION WHEN SQLSTATE 'ZX001' THEN NULL;
+    END;
+  END LOOP;
+END $$;
 SAVEPOINT intent_authority;
 SELECT registry.bind_repository(md5('pkg')::uuid,42,'main','');
 RESET SESSION AUTHORIZATION;

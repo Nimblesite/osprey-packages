@@ -37,11 +37,15 @@ module HostedOwnership {
         if !Bytes::canonicalUuid(org) || Names::nameCode(name) != "" { Error { message: badRequest } } else { operations.createPackage(token, org, name) }
     }
 
-    fn branchOk(branch) = byteLength(branch) >= 1 && byteLength(branch) <= 255 && !contains(branch, "..") && !startsWith(branch, "/")
-    && Bytes::everyByte(branch, fn(b) => Bytes::isAlnumIn(b, [Bytes::dot, Bytes::underscore, Bytes::hyphen, Bytes::slash]))
+    fn pathPunctuation(b) = b == Bytes::dot || b == Bytes::underscore || b == Bytes::hyphen || b == Bytes::slash
+    fn branchByte(b) = Bytes::isAlnum(b) || pathPunctuation(b)
+    fn directoryByte(b) = Bytes::isLowerDigit(b) || pathPunctuation(b)
+    fn branchOk(branch) = byteLength(branch) >= 1 && byteLength(branch) <= 255 && branch != "HEAD" && !startsWith(branch, "-")
+    && !endsWith(branch, ".") && !contains(branch, "..") && Bytes::everyByte(branch, branchByte)
+    && foldList(split(branch, "/") ?: [], true, fn(ok, part) => ok && part != "" && !startsWith(part, ".") && !endsWith(part, ".lock"))
     fn subdirectoryOk(dir) = dir == "" || (byteLength(dir) <= 255 && !startsWith(dir, "/") && !endsWith(dir, "/") && !contains(dir, "//")
         && foldList(split(dir, "/") ?: [], true, fn(ok, part) => ok && part != "." && part != "..")
-        && Bytes::everyByte(dir, fn(b) => Bytes::isLowerDigitIn(b, [Bytes::dot, Bytes::underscore, Bytes::hyphen, Bytes::slash])))
+        && Bytes::everyByte(dir, directoryByte))
     fn positive(doc, key) = match JsonRead::field(doc, key) {
         Json::Num { value } => if value > 0 { toString(value) } else { "" }
         _ => ""

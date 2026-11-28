@@ -41,4 +41,18 @@ theorem branchAlphanumeric : ∀ b : Fin 256,
     result ReleaseIR.«__osp_8x7265676973747279_5x4279746573_7x6973416c6e756d(i64)» b =
       bit (lower b || upper b || decimal b) := by decide +kernel
 
+def punctuation (b : Fin 256) : Bool := [45, 46, 47, 95].contains b.val
+
+theorem pathPunctuation : ∀ b : Fin 256,
+    result ReleaseIR.«__osp_12x72656769737472795f617069_15x486f737465644f776e657273686970_15x7061746850756e6374756174696f6e(i64)» b =
+      bit (punctuation b) := by decide +kernel
+
+theorem branchByte : ∀ b : Fin 256,
+    result ReleaseIR.«__osp_12x72656769737472795f617069_15x486f737465644f776e657273686970_10x6272616e636842797465(i64)» b =
+      bit (lower b || upper b || decimal b || punctuation b) := by decide +kernel
+
+theorem directoryByte : ∀ b : Fin 256,
+    result ReleaseIR.«__osp_12x72656769737472795f617069_15x486f737465644f776e657273686970_13x6469726563746f727942797465(i64)» b =
+      bit (lower b || decimal b || punctuation b) := by decide +kernel
+
 end ReleaseBytes

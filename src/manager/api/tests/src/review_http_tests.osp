@@ -77,11 +77,22 @@ module ReviewHttpTests {
         ])
     }
 
+    fn branchCases(client, path, headers) = {
+        let reply = fn(branch) => status(client, path, headers,
+            "{\"branch\":\"${branch}\",\"repositoryId\":\"4242\",\"subdirectory\":\"packages/net\"}")
+        let invalid = ["/main", "main/", "main//next", "HEAD", "-option", ".hidden", "a/.hidden", "end.", "a.lock", "a.lock/b", "a..b", "a b", "a~b", repeat("a", 256) ?: ""]
+        let valid = ["Release/V1.2", "a./b", "a.locked/b", "release/-2", repeat("a", 255) ?: ""]
+        check("malformed Git branches that reached the forge", "", join(filterList(invalid, fn(name) => reply(name) != 400), ","))
+        check("valid alternatives that failed before forge authorization", "", join(filterList(valid, fn(name) => reply(name) != 409), ","))
+        check("original binding after branch refusals", 201, reply("main"))
+    }
+
     fn releases(client, cookie, auth) = {
         let repository = HostedOwnership::packages + pkg + "/repository"
         let releasing = HostedOwnership::packages + pkg + "/releases"
         let bound = "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"
         let named = "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":2}"
+        branchCases(client, repository, json(auth))
         repositoryCases(client, repository, json(auth))
         commitCases(client, releasing, json(auth))
         checkAll("binding a repository and naming a commit need the browser, CSRF token and exact values", [

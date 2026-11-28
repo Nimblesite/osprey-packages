@@ -198,7 +198,7 @@ tables:
     columns:
       - { name: package_id, type: Uuid, isNullable: false }
       - { name: repository_id, type: BigInt, isNullable: false, checkConstraint: "repository_id > 0" }
-      - { name: branch, type: Text, isNullable: false, checkConstraint: "length(branch) BETWEEN 1 AND 255 AND branch ~ '^[A-Za-z0-9._/-]+$' AND branch !~ '[.][.]'" }
+      - { name: branch, type: Text, isNullable: false, checkConstraint: "length(branch) BETWEEN 1 AND 255 AND branch <> 'HEAD' AND branch ~ '^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$' AND branch !~ '(^-|[.]$|[.][.]|[.]lock(/|$))'" }
       - { name: subdirectory, type: Text, isNullable: false, checkConstraint: "length(subdirectory) <= 255 AND subdirectory ~ '^([a-z0-9._-]+(/[a-z0-9._-]+)*)?$' AND subdirectory !~ '(^|/)[.][.]?(/|$)'" }
       - { name: bound_by, type: Uuid, isNullable: false }
       - { name: bound_at, type: DateTimeOffset, isNullable: false }

@@ -23,8 +23,10 @@ ln -s "$root/target/osprey/packages/xdsl" "$out/src/osprey/packages/xdsl"
 "$compiler" "$root/src/manager/api/hosted" --llvm --memory=arc > "$out/api.ll"
 llvm_bin=${LLVM_BIN:-$(dirname "$(command -v mlir-translate)")}
 base=__osp_8x7265676973747279_5x4279746573
+ownership=__osp_12x72656769737472795f617069_15x486f737465644f776e657273686970
 "$llvm_bin/llvm-extract" --recursive --func="${base}_7x69734469676974" --func="${base}_13x6c6f7765724865784469676974" \
   --func="${base}_7x6973416c6e756d" --func="${base}_12x69734c6f7765724469676974" \
+  --func="${ownership}_10x6272616e636842797465" --func="${ownership}_13x6469726563746f727942797465" \
   -S "$out/api.ll" -o "$out/release.ll"
 cd "$out/$model"
 export LEAN_PATH="$PWD"
@@ -48,4 +50,4 @@ if lean -DwarningAsError=true ReleaseBytes.lean > "$out/rejection" 2>&1; then
   echo "Lean accepted the widened hex alphabet" >&2; exit 1
 fi
 grep -Fq 'commitHex' "$out/rejection" || grep -Fq '6c6f7765724865784469676974' "$out/rejection"
-echo 'Lean verified six release byte predicates over all 256 bytes and rejected the widened hex range.'
+echo 'Lean verified nine release byte predicates over all 256 bytes and rejected the widened hex range.'

@@ -1,5 +1,13 @@
 # Registry security findings
 
+## Repository binding relies on the API for GitHub authority
+
+**Open · [PACKAGE-HOSTED-PUBLISH-FLOW].** `HostedLogin.bound` checks GitHub repository administration. The table insert policy verifies an active registry package administrator and session but lacks an independently issued GitHub verification record for the same repository and principal. The disposable database accepted the valid branch controls without contacting GitHub. The collector subsequently reads from the stored binding under its installation permissions. Resolving this requires independently verified binding evidence at the table boundary. Production exposure remains unverified.
+
+## The registry could permanently bind a package to an invalid branch
+
+**Availability · [PACKAGE-HOSTED-PUBLISH-FLOW].** Disposable PostgreSQL accepted `/main` in the one-time repository binding. The API and table also admitted malformed components, leaving collection unable to resolve the intended branch. Both boundaries now enforce the registry’s ASCII Git branch grammar. Tests exercise 14 invalid names and six valid controls at both boundaries. Upgrading the previous schema replaced the check constraint and passed the database regressions.
+
 ## Repository validation admitted out-of-range database IDs
 
 **Request validation · [PACKAGE-HOSTED-PUBLISH-FLOW].** Listener tests observed two 19-digit repository identifiers above the PostgreSQL bigint maximum reach the forge boundary. Validation now checks the numeric ceiling before the forge call. The listener suite distinguishes the largest valid ID, its successor, leading zeros, signs and non-decimal spellings.
