@@ -70,6 +70,7 @@ Contract: [Package Management](../specs/ecosystem/PackageManagement.md), [Trust 
 
 ### Publication security scan `[PLAN-REGISTRY-SECURITY-SCAN]`
 
+- [ ] Exercise pending, accepted, rejected and approved versions through real PostgreSQL roles, including a second version of an already approved package [PACKAGE-SECURITY-SCAN-APPROVAL].
 - [ ] Define the NAP security-scan agent and its strict verdict contract: `accepted` or a non-empty list of failure messages; anything else fails closed [PACKAGE-SECURITY-SCAN-VERDICT].
 - [ ] Run the scan on every upload's frozen canonical source before publication; a rejection publishes nothing and `accepted` still runs every other gate [PACKAGE-SECURITY-SCAN] [PACKAGE-HOSTED-PUBLISH].
 - [ ] Add the append-only `publication_rejections` table to the DataProvider YAML with organization-private RLS, and record each rejection against the publisher with no strike or standing change [PACKAGE-SECURITY-SCAN-REJECTIONS] [PACKAGE-OWNERSHIP-DATABASE].

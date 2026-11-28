@@ -439,6 +439,24 @@ The scanner is an agent hosted on NAP ([Nimblesite agents](https://www.nimblesit
 It reviews the frozen canonical source of the submission. The scan is a
 mandatory gate: no path publishes a release whose submission was not scanned.
 
+### Per-version approval `[PACKAGE-SECURITY-SCAN-APPROVAL]`
+
+Each hosted submission starts pending. The collector freezes the package key, epoch,
+ordinal, release digest and canonical source digest together. That record is the
+durable scan job. A retry scans the same frozen source. An unavailable or inert
+agent leaves the job pending. A scanner receipt identifies the job and agent revision.
+
+After an accepted scan, an active human with the registry-wide release-review
+permission must approve that exact version. Package ownership, publication rights
+and approval of an earlier version confer no review permission. Approval is
+append-only. Independent signing and eligibility gates still apply before public
+listing, metadata, licenses or source downloads become available.
+
+PostgreSQL must enforce this sequence with forced RLS, immutable job identities
+and separate collector, scanner and reviewer privileges. The database checks
+the reviewer's live session and current permission on insertion. Runtime roles
+cannot grant themselves permission or edit an existing job, receipt or approval.
+
 ### Verdict `[PACKAGE-SECURITY-SCAN-VERDICT]`
 
 The scan returns exactly one verdict:
