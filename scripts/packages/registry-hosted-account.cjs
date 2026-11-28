@@ -165,6 +165,13 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
   assert.equal(await page.locator('#q').inputValue(), 'http');
   await page.goto(website + '/?q=unknown');
   await page.getByText('No matching packages.').waitFor();
+  payload = {packages:[]};
+  for (const query of ['', '?q=http']) {
+    await page.goto(website + '/' + query);
+    await page.getByText('No packages published yet.', {exact:true}).waitFor();
+    assert.equal(await page.getByText('No matching packages.').count(), 0);
+    assert.equal(await page.getByText('The public catalog is unavailable.').count(), 0);
+  }
   const tagged = Array.from({length:4}, (_, i) => ({
     ...entry, key: '@atlas/fixture-' + i, keywords: i === 3 ? ['networking'] : entry.keywords,
   }));

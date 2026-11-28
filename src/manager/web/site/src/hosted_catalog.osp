@@ -32,11 +32,12 @@ module HostedCatalog {
         let text = toLowerCase(PublicCatalog::text(item, "key") + " " + PublicCatalog::text(item, "summary"))
         foldList(terms, true, fn(ok, term) => ok && contains(text, term))
     }
-    fn browse(items, query) = {
+    fn search(items, query) = {
         let terms = split(toLowerCase(query), " ") ?: []
         let found = filterList(items, fn(item) => matches(item, terms))
         if isEmpty(found) { "<p>No matching packages.</p>" } else { join(mapList(found, card), "") }
     }
+    fn browse(items, query) = if isEmpty(items) { "<p>No packages published yet.</p>" } else { search(items, query) }
     fn publisherLink(release) = {
         let id = PublicCatalog::text(release, "publisherId")
         let name = escaped(release, "publisherName")
@@ -89,18 +90,18 @@ module HostedCatalog {
     fn publisherProfile(items, name) = {
         let display = Shell::escape(name)
         let packages = join(mapList(items, fn(item) =>
-            card(item) + "<ul class=\"prose-credits\">" + join(mapList(releaseItems(item), fn(release) => credit(keyOf(item), release)), "") + "</ul>"), "")
+                card(item) + "<ul class=\"prose-credits\">" + join(mapList(releaseItems(item), fn(release) => credit(keyOf(item), release)), "") + "</ul>"), "")
         "<header class=\"prose-publisher\"><a href=\"/\">← Packages</a><h1>${display}</h1></header><section><h2>Published releases</h2>${packages}</section>"
     }
 
     fn directory(title, contents) = "<header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${title}</h1></header><section>${contents}</section>"
 
     fn distinctPackages(items) = mapValues(foldList(items, Map(),
-        fn(seen, item) => mapSet(seen, keyOf(item), item)))
+            fn(seen, item) => mapSet(seen, keyOf(item), item)))
 
     fn popularTags(items) = {
         let counts = foldList(distinctPackages(items), Map(), fn(seen, item) => foldList(PublicCatalog::keywords(item), seen,
-            fn(tags, tag) => mapSet(tags, tag, checkedAdd(mapGet(tags, tag) ?: 0, 1) ?: Shell::minimumTagPackages)))
+                fn(tags, tag) => mapSet(tags, tag, checkedAdd(mapGet(tags, tag) ?: 0, 1) ?: Shell::minimumTagPackages)))
         listSort(filterList(mapKeys(counts), fn(tag) => (mapGet(counts, tag) ?: 0) >= Shell::minimumTagPackages))
     }
 
@@ -108,7 +109,7 @@ module HostedCatalog {
         if isEmpty(tags) { "<p>No tags have five packages yet.</p>" } else { Shell::keywordChips(tags) })
 
     fn tagBrowse(items, path) = if path == "/tags/" { tagDirectory(popularTags(items)) }
-        else { tagPackages(distinctPackages(items), path) }
+    else { tagPackages(distinctPackages(items), path) }
 
     fn tagPackages(items, path) = {
         let key = Bytes::before(drop(path, byteLength("/tags/")), "/")
@@ -118,8 +119,8 @@ module HostedCatalog {
     }
 
     fn publishers(items) = mapValues(foldList(items, Map(), fn(seen, item) => foldList(releaseItems(item), seen, fn(index, release) => {
-        let id = PublicCatalog::text(release, "publisherId")
-        if (mapGet(index, id) ?: "") != "" { index } else { mapSet(index, id, publisherLink(release)) }
+                    let id = PublicCatalog::text(release, "publisherId")
+                    if (mapGet(index, id) ?: "") != "" { index } else { mapSet(index, id, publisherLink(release)) }
     })))
 
     fn publisherDirectory(items) = directory("Publishers", "<ul class=\"prose-credits\">" +
@@ -129,15 +130,15 @@ module HostedCatalog {
     else if path == "/publishers/" { publisherDirectory(items) } else { publisher(items, path) }
 
     fn packagePage(items, path, content) = match listGet(filterList(items,
-        fn(item) => path == "/packages/" + PublicCatalog::text(item, "key") + "/"), 0) {
+            fn(item) => path == "/packages/" + PublicCatalog::text(item, "key") + "/"), 0) {
         Success { value } => detail(value, content, popularTags(items))
         Error => directory("Package not found", "")
     }
 
     export fn render(path, query, body, content) = match PublicCatalog::decode(body) {
         Success { value } => if path == "/" { browse(value, query) }
-            else if startsWith(path, "/packages/") { packagePage(value, path, content) }
-            else { browseDirectory(value, path) }
+        else if startsWith(path, "/packages/") { packagePage(value, path, content) }
+        else { browseDirectory(value, path) }
         Error => ""
     }
 }
