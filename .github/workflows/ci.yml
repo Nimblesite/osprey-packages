@@ -141,6 +141,7 @@ jobs:
         run: |
           export PATH="/usr/lib/postgresql/16/bin:$PATH"
           test -x /usr/lib/postgresql/16/bin/postgres
+          chmod u+x target/registry-tools/*/bin/DataProviderMigrate
           make _registry-integration-verify REGISTRY_COVERAGE=target/coverage
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
