@@ -1,0 +1,46 @@
+name: Pages
+
+# The registry website (src/manager/web/site, compiled to WASM and rendered to static
+# pages) on GitHub Pages, built with the released Osprey toolchain. `registry-pages` prefixes every
+# root-relative URL with the Pages base path.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-wasm
+      - id: pages
+        uses: actions/configure-pages@v6
+      - name: Build
+        run: make _registry-pages PAGES_BASE="${{ steps.pages.outputs.base_path }}/"
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: target/registry-pages
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

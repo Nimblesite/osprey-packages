@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-labelledby="t d">
+  <title id="t">How a package moves</title>
+  <desc id="d">A publisher names a commit; the registry assembles and digests the source; a project declares the package and locks its release digest; fetch installs exactly those bytes and verify rechecks them offline.</desc>
+  <style>
+    .card { fill: #fffdf7; stroke: #bdc6b9; stroke-width: 1.5 }
+    .bar-a { fill: #91b878 } .bar-b { fill: #a88cc4 } .bar-c { fill: #da947c } .bar-d { fill: #c3f773 }
+    .step { font: 650 13px ui-monospace, SFMono-Regular, Consolas, monospace; fill: #475e51; letter-spacing: .1em }
+    .head { font: 500 27px Georgia, "Times New Roman", serif; fill: #172921; letter-spacing: -.02em }
+    .body { font: 400 15px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #475e51 }
+    .code { font: 600 14px ui-monospace, SFMono-Regular, Consolas, monospace; fill: #163f35 }
+    .chip { fill: #e3eed9 }
+    .arrow { fill: none; stroke: #163f35; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round }
+    .bg { fill: #f6f5ed }
+  </style>
+  <rect class="bg" width="1200" height="300" rx="22"/>
+
+  <g transform="translate(32 34)">
+    <rect class="card" width="250" height="232" rx="12"/><rect class="bar-a" width="250" height="6" rx="3"/>
+    <text class="step" x="22" y="42">1 · PUBLISH</text>
+    <text class="head" x="22" y="80">Name a commit</text>
+    <text class="body" x="22" y="112">The registry fetches the</text>
+    <text class="body" x="22" y="133">source itself. Uploads,</text>
+    <text class="body" x="22" y="154">binaries and hooks are</text>
+    <text class="body" x="22" y="175">refused.</text>
+    <rect class="chip" x="22" y="192" width="206" height="26" rx="13"/><text class="code" x="36" y="210">publish</text>
+  </g>
+  <g transform="translate(320 34)">
+    <rect class="card" width="250" height="232" rx="12"/><rect class="bar-b" width="250" height="6" rx="3"/>
+    <text class="step" x="22" y="42">2 · RELEASE</text>
+    <text class="head" x="22" y="80">Digest the source</text>
+    <text class="body" x="22" y="112">Identity is a SHA-256.</text>
+    <text class="body" x="22" y="133">An epoch marks a breaking</text>
+    <text class="body" x="22" y="154">contract; an ordinal orders</text>
+    <text class="body" x="22" y="175">releases within it.</text>
+    <rect class="chip" x="22" y="192" width="206" height="26" rx="13"/><text class="code" x="36" y="210">@osprey/json e1.r1</text>
+  </g>
+  <g transform="translate(608 34)">
+    <rect class="card" width="250" height="232" rx="12"/><rect class="bar-c" width="250" height="6" rx="3"/>
+    <text class="step" x="22" y="42">3 · LOCK</text>
+    <text class="head" x="22" y="80">Resolve once</text>
+    <text class="body" x="22" y="112">A deterministic solver picks</text>
+    <text class="body" x="22" y="133">one release per package and</text>
+    <text class="body" x="22" y="154">pins every digest and</text>
+    <text class="body" x="22" y="175">capability grant.</text>
+    <rect class="chip" x="22" y="192" width="206" height="26" rx="13"/><text class="code" x="36" y="210">add · osprey.lock</text>
+  </g>
+  <g transform="translate(896 34)">
+    <rect class="card" width="272" height="232" rx="12"/><rect class="bar-d" width="272" height="6" rx="3"/>
+    <text class="step" x="22" y="42">4 · INSTALL</text>
+    <text class="head" x="22" y="80">Verify the bytes</text>
+    <text class="body" x="22" y="112">Fetch installs exactly the</text>
+    <text class="body" x="22" y="133">locked source. Verify</text>
+    <text class="body" x="22" y="154">rechecks it offline. A</text>
+    <text class="body" x="22" y="175">mismatch never fails open.</text>
+    <rect class="chip" x="22" y="192" width="228" height="26" rx="13"/><text class="code" x="36" y="210">fetch · verify --offline</text>
+  </g>
+
+  <path class="arrow" d="M286 150h28m-8-8 8 8-8 8"/>
+  <path class="arrow" d="M574 150h28m-8-8 8 8-8 8"/>
+  <path class="arrow" d="M862 150h28m-8-8 8 8-8 8"/>
+</svg>

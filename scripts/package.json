@@ -1,0 +1,8 @@
+{
+  "name": "osprey-packages",
+  "private": true,
+  "description": "Browser harness for the registry website checks",
+  "devDependencies": {
+    "playwright": "1.64.1"
+  }
+}

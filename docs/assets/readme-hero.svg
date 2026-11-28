@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" role="img" aria-labelledby="t d">
+  <title id="t">Osprey Packages</title>
+  <desc id="d">The package manager and registry for the Osprey language: source-derived, content-addressed, written in Osprey.</desc>
+  <style>
+    .panel { fill: #163f35 }
+    .kicker { font: 650 17px ui-monospace, SFMono-Regular, Consolas, monospace; fill: #c3f773; letter-spacing: .12em }
+    .title { font: 500 86px Georgia, "Times New Roman", serif; fill: #fff5df; letter-spacing: -.045em }
+    .lede { font: 400 23px system-ui, -apple-system, "Segoe UI", sans-serif; fill: #deebdc }
+    .pill { fill: #c3f773 }
+    .pill-text { font: 650 15px ui-monospace, SFMono-Regular, Consolas, monospace; fill: #163f35 }
+  </style>
+  <defs>
+    <pattern id="tiles" width="84" height="126" patternUnits="userSpaceOnUse">
+      <path d="M0 0h84L42 84z" fill="#dfacff"/>
+      <path d="M84 0v126L42 84z" fill="#9560cd"/>
+      <path d="M84 126H0l42-42z" fill="#624b86"/>
+      <path d="M0 126V0l42 84z" fill="#f1c770"/>
+      <path d="M0 0h42L0 63z" fill="#ff967d"/>
+      <path d="M84 126H42l42-42z" fill="#bde982"/>
+    </pattern>
+    <clipPath id="rounded"><rect width="1200" height="380" rx="22"/></clipPath>
+  </defs>
+  <g clip-path="url(#rounded)">
+    <rect class="panel" width="1200" height="380"/>
+    <path d="M870 0H1200V380H760z" fill="url(#tiles)"/>
+  </g>
+  <text class="kicker" x="64" y="88">THE OSPREY PACKAGE MANAGER</text>
+  <text class="title" x="60" y="182">Osprey Packages</text>
+  <text class="lede" x="64" y="236">Packages are source, pinned by digest. No SemVer ranges,</text>
+  <text class="lede" x="64" y="268">no install hooks, no binaries, no trust in the uploader.</text>
+  <rect class="pill" x="64" y="300" width="292" height="40" rx="20"/>
+  <text class="pill-text" x="84" y="326">osprey.toml → osprey.lock</text>
+</svg>
