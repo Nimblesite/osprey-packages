@@ -67,6 +67,14 @@ DO $$ BEGIN
   IF registry.publication_receipt(md5('2')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'unauthorized receipt'; END IF;
 END $$;
 SET LOCAL registry.session_provider = '123';
+DO $$ BEGIN
+  BEGIN
+    UPDATE browser_sessions SET started_at=started_at-interval '1 second';
+    RAISE EXCEPTION 'immutable timestamp changed';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM <> 'browser session identity and start time are immutable' THEN RAISE; END IF;
+  END;
+END $$;
 SELECT pg_temp.require_denied('SELECT pg_temp.approve(1)');
 SELECT pg_temp.require_denied('INSERT INTO release_reviewers VALUES (md5(''alice'')::uuid)');
 RESET SESSION AUTHORIZATION;

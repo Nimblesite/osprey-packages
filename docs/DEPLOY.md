@@ -40,3 +40,7 @@ The names are single-label on purpose: Cloudflare's free certificate covers `*.<
 - Ship code: `make deploy STEP=release`, or Actions → Deploy.
 - Schema change: `STEP=database`.
 - Details: [src/manager/ops/README.md](../src/manager/ops/README.md).
+
+## Publication scan worker
+
+The image includes the one-shot command `/usr/local/bin/registry-scan-once` for a separately provisioned worker identity [PACKAGE-SECURITY-SCAN-VERDICT]. The API listener starts by default. The worker claims one pending submission or accepts its UUID as an argument. Mount the scanner’s PostgreSQL service file at `/run/registry-scan/pg_service.conf`, its PostgreSQL root CA at `/run/catalog-ca/ca.pem`, its pinned NAP configuration (`configId`, `agentRevision`, `apiKey`) at `/run/registry-scan/agent.json`, and immutable canonical bundles read-only at `/run/registry-quarantine/<sha256 hex>.json`. A missing mount, invalid digest or agent failure leaves the submission pending. A successful empty-queue run performs no remote scan. Hosted activation depends on provisioning the tool-free agent and the signed-intent collector.

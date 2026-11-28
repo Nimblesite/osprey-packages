@@ -247,7 +247,7 @@ $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 # Process one quarantined job. An empty queue succeeds without contacting the agent.
 .PHONY: registry-scan-once
 registry-scan-once: target/osprey-registry-scan
-	@result=$$(printf '\n' | $<) && test "$$result" = 'status: 0'
+	@REGISTRY_SCAN_BINARY="$(abspath $<)" src/manager/api/scan/run-once.sh
 
 target/osprey-registry-scan: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	@mkdir -p $(dir $@)

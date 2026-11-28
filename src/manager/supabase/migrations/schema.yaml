@@ -381,6 +381,14 @@ tables:
     foreignKeys:
       - { columns: [binding_id], referencedSchema: registry, referencedTable: auth_bindings, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    triggers:
+      - name: preserve_browser_session_identity
+        events: [Update]
+        raiseWhen: >-
+          old.id <> new.id or old.cookie_digest <> new.cookie_digest or old.binding_id <> new.binding_id
+          or old.principal_id <> new.principal_id or old.credential_epoch <> new.credential_epoch
+          or old.started_at <> new.started_at or new.last_used_at < old.last_used_at
+        errorMessage: browser session identity and start time are immutable
     rowLevelSecurity:
       enabled: true
       forced: true
