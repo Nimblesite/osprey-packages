@@ -221,7 +221,8 @@ _registry-integration-verify:
 # _registry-infra-check: Validate pinned registry infrastructure without contacting a state backend.
 _registry-infra-check: export TF_DATA_DIR = $(CURDIR)/target/registry-infra/data
 _registry-infra-check:
-	shellcheck -S warning src/manager/ops/deploy.sh
+	shellcheck -S warning src/manager/ops/deploy.sh scripts/packages/test-deploy-main-only.sh
+	scripts/packages/test-deploy-main-only.sh
 	node scripts/packages/test-edge-worker.mjs
 	terraform -chdir=$(REGISTRY_TERRAFORM) fmt -check
 	terraform -chdir=$(REGISTRY_TERRAFORM) init -backend=false -lockfile=readonly -input=false
