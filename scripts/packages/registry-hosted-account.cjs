@@ -130,31 +130,6 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
       assert.equal(await login.isVisible(), false);
     }
     if (code === 200) {
-      const id = '11111111-1111-4111-8111-111111111111';
-      const digest = 'sha256:' + 'b'.repeat(64);
-      const receipt = {submissionId:id, digest, epoch:1, ordinal:2, status:'rejected', messages:['Fix <img src=x>'], canApprove:false};
-      await page.route(api + '/v1/publications/' + id, route => route.fulfill({headers,json:receipt}));
-      await page.route(api + '/v1/reviews/' + id + '/' + digest + '/approve', route => {
-        if (route.request().method() === 'OPTIONS') return route.fulfill({status:204,headers:{...headers,
-          'access-control-allow-methods':'POST','access-control-allow-headers':'X-CSRF-Token'}});
-        assert.equal(route.request().method(), 'POST');
-        assert.equal(route.request().headers()['x-csrf-token'], csrfToken);
-        receipt.status = 'approved';
-        return route.fulfill({status:204,headers});
-      });
-      const lookup = page.locator('[data-receipt-panel]');
-      await lookup.getByLabel('Submission ID').fill(id);
-      const check = lookup.getByRole('button', {name:'Check status'});
-      const approve = lookup.getByRole('button', {name:'Approve this version', includeHidden:true});
-      await check.click();
-      await lookup.getByText('Fix <img src=x>', {exact:true}).waitFor();
-      assert.equal(await lookup.locator('img').count(), 0);
-      assert.equal(await approve.isVisible(), false);
-      Object.assign(receipt, {status:'awaiting-admin',messages:[],canApprove:true});
-      await check.click();
-      await approve.click();
-      await lookup.getByText(/Administrator approval recorded/).waitFor();
-      assert.equal(await approve.isVisible(), false);
       const logout = panel.getByRole('button', {name:'Sign out'});
       await logout.click();
       await panel.getByText('Could not sign out. Try again.').waitFor();
@@ -164,7 +139,6 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
       await login.waitFor();
       assert.equal(await logout.count(), 0);
       assert.equal(signOutRequests, 2);
-      assert.equal(await lookup.isVisible(), false);
     }
     await page.unroute(api + '/v1/auth/session');
   }

@@ -36,20 +36,13 @@ fn publisherAccount(origin) = if origin == "" {
     "<button hidden type=\"button\" class=\"prose-download\" data-sign-out>Sign out</button></div>"
 ], "") }
 
-fn receiptForm() = join([
-    "<section data-receipt-panel hidden><h2>Publication review</h2>",
-    "<form data-receipt-form><label>Submission ID <input name=\"submission\" required maxlength=\"36\" autocomplete=\"off\"></label><button>Check status</button></form>",
-    "<p role=\"status\"></p><ul data-findings></ul><button type=\"button\" data-approve hidden>Approve this version</button></section>"
-], "")
-
 fn upload() = {
     let origin = trim(input())
     let adapter = trim(input())
     let form = if origin != "" { releaseForm(origin, adapter) } else { "" }
     let cover = "<header class=\"prose-cover\"><a href=\"/\">Browse packages</a><h1>Upload a package</h1><p>Publish a release from a commit in your package’s linked repository.</p></header>"
-    let steps = "<section class=\"prose-releases\"><h2>Publisher account</h2><p>Use the account with publishing permission for this package.</p>${publisherAccount(origin)}</section><aside class=\"prose-facts\"><h2>What you’ll need</h2><ol><li>A package with a linked repository</li><li>The commit you want to release</li><li>Your signing credential to authorize the submission</li></ol></aside>"
-    let receipt = if origin == "" { "" } else { receiptForm() }
-    Shell::withEscapedTitle("Upload a package · Osprey Packages", "<main>${cover}${form}<div class=\"prose-columns\">${steps}</div>${receipt}</main>")
+    let steps = "<section class=\"prose-releases\"><h2>Publisher account</h2><p>Use the account with publishing permission for this package.</p>${publisherAccount(origin)}</section><aside class=\"prose-facts\"><h2>What you’ll need</h2><ol><li>A package with a linked repository</li><li>The commit you want to release</li><li>Your signing credential to approve the release</li></ol></aside>"
+    Shell::withEscapedTitle("Upload a package · Osprey Packages", "<main>${cover}${form}<div class=\"prose-columns\">${steps}</div></main>")
 }
 
 fn releaseForm(origin, adapter) = join([

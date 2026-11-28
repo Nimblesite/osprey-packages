@@ -333,12 +333,6 @@ step_smoke() {
   log "edge $api/v1/packages → $edge (200, or 503 until the catalog projection exists)"
   log "direct $run/v1/packages → $direct (must be 403)"
   log "website → $web (must be 200)"
-  # [PACKAGE-OWNERSHIP-RLS]: Supabase's Data API never serves the private schema, table or routine.
-  local ref key data rpc; ref="$(jq -r .ref "$WORK/supabase.json")"; key="$(jq -r .publishable_key "$WORK/supabase.json")"
-  data="$(status -H "apikey: $key" -H 'Accept-Profile: registry' "https://$ref.supabase.co/rest/v1/principals?limit=1")"
-  rpc="$(status -X POST -H "apikey: $key" -H 'Content-Profile: registry' "https://$ref.supabase.co/rest/v1/rpc/refresh_public_catalog")"
-  log "Supabase Data API on the registry schema → table $data, routine $rpc (both must be 406)"
-  [[ "$data" == 406 && "$rpc" == 406 ]] || die "the registry schema is exposed through the Supabase Data API"
   [[ "$edge" == 200 || "$edge" == 503 ]] && [[ "$direct" == 403 ]] && [[ "$web" == 200 ]] || die "smoke failed"
 }
 

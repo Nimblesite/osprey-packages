@@ -143,7 +143,7 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
 
 fn catalogListener() = {
     let setup = "INSERT INTO registry.public_catalog VALUES(1,now(),now()+interval '10 minutes','${catalogRow}')"
-    let created = fixtureRun(setup + ";" + issuerGrants() + runtimeGrants() + revokerGrants + fixtureBrowserBinding())
+    let created = fixtureRun(setup + ";" + fixtureBrowserBinding())
     let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let port = 20000 + random() % 15000
     let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, fn(_token, _id, _digest) => HostedLogin::unavailable(), fn() => catalogRequest(port)))
@@ -186,11 +186,7 @@ fn sessionRun(suffix, expectedLines, expected) = {
 let issuerRole = "registry_session_issuer"
 let runtimeRole = "registry_session_runtime"
 let revokerRole = "registry_session_revoker"
-let revokerGrants = "CREATE ROLE ${revokerRole} LOGIN NOSUPERUSER NOBYPASSRLS; GRANT USAGE ON SCHEMA registry TO ${revokerRole}; GRANT SELECT(id,principal_id) ON registry.auth_bindings TO ${revokerRole}; GRANT SELECT(id,credential_epoch) ON registry.principals TO ${revokerRole}; GRANT SELECT(id,cookie_digest,last_used_at,revoked_at), UPDATE(revoked_at,token_envelope) ON registry.browser_sessions TO ${revokerRole};"
-fn fixtureIdentityGrants(role) = "CREATE ROLE ${role} LOGIN NOSUPERUSER NOBYPASSRLS; GRANT USAGE ON SCHEMA registry TO ${role}; GRANT SELECT(id,principal_id,issuer,provider,provider_subject,auth_subject,state) ON registry.auth_bindings TO ${role}; GRANT SELECT(id,kind,state,credential_epoch) ON registry.principals TO ${role};"
-fn issuerGrants() = fixtureIdentityGrants(issuerRole) + "GRANT INSERT(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at), SELECT(id) ON registry.browser_sessions TO ${issuerRole};"
-fn runtimeGrants() = fixtureIdentityGrants(runtimeRole) + "GRANT SELECT(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at,revoked_at,refresh_id,refresh_started_at), UPDATE(last_used_at,token_envelope,refresh_id,refresh_started_at) ON registry.browser_sessions TO ${runtimeRole};"
-fn issuerScope(issuer, cookie) = sessionSql() + issuerGrants() + "SET LOCAL SESSION AUTHORIZATION ${issuerRole}; SET LOCAL registry.session_issuer = '${issuer}'; SET LOCAL registry.session_subject = '${sessionSubject}'; SET LOCAL registry.session_provider = '421'; SET LOCAL registry.session_digest = '${cookie}';"
+fn issuerScope(issuer, cookie) = sessionSql() + "SET LOCAL SESSION AUTHORIZATION ${issuerRole}; SET LOCAL registry.session_issuer = '${issuer}'; SET LOCAL registry.session_subject = '${sessionSubject}'; SET LOCAL registry.session_provider = '421'; SET LOCAL registry.session_digest = '${cookie}';"
 
 let issuerOrigin = "https://supabase.example.test/auth/v1"
 /// A `sha256:` digest of 64 copies of `fill`, the shape every fixture cookie and state digest takes.
@@ -216,7 +212,7 @@ fn issuerClient() = roleClient(issuerRole)
 fn issueWithRole(client, subject, digest, envelope) = runScript(client, BrowserSessions::issueScript(digest, issuerOrigin, subject, "421", envelope))
 
 fn sessionIssuerConnection() = {
-    let setup = issuerGrants() + " SET search_path=registry,pg_catalog; INSERT INTO principals(id,kind,state,credential_epoch,created_at) VALUES (md5('person1')::uuid,'human','active',1,now()); " + sessionSetup
+    let setup = "SET search_path=registry,pg_catalog; INSERT INTO principals(id,kind,state,credential_epoch,created_at) VALUES (md5('person1')::uuid,'human','active',1,now()); " + sessionSetup
     let created = fixtureRun(setup)
     let envelope = "fixture-sealed-opaque-envelope"
     let wrong = issueWithRole(issuerClient(), "11111111-1111-4111-8111-111111111111", issuerDigest(), envelope)
@@ -244,7 +240,6 @@ fn sessionLifetimeChecks() = checkAll("old, suspended, revoked and rotated sessi
         sessionDenied("CREATE ROLE session_outsider NOSUPERUSER NOBYPASSRLS; GRANT USAGE ON SCHEMA registry TO session_outsider; GRANT SELECT,UPDATE ON browser_sessions,auth_bindings,principals TO session_outsider; SET LOCAL ROLE session_outsider;")
 ])
 
-let roleSetup = "CREATE ROLE registry_login_runtime LOGIN NOSUPERUSER NOBYPASSRLS; GRANT USAGE ON SCHEMA registry TO registry_login_runtime; GRANT INSERT(state_digest,browser_digest,verifier_envelope,created_at), SELECT(state_digest,browser_digest,verifier_envelope,created_at), DELETE ON registry.pending_logins TO registry_login_runtime;"
 fn loginClient() = roleClient("registry_login_runtime")
 
 /// `script` piped to psql as `client`, or a failed run carrying the script's own error.
@@ -260,7 +255,6 @@ fn countWithScope(flowState, browser) = Database::loginScript(flowState, browser
 fn claimAs(flowState, browser) = loginRun(LoginFlow::claimScript(flowState, browser))
 
 fn restrictedLoginJourney() = {
-    let initialized = fixtureRun(roleSetup)
     let flowState = digest("a")
     let opener = digest("b")
     let stranger = digest("c")
@@ -272,7 +266,7 @@ fn restrictedLoginJourney() = {
     let consumed = claimAs(flowState, opener)
     let replay = claimAs(flowState, opener)
     checkAll("actual pre-authentication connection consumes only the scoped verifier", [
-            initialized.status == 0, wrote.status == 0,
+            wrote.status == 0,
             succeeded(scoped, "1"),
             succeeded(hidden, "0"),
             succeeded(mismatch, ""),

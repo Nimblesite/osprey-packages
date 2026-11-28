@@ -84,10 +84,6 @@ module BrowserSessions {
                 Success { value: Database::sessionRuntimeScript(scope, approvalStatement(), [id, digest]) })), fn(row) =>
         if row == id { Success { value: row } } else { Error { message: "publication.review-denied" } })
 
-    export fn receipt(cookie, issuer, subject, github, id) = andThen(runtime(identifiedScript(cookie, issuer, subject, github, fn(scope) =>
-        Success { value: Database::sessionRuntimeScript(scope, "SELECT registry.publication_receipt(" + Database::decoded(1) + "::uuid)", [id]) })), fn(body) =>
-        if body == "" { Error { message: "publication.unknown-submission" } } else { Success { value: body } })
-
     fn refreshPredicate() = decodedIdentity(fn(cookie, issuer, subject, github) => claims(cookie)
         + " AND " + binding(issuer, subject, github))
     + " AND 'sha256:' || encode(sha256(convert_to(s.token_envelope,'UTF8')), 'hex')=" + Database::decoded(5)
