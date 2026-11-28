@@ -1,4 +1,4 @@
-// Implements [PACKAGE-HOSTED-EDGE] and [STACK-CF-WORKER]: transport only, no package policy.
+// Implements [PACKAGE-HOSTED-EDGE]: transport only, no package policy.
 // Cloud Run routes by Host, so the Worker fetches the run.app origin (the runtime sets
 // Host to it) and carries the public hostname in X-Edge-Host. Both edge headers are
 // overwritten, never appended, so a client cannot supply or duplicate them; the API

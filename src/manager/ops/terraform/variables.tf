@@ -27,7 +27,7 @@ variable "billing_account" {
 }
 
 variable "monthly_budget_usd" {
-  description = "Budget alert ceiling; email alerts at 50%, 90% and 100% [STACK-COST]."
+  description = "Budget alert ceiling; email alerts at 50%, 90% and 100%."
   type        = number
   default     = 25
 }
@@ -62,7 +62,7 @@ variable "image" {
 }
 
 variable "max_instances" {
-  description = "Cost ceiling, not a performance knob [STACK-RUN-SERVICE]."
+  description = "Cost ceiling, not a performance knob."
   type        = number
   default     = 2
   validation {

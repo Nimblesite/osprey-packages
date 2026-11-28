@@ -1,4 +1,4 @@
-# Implements [PACKAGE-HOSTED-TOPOLOGY], [PACKAGE-HOSTED-EDGE], [STACK-RUN-SERVICE], [STACK-RUN-SA], [STACK-COST].
+# Implements [PACKAGE-HOSTED-TOPOLOGY], [PACKAGE-HOSTED-EDGE].
 resource "google_project_service" "required" {
   for_each           = local.required_services
   service            = each.value
@@ -180,7 +180,7 @@ resource "google_cloud_run_v2_service" "api" {
 }
 
 # Public invocation is intended: the Worker reaches the default run.app URL, and the API
-# 403s every request without the edge secret before routing [STACK-RUN-INGRESS].
+# 403s every request without the edge secret before routing [PACKAGE-HOSTED-EDGE].
 resource "google_cloud_run_v2_service_iam_member" "public" {
   project  = var.project_id
   location = var.region

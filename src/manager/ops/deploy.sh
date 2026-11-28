@@ -54,7 +54,7 @@ secret_put() { # NAME (value on stdin)
 
 owner_password() { gcloud secrets versions access latest --secret="$NAME-db-owner" --project="$GCP_PROJECT_ID"; }
 
-# --- Supabase: project, keys, pooler, Auth [STACK-SUPABASE-PROJ] ------------------------------
+# --- Supabase: project, keys, pooler, Auth [PACKAGE-HOSTED-AUTH] ------------------------------
 supabase_ref() { supabase_api GET /projects | jq -r --arg n "$NAME" '[.[] | select(.name == $n)][0].id // empty'; }
 
 supabase_create() {
@@ -217,7 +217,7 @@ step_database() {
   log "schema migrated and restricted logins converged"
 }
 
-# --- Smoke [STACK-BOOTSTRAP] step 16 ----------------------------------------------------------
+# --- Smoke [PACKAGE-HOSTED-CONFORMANCE] origin row ------------------------------------------------
 status() { curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true; }
 
 step_smoke() {

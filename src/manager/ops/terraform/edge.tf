@@ -1,4 +1,4 @@
-# Implements [PACKAGE-HOSTED-EDGE], [STACK-CF-WORKER], [STACK-CF-WAF].
+# Implements [PACKAGE-HOSTED-TOPOLOGY], [PACKAGE-HOSTED-EDGE].
 # Cloudflare → Worker → Cloud Run run.app URL. No GCP load balancer: the Worker sets
 # Host for Cloud Run and the API's edge-secret gate refuses direct origin hits.
 locals {

@@ -1,4 +1,4 @@
-# Implements [STACK-SECRETS], [PACKAGE-HOSTED-EDGE], [PACKAGE-OWNERSHIP-RLS].
+# Implements [PACKAGE-HOSTED-RELEASE], [PACKAGE-HOSTED-EDGE], [PACKAGE-OWNERSHIP-RLS].
 # Terraform generates every credential it can, so the only operator-held secrets are
 # the Supabase database owner password and the Cloudflare API tokens. State lives in
 # a private, versioned GCS bucket; treat read access to it as secret access.
