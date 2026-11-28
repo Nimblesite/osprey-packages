@@ -87,8 +87,10 @@ Items no agent can complete, because each needs a person or an outside party:
 
 ### Publication security scan `[PLAN-REGISTRY-SECURITY-SCAN]`
 
-- [ ] Exercise pending, accepted, rejected and approved versions through real PostgreSQL roles, including a second version of an already approved package [PACKAGE-SECURITY-SCAN-APPROVAL].
-- [ ] Define the NAP security-scan agent and its strict verdict contract: `accepted` or a non-empty list of failure messages; anything else fails closed [PACKAGE-SECURITY-SCAN-VERDICT].
+- [x] Exercise pending, accepted, rejected and approved versions through real PostgreSQL roles, including a second version of an already approved package [PACKAGE-SECURITY-SCAN-APPROVAL].
+- [x] Implement the NAP session and verdict adapter. The ARC scan worker verifies frozen source bytes, package key and version before submitting them. The API suite covers accepted and rejected replies, incomplete turns, wrong sessions, unavailable agents, modified bytes and version substitution [PACKAGE-SECURITY-SCAN-VERDICT].
+- [x] Persist the immutable job, decision and reviewer identity under forced RLS. The live PostgreSQL suite checks an authorized approval and direct-table denials with deliberately excessive DML grants [PACKAGE-SECURITY-SCAN-APPROVAL].
+- [ ] Provision the tool-free NAP agent and run the worker from hosted signed-intent intake against the private quarantine store [PACKAGE-SECURITY-SCAN].
 - [ ] Run the scan on every upload's frozen canonical source before publication; a rejection publishes nothing and `accepted` still runs every other gate [PACKAGE-SECURITY-SCAN] [PACKAGE-HOSTED-PUBLISH].
 - [ ] Add the append-only `publication_rejections` table to the DataProvider YAML with organization-private RLS, and record each rejection against the publisher with no strike or standing change [PACKAGE-SECURITY-SCAN-REJECTIONS] [PACKAGE-OWNERSHIP-DATABASE].
 - [ ] Show the publisher every failure message on the upload page and CLI, with resubmission guidance.
