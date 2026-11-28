@@ -1,6 +1,6 @@
 # Package Domain Invariants
 
-Normative constraints for the [canonical domain model](0031-PackageDomainModel.md). The canonical typeDiagram describes shapes; these requirements constrain identity, authority, serialization and transitions. Organization-only ownership and the single administrator contract are defined in [spec 0045](0045-OrganizationPackageGovernance.md).
+Normative constraints for the [canonical domain model](PackageDomainModel.md). The canonical typeDiagram describes shapes; these requirements constrain identity, authority, serialization and transitions. Organization-only ownership and the single administrator contract are defined in [Organization Package Governance](OrganizationPackageGovernance.md).
 
 ## Model invariants `[PACKAGE-TYPE-INVARIANTS]`
 
@@ -23,7 +23,7 @@ Normative constraints for the [canonical domain model](0031-PackageDomainModel.m
 - `Utf8Text`, `Json`, and `Png` have exactly the extensions, media types, parsers,
   and limits in `[PACKAGE-PUBLISH]`; byte lengths are non-negative and match the
   digest input. Unknown asset roles/kinds are schema errors. Discovery metadata
-  satisfies the byte, grammar, count, and uniqueness limits in spec 0032.
+  satisfies the byte, grammar, count, and uniqueness limits in the Evidence and Fair Discovery spec.
 - JSON encoding of the model is fixed: a `type` is an object whose members are
   its fields; an alias is its underlying scalar; an `Option<T>` field is omitted
   when absent and is never `null`; a `union` value is an object with exactly one
@@ -152,7 +152,7 @@ Normative constraints for the [canonical domain model](0031-PackageDomainModel.m
 - A status sequence starts at one: `previousStatus` and `reasonDigest` are absent
   only for initial `Eligible`; later `previousStatus` equals
   `H("osprey.release-status.v1", precedingRecord)` and carries the exact reason/
-  advisory digest. Only the transitions in spec 0030 are valid.
+  advisory digest. Only the transitions in the Registry Trust and Discovery spec are valid.
 - A bundle has one typed, fresh release-status record and inclusion proof for
   every selected release, exact unique TUF role paths/versions/expiries, and a
   consistency proof from the client's stored checkpoint. Witness IDs are
@@ -163,4 +163,4 @@ Normative constraints for the [canonical domain model](0031-PackageDomainModel.m
 - Scores are derived views over `Evidence`; a score cannot replace or mutate an
   evidence record, release state, lock, or trust attestation. Scores/confidences
   are integer basis points in 0-10,000; only `debtRatio` may be negative, in
-  -10,000..10,000. All arithmetic and display follow spec 0032 exactly.
+  -10,000..10,000. All arithmetic and display follow the Evidence and Fair Discovery spec exactly.

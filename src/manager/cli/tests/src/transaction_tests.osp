@@ -6,7 +6,7 @@ import registry_cli::ManifestEdit
 /// each rewrites the manifest and relocks as one transaction, the written
 /// manifest and lock bytes are exact, every refusal is its named code and
 /// writes nothing, and a failed resolution leaves the manifest untouched.
-/// Implements the Phase 4 command rows of [PACKAGE-API] over the folder
+/// Implements the [PLAN-ENGINE-COMMANDS] command rows of [PACKAGE-API] over the folder
 /// lock of [PACKAGE-FOLDER-REGISTRY].
 module TransactionTests {
     let project = "/abs"

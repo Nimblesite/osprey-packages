@@ -2,7 +2,7 @@
 
 Stack: Cloudflare → Cloud Run → Supabase (`[PACKAGE-HOSTED-TOPOLOGY]`). Everything else is scripted: `make deploy ENV=staging`.
 
-## 0. Pick the domain (one decision)
+## Pick the domain (one decision)
 
 The zone must be on Cloudflare: the Worker, the rate limit and Pages all live there. Every hostname comes from `DOMAIN` in `deploy.env`. Pick a name you will keep, because installed packages and lockfiles point at the API URL.
 
@@ -23,7 +23,7 @@ Only the DNS moves. The domain stays registered and paid at GoDaddy.
 4. Wait for Cloudflare's "zone active" email, usually within an hour and at most 24 hours. The docs site stays up throughout because the records are identical.
 5. Rollback: put GoDaddy's nameservers back.
 
-## 1. Accounts (one time)
+## Accounts (one time)
 
 | # | Do this | Put in `src/manager/ops/deploy.env` |
 | --- | --- | --- |
@@ -44,7 +44,7 @@ Option B only: the free plan allows one rate-limit rule per zone, and NAP's `nap
 
 Staging never touches the rule. The zone-wide minimum TLS 1.2 is harmless for NAP.
 
-## 2. Pull the trigger
+## Pull the trigger
 
 1. Merge branch `deslop-cleanup` (PR #1) to `main`. The deploy workflow must exist on `main`.
 2. `make deploy ENV=staging` takes about 30 minutes and is safe to re-run. It creates the Supabase project, the infrastructure and the first CI image, then migrates, releases and smoke-tests.

@@ -8,7 +8,7 @@ import registry::Names
 /// `add @scope/name` chooses the key's newest epoch (or the lineage `--epoch N`
 /// names) and the newest ordinal in it as the floor, writes the dependency
 /// line under `[dependencies]`, and relocks; exact digests go only
-/// to the lock ([PACKAGE-API], plan 0020 Phase 4). `add <path>` takes the key
+/// to the lock ([PACKAGE-API], [PLAN-ENGINE-COMMANDS]). `add <path>` takes the key
 /// from the checkout's `[package]`, writes the dependency with the published
 /// baseline's ordinal as the floor (zero and epoch 1 when nothing is
 /// published, so the dependency is development-only), relocks the release

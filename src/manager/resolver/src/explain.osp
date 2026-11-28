@@ -6,7 +6,7 @@ namespace registry;
 /// names its packages, so an input permutation never changes the answer. The
 /// resolver and the test oracle both call `of`, which is why a refutation is
 /// explained in exactly one place. The clause origins of `Clauses` are not
-/// read yet (plan 0020 Phase 3, open).
+/// read yet ([PLAN-ENGINE-RESOLVER], open).
 module Explain {
     let missing = "resolution.missing-package"
     let epochConflict = "resolution.epoch-conflict"

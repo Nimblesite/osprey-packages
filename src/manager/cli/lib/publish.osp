@@ -18,7 +18,7 @@ import registry::ReleasePath
 /// newest in the current epoch plus one; `--breaking` opens the next epoch;
 /// the first release is `1.1`. The server reads a folder at startup, so the
 /// new release is served after `registry-serve` restarts. The authenticated
-/// `publish` of the trust plane (spec 0030) replaces this in Milestone B.
+/// `publish` of the trust plane (the Registry Trust and Discovery spec) replaces this in [PLAN-REGISTRY].
 module Publish {
     let usageCode = "publish.usage"
     let noPackageCode = "publish.no-package"

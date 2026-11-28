@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://nimblesite.github.io/osprey-packages/"><b>Browse packages</b></a> ·
-  <a href="docs/specs/ecosystem/0029-PackageManagement.md">Spec</a> ·
-  <a href="docs/plans/0020-package-manager.md">Plan</a> ·
+  <a href="docs/specs/ecosystem/PackageManagement.md">Spec</a> ·
+  <a href="docs/plans/package-manager.md">Plan</a> ·
   <a href="https://www.ospreylang.dev/docs/package-manager/">Guide</a> ·
   <a href="https://github.com/Nimblesite/osprey">Osprey language</a>
 </p>
@@ -71,7 +71,7 @@ CI runs three phases, once each. Phase 1 builds the client and the hosted fixtur
 
 ## Specs
 
-[Package management](docs/specs/ecosystem/0029-PackageManagement.md) · [registry trust and discovery](docs/specs/ecosystem/0030-PackageRegistryTrustAndDiscovery.md) · [domain model](docs/specs/ecosystem/0031-PackageDomainModel.md) and [invariants](docs/specs/ecosystem/0031-PackageDomainInvariants.md) · [evidence and discovery](docs/specs/ecosystem/0032-PackageEvidenceAndDiscovery.md) · [deployment and ownership](docs/specs/ecosystem/0044-PackageRegistryDeploymentAndOwnership.md) · [organization governance](docs/specs/ecosystem/0045-OrganizationPackageGovernance.md) · [research basis](docs/specs/ecosystem/PackageResearchBasis.md)
+[Package management](docs/specs/ecosystem/PackageManagement.md) · [registry trust and discovery](docs/specs/ecosystem/PackageRegistryTrustAndDiscovery.md) · [domain model](docs/specs/ecosystem/PackageDomainModel.md) and [invariants](docs/specs/ecosystem/PackageDomainInvariants.md) · [evidence and discovery](docs/specs/ecosystem/PackageEvidenceAndDiscovery.md) · [deployment and ownership](docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) · [organization governance](docs/specs/ecosystem/OrganizationPackageGovernance.md) · [research basis](docs/specs/ecosystem/PackageResearchBasis.md)
 
 ## Relationship to Osprey
 

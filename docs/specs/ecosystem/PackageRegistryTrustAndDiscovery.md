@@ -4,17 +4,17 @@
 > Every executable part of the package system is Osprey, with no exceptions
 > (`[PACKAGE-IMPLEMENTATION-LANGUAGE]`). The first deliverable is the
 > database-free folder registry of `[PACKAGE-FOLDER-REGISTRY]` in
-> [spec 0029](0029-PackageManagement.md); everything in this document layers
+> [Package Management](PackageManagement.md); everything in this document layers
 > onto that running service.
 
 **Status:** normative target. This specification is the src/osprey/packages/manager/security half
-of [Osprey Package Registry and Manager](0029-PackageManagement.md). Its
+of [Osprey Package Registry and Manager](PackageManagement.md). Its
 requirements are mandatory for the public registry. The full academic and
 standards basis is [annotated here](PackageResearchBasis.md).
 
-The [deployment and ownership contract](0044-PackageRegistryDeploymentAndOwnership.md) adds mandatory Cloudflare ingress, Supabase GitHub authentication, organization-only package RLS, single-admin permission grants, authority revocation and rollout gates. It does not replace the signed source-derived publication and independent trust requirements here.
+The [deployment and ownership contract](PackageRegistryDeploymentAndOwnership.md) adds mandatory Cloudflare ingress, Supabase GitHub authentication, organization-only package RLS, single-admin permission grants, authority revocation and rollout gates. It does not replace the signed source-derived publication and independent trust requirements here.
 
-Every executable component covered here MUST be implemented in Osprey under [the implementation-language contract](0029-PackageManagement.md#implementation-language-package-implementation-language). This includes cryptography and verification, TUF and transparency clients, filesystem/CAS transactions, sandbox orchestration, authentication, HSM/forge adapters, publication services, evidence processing, and operational and conformance tooling. Host work has no exception permitting another implementation language. Existing platform APIs and external services are dependencies accessed by Osprey code; they do not authorize a package-specific native host or shim.
+Every executable component covered here MUST be implemented in Osprey under [the implementation-language contract](PackageManagement.md#implementation-language-package-implementation-language). This includes cryptography and verification, TUF and transparency clients, filesystem/CAS transactions, sandbox orchestration, authentication, HSM/forge adapters, publication services, evidence processing, and operational and conformance tooling. Host work has no exception permitting another implementation language. Existing platform APIs and external services are dependencies accessed by Osprey code; they do not authorize a package-specific native host or shim.
 
 The registry accepts open participation without accepting unverifiable bytes.
 It assembles immutable releases from source, records each decision as evidence,
@@ -289,7 +289,7 @@ digests, and current policy produce `Current`; offline success produces
 `ReproducibleAsOf(catalogAsOf, checkpoint)`. Missing evidence is `Incomplete`, a
 bad proof/digest is `Invalid`, and monotonic local knowledge of revocation is
 `Revoked`. Offline verification never rolls back that local trust state.
-The typed bundle in spec 0031 contains exact TUF role states, release-status
+The typed bundle in the Package Domain Model spec contains exact TUF role states, release-status
 records, inclusion and consistency proofs, checkpoint and witness receipts for
 the selected graph. Local observation time is reported by `Current.verifiedAt`
 but is excluded from the canonical bundle and every deterministic lock digest.
@@ -484,7 +484,7 @@ applied automatically.
 The exact integer arithmetic, raw observations, normalizers, weights, sample
 sufficiency, expiry, missing-data behavior, confidence shrinkage, and display
 rules are normative in
-[Package Evidence and Fair Discovery](0032-PackageEvidenceAndDiscovery.md).
+[Package Evidence and Fair Discovery](PackageEvidenceAndDiscovery.md).
 Every page exposes the five-component vector, confidence vector, evidence and
 methodology digest. Missing history is `Unknown` and shrinks toward 70.00; an
 observed absent practice is zero. Maintenance never overrides a security gate.
@@ -494,7 +494,7 @@ Popularity/activity totals and raw vulnerability count have zero weight.
 
 The eligibility filter and exact intent, security, compatibility, maintenance,
 merit, exposure, privacy, tie, exploration, publisher-cap and fallback rules are
-normative in spec 0032. The fixed merit weights are:
+normative in the Evidence and Fair Discovery spec. The fixed merit weights are:
 
 ```text
 Merit = 0.55 * IntentMatch

@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-TRUST]",
-  "description": "Compromised-mirror vectors for spec 0030: a compromised mirror, API, CDN or Supabase row cannot make a conforming client activate content whose trusted metadata, digest or log proof fails, though it can withhold updates, deny service or replay still-valid signed state. Each scenario runs through the same pure TufCheck decisions.",
+  "description": "Compromised-mirror vectors for the Registry Trust and Discovery spec: a compromised mirror, API, CDN or Supabase row cannot make a conforming client activate content whose trusted metadata, digest or log proof fails, though it can withhold updates, deny service or replay still-valid signed state. Each scenario runs through the same pure TufCheck decisions.",
   "cases": [
     {
       "description": "mirror substitutes the release blob with its own bytes",

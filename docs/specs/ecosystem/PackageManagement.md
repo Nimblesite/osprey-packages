@@ -16,7 +16,7 @@
 > data plane. It is not needed to build, run, or use a registry, and it never
 > replaces the folder registry.
 
-**Status:** normative target; implementation is in progress under [`src/osprey/packages/manager/`](https://nimblesite.github.io/osprey-packages/), whose README states what runs. Delivery is fixed by [plan 0020](../../plans/0020-package-manager.md); evidence is in [Package-manager research](PackageResearchBasis.md).
+**Status:** normative target; implementation is in progress under [`src/osprey/packages/manager/`](https://nimblesite.github.io/osprey-packages/), whose README states what runs. Delivery is fixed by [the package-manager plan](../../plans/package-manager.md); evidence is in [Package-manager research](PackageResearchBasis.md).
 
 This specification defines a source-derived, content-addressed package system.
 It deliberately rejects uploaded archives, publisher binaries, lifecycle hooks,
@@ -86,7 +86,7 @@ after the log plus two of four witnesses and cross-log are compromised, source
 authorization after its publication principal is compromised, or reproduction
 when both builders collude. A malicious publisher can author malicious logic
 that analysis misses: Osprey guarantees attribution, bounded execution and
-auditable evidence, not semantic benignness. Exact ceremonies are in spec 0030.
+auditable evidence, not semantic benignness. Exact ceremonies are in the Registry Trust and Discovery spec.
 
 The following invariants hold even under those assumptions:
 
@@ -160,9 +160,9 @@ Confinement requires every published package's file, process, network and termin
 - `fetch` and `build` recompute the surface of every installed tree and fail
   with `capability.surface` when it differs from the lock. The folder registry
   applies these surface checks to every candidate's verified source; native
-  extern coverage remains the delivery gap above. Milestone B adds the signed surface to catalog metadata so
+  extern coverage remains the delivery gap above. [PLAN-REGISTRY] adds the signed surface to catalog metadata so
   an excluded candidate is never fetched.
-- Plan 0020 records a compiler request so the type level repeats the proof:
+- The package-manager plan records a compiler request so the type level repeats the proof:
   refuse an ambient builtin in a dependency source root unless the root grants
   its capability. Until then the scan is the gate and the lock is the evidence.
 
@@ -171,7 +171,7 @@ Confinement requires every published package's file, process, network and termin
 The invariants above hold by construction; the rules here are the concrete
 gates a penetration test of a conforming client or folder registry meets, each
 with a stable code and a test that asserts the code by name. They apply from
-Milestone 0 and need no trust plane. They follow the current public guidance
+[PLAN-STANDUP] and need no trust plane. They follow the current public guidance
 for registries and clients: the OpenSSF/CISA Principles for Package Repository
 Security (General Capabilities and CLI Tooling levels), SLSA source and build
 tracks, PEP 740 index attestations and PEP 751 lock attestation identities,
@@ -318,7 +318,7 @@ Each row is asserted by name in a registry test.
 | Registry now serves a different digest for a locked `e1.r2` | `lock.release-replaced`, nothing written | `lock_tests` |
 | Registry drops a locked release from its listing | `lock.release-vanished` unless `--accept-removals` | `lock_tests` |
 | Problem title or package key containing `\x1b[2J` | printed as `?[2J` | `reports_tests` |
-| Interop `pyproject.toml` with a `git` source or an extra index | `python.source-forbidden`, `python.index-forbidden` | `python_tests` (with the uv plane, plan 0020 Phase 2) |
+| Interop `pyproject.toml` with a `git` source or an extra index | `python.source-forbidden`, `python.index-forbidden` | `python_tests` (with the uv plane, [PLAN-ENGINE-LOCK]) |
 
 ## Architecture `[PACKAGE-ARCHITECTURE]`
 
@@ -387,11 +387,11 @@ A Rust host, Rust CLI bridge, native shim, shell launcher, or implementation in 
 
 The existing compiler and runtime are build and execution infrastructure, not locations for package-system implementation. The Osprey frontend MUST invoke the existing compiler through Osprey process effects; this work MUST NOT add package-specific code to the compiler or runtime in another language. Existing operating-system interfaces, installed libraries, and external services remain platform dependencies. Their use does not authorize new non-Osprey adapters, wrappers, or package logic. Osprey bindings and effect handlers own every package interaction with those dependencies.
 
-Database provisioning explicitly uses the external DataProviderMigrate deployment tool and the checked-in declarative migration YAML required by spec 0045. This is the sole schema executor, not an alternative package-service implementation; do not add handwritten SQL migrations, C# runtime code, alternate ORM models or a custom migration runner. Authorization, proof verification and package state machines remain Osprey.
+Database provisioning explicitly uses the external DataProviderMigrate deployment tool and the checked-in declarative migration YAML required by the Organization Package Governance spec. This is the sole schema executor, not an alternative package-service implementation; do not add handwritten SQL migrations, C# runtime code, alternate ORM models or a custom migration runner. Authorization, proof verification and package state machines remain Osprey.
 
 The canonical typeDiagram model, TOML manifests, JSON fixtures, declarative database schemas/RLS policies, uv lock files, styles, and deployment configuration are data, not alternative implementation languages. They MUST NOT contain executable package behavior. Generated machine code, WebAssembly, and compiler-generated interop are build artifacts, not handwritten source exceptions.
 
-If Osprey cannot express or safely perform a required operation, implementation MUST record the missing capability and an Osprey regression case as a delivery blocker. It MUST NOT substitute another language, invent an unverified security primitive, weaken the contract, or report the blocked feature as complete. Cryptography and host operations retain every audit, conformance, and platform requirement in specs 0029–0032.
+If Osprey cannot express or safely perform a required operation, implementation MUST record the missing capability and an Osprey regression case as a delivery blocker. It MUST NOT substitute another language, invent an unverified security primitive, weaken the contract, or report the blocked feature as complete. Cryptography and host operations retain every audit, conformance, and platform requirement in the package specs.
 
 Conformance MUST verify this language requirement over the complete package-system source and build graph. An implementation that moves any package component, test, oracle, host handler, or operational tool into another language is non-conforming.
 
@@ -447,7 +447,7 @@ release of that folder: the release tree is the manifest, every file under its
 `source_roots`, its `python_sources` and `typescript_sources`, its declared assets and its legal documents, checked and
 digested exactly as the server will before a byte is written, at the next
 ordinal of the newest epoch, at the next epoch with `--breaking`, or at `1.1`
-for a new package. The authenticated `publish` of spec 0030 replaces this once
+for a new package. The authenticated `publish` of the Registry Trust and Discovery spec replaces this once
 the trust plane exists.
 
 **`[PACKAGE-LICENSE-DISTRIBUTION]`** Root `LICENSE`, `COPYING`, `NOTICE`, `NOTICES`, `AUTHORS` and `THIRD_PARTY_NOTICES` files, including `.txt` and `.md` forms, and the complete `LICENSES/` directory are included automatically, case-insensitively, without asset declarations. They participate in `SourceDigest` and remain in the source bundle and installed tree. When copied source, adapted implementation or licensed data is incorporated, its applicable ownership, conditions and modification notices are retained. Reimplementing an API or using an oracle does not by itself impose the reference package's license. Applications redistributing compiled derivatives must supply the applicable documents with their distribution.
@@ -498,7 +498,7 @@ to the Osprey frontend and adds no package logic to the compiler.
 ### Folder lock
 
 Until the trust plane exists there is no TUF snapshot, provenance, or SBOM to
-pin, so a folder registry cannot produce the `ReleaseLockfile` of spec 0031. Its
+pin, so a folder registry cannot produce the `ReleaseLockfile` of the Package Domain Model spec. Its
 client writes `osprey.lock` in folder-lock format `0` instead, as RFC 8785
 canonical JSON:
 
@@ -538,7 +538,7 @@ canonical JSON:
   with every installed tree's own `source_roots`, `python_sources` and `typescript_sources` as
   extra inputs. A target-less `fetch` without a lock is `install.no-lock`.
 - Format `0` locks are integrity-only. A client that has the trust plane
-  rejects them for `build --release`; Milestone B replaces them with the
+  rejects them for `build --release`; [PLAN-REGISTRY] replaces them with the
   `ReleaseLockfile`.
 
 ### Trust
@@ -546,7 +546,7 @@ canonical JSON:
 A folder registry proves integrity, not authority: the digest shows that the
 bytes match what was requested, not who published them. The TUF metadata,
 transparency log, and provenance of `[PACKAGE-REGISTRY]` layer onto these same
-endpoints in Milestone B without changing the layout, the bundle, or the paths.
+endpoints in [PLAN-REGISTRY] without changing the layout, the bundle, or the paths.
 
 ### Local registry `[PACKAGE-LOCAL-REGISTRY]`
 
@@ -580,9 +580,9 @@ letters, digits, and interior hyphens; a scope is 1-39 characters and a name is
 1-63. Unicode display names are allowed but never resolve. Unscoped names are
 invalid, and only the project governance role can publish under `@osprey`.
 
-Preventing name sitting is a primary requirement: a package leaf name is never globally claimable. Reserving/publishing/tombstoning `@org-a/helper-functions` cannot prevent `@org-b/helper-functions`; all availability and uniqueness decisions include the organization. The website must never describe a leaf name as globally taken. See `[PACKAGE-NAMES-NO-SITTING]` in [spec 0045](0045-OrganizationPackageGovernance.md).
+Preventing name sitting is a primary requirement: a package leaf name is never globally claimable. Reserving/publishing/tombstoning `@org-a/helper-functions` cannot prevent `@org-b/helper-functions`; all availability and uniqueness decisions include the organization. The website must never describe a leaf name as globally taken. See `[PACKAGE-NAMES-NO-SITTING]` in [Organization Package Governance](OrganizationPackageGovernance.md).
 
-Every scope represents a registry organization with a stable organization ID and accepted memberships, never a personal account. Every package belongs to that organization and has exactly one active-member administrator; only that administrator grants explicit package permissions, including publication, to any number of accepted members. Organization governance roles do not implicitly publish or administer packages. The detailed binding contract is [organization package governance](0045-OrganizationPackageGovernance.md). Identical leaf names may exist in different organizations; there is no global leaf-name reservation or fallback.
+Every scope represents a registry organization with a stable organization ID and accepted memberships, never a personal account. Every package belongs to that organization and has exactly one active-member administrator; only that administrator grants explicit package permissions, including publication, to any number of accepted members. Organization governance roles do not implicitly publish or administer packages. The detailed binding contract is [organization package governance](OrganizationPackageGovernance.md). Identical leaf names may exist in different organizations; there is no global leaf-name reservation or fallback.
 
 The registry warns on skeleton/confusable similarity and quarantines evidence of impersonation, but similarity alone cannot suppress a legitimate package. Package names and organization handles are permanent tombstones after deletion.
 
@@ -616,7 +616,7 @@ release in a new epoch.
 `SourceDigest` hashes a domain-separated canonical tree containing sorted path,
 file-mode class, byte length, and SHA-256 of each raw file. Its exact byte
 grammar and selected-root rules are fixed by `[PACKAGE-SOURCE-CANONICAL]` in
-spec 0030. Symlinks, submodules, LFS pointers, devices, executable bits, path
+the Registry Trust and Discovery spec. Symlinks, submodules, LFS pointers, devices, executable bits, path
 traversal, case collisions, and non-portable names are rejected.
 `ReleaseDigest` covers the package key, epoch, source digest, manifest digest,
 and deterministic build-plan digest. Hash envelopes carry an algorithm ID so a
@@ -631,8 +631,8 @@ and can only append evidence; it never allocates another ordinal.
 
 Source collection, payload policy, the publish sequence, TUF and transparency,
 AI review, maintenance evidence, and fair discovery are normative in specs
-[0030](0030-PackageRegistryTrustAndDiscovery.md) and
-[0032](0032-PackageEvidenceAndDiscovery.md). Both are part of this contract,
+[Registry Trust and Discovery](PackageRegistryTrustAndDiscovery.md) and
+[Evidence and Fair Discovery](PackageEvidenceAndDiscovery.md). Both are part of this contract,
 not optional service profiles.
 
 ## Manifests, system capabilities, and locks `[PACKAGE-MANIFEST]`
@@ -648,7 +648,7 @@ ambient capabilities the root grants that one key under
 `[PACKAGE-CAPABILITY-CONFINEMENT]`; each name follows the capability grammar
 (`manifest.dependency.capability` otherwise), the grants of one key across the
 three tables merge into one canonical set, and the canonical manifest carries
-them as `grants` (spec 0031 `DependencyGrant`).
+them as `grants` (the Package Domain Model spec `DependencyGrant`).
 
 ```toml
 [project]
@@ -667,7 +667,7 @@ min_revision = 3045000
 ```
 
 `[project].python_sources` names the project's Osprey Python-flavor files
-(spec 0041: extension `.py`, first line `# osprey: flavor=python`) as
+(the Osprey Python-flavor spec: extension `.py`, first line `# osprey: flavor=python`) as
 root-confined relative paths; the list is part of the canonical manifest and
 so of its digest. A published manifest keeps every listed path inside one of
 its `source_roots` (`manifest.python-source-unrooted`), so the capability scan
@@ -678,7 +678,7 @@ file is Osprey source the Osprey compiler reads; nothing in a release is ever
 run by CPython.
 
 `[project].typescript_sources` names the project's TypeScript-flavor files
-(spec 0054: extension `.ts`, never `.d.ts`) the same way. The canonical
+(the Osprey TypeScript-flavor spec: extension `.ts`, never `.d.ts`) the same way. The canonical
 manifest carries them as `typescriptSources` only when the list is non-empty,
 so a manifest without them keeps its digest. A published manifest keeps every
 listed path inside one of its `source_roots`
@@ -706,7 +706,7 @@ lock, and the hermetic build exposes no undeclared environment input.
 
 Before RFC 8785 serialization, scalars, UTC timestamps, every set-like list's
 sort/duplicate identity, and each protocol-ordered exception follow
-`[PACKAGE-TYPE-INVARIANTS]` in spec 0031. Locks store a structured resolution
+`[PACKAGE-TYPE-INVARIANTS]` in the Package Domain Model spec. Locks store a structured resolution
 proof with stable reason codes; prose and localization remain outside lock data.
 
 Build and run commands never resolve or access the network. They fail when the
@@ -743,10 +743,10 @@ Verification: `target/release/osprey src/osprey/packages/manager/editor/tests --
 ## Python interop dependencies through uv `[PACKAGE-PYTHON-UV]`
 
 The Osprey resolver selects Osprey releases and nothing else. A package whose
-Osprey code calls real Python through spec 0042 needs CPython and Python
+Osprey code calls real Python through the Osprey Python-interop spec needs CPython and Python
 distributions, and that plane has its own resolver and lock: uv. Osprey drives
 uv instead of modelling Python packages a second time. The Python flavor of
-spec 0041 needs none of this; it is Osprey source and has no Python dependency.
+the Osprey Python-flavor spec needs none of this; it is Osprey source and has no Python dependency.
 
 - A package that uses Python interop declares `[system.python]` with
   `capability = "python/interop"` and `min_revision` as the minimum CPython
@@ -779,7 +779,7 @@ spec 0041 needs none of this; it is Osprey source and has no Python dependency.
 - Temporary input copies reject symlinks and other special files. Each relative member path must resolve to its copied directory inside staging; an invalid path fails before any build backend runs. Normal root and sibling checkout paths retain their declared spelling and lock pins. Success, failure and handled termination remove the temporary copies and uv temporary files. The host uses `tar` and either `sha256sum` or `shasum` to copy and verify these inputs; a missing or failing utility fails the operation.
 - A graph with no member leaves `root.python` out of the lock, writes no
   project and never runs uv; `doctor` reports a missing uv as guidance.
-- A release lock of Milestone B pins the same two digests; a hermetic build
+- A release lock of [PLAN-REGISTRY] pins the same two digests; a hermetic build
   consumes the synced environment and the per-distribution hashes in `uv.lock`
   as declared inputs.
 
@@ -943,7 +943,7 @@ determinism.
 
 The normative typeDiagram model, including published releases, local overlays,
 selected roots, exact locks, and assessments, is
-[Package Domain Model](0031-PackageDomainModel.md). Generated Osprey types MUST
+[Package Domain Model](PackageDomainModel.md). Generated Osprey types MUST
 come from that model rather than a handwritten duplicate.
 
 ## REST API and command surface `[PACKAGE-API]`

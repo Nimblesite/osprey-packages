@@ -8,12 +8,12 @@ Declarative inputs for the suites in `src/manager/tests/src`. Every file is data
 | `release-ids.json` | `[PACKAGE-IDENTITY]` display forms, including malformed digests, epochs and ordinals. |
 | `paths.json` | `[PACKAGE-SOURCE-CANONICAL]` path grammar, case-fold collisions, excluded control paths, forbidden entry kinds, the LFS pointer shape and submission bounds. |
 | `source/*.json` | Whole trees with each file's SHA-256, the exact envelope bytes and `SourceDigest`; `minimal-tree.json` and `python-tree.json` also carry a digest-substitution variant, the latter over a tree whose `pyproject.toml` and `uv.lock` are ordinary entries (`[PACKAGE-PYTHON-UV]`). |
-| `manifests/ledger/` | The spec 0029 example manifest, its RFC 8785 canonical JSON and `H("osprey.manifest.v1", …)`. |
+| `manifests/ledger/` | The Package Management spec example manifest, its RFC 8785 canonical JSON and `H("osprey.manifest.v1", …)`. |
 | `digests.json` | `H(d, x)` over small payloads. |
-| `canonical/` | One value per serialized model type with its RFC 8785 bytes and, where spec 0031 names a domain, `H(d, x)`; `relations.json` binds them: the acyclic selection → build plan → lock staging, every self-omitting digest (`proofDigest`, `generationDigest`, `journalDigest`) and every envelope digest. `index.json` lists the folder. |
+| `canonical/` | One value per serialized model type with its RFC 8785 bytes and, where the Package Domain Model spec names a domain, `H(d, x)`; `relations.json` binds them: the acyclic selection → build plan → lock staging, every self-omitting digest (`proofDigest`, `generationDigest`, `journalDigest`) and every envelope digest. `index.json` lists the folder. |
 | `schema/` | `[PACKAGE-TYPE-INVARIANTS]` JSON encoding: values every type accepts, and rejections with their code and JSON pointer. |
 | `time/datetimes.json` | Exact UTC millisecond timestamps, valid and invalid. |
-| `order/lists.json` | Every list order and duplicate rule of spec 0031, as sorted / swapped / same-key triples. |
+| `order/lists.json` | Every list order and duplicate rule of the Package Domain Model spec, as sorted / swapped / same-key triples. |
 | `malicious/` | Unicode confusables in names and paths; PNG structure and decompression-bomb vectors. |
 | `graphs/` | Bounded dependency graphs with the one expected lock or explanation, checked by an exhaustive oracle. |
 | `vectors/` | Primary-specification vectors: FIPS 180-4 SHA-256, digest agility, RFC 8785, DSSE PAE and WebAuthn bytes, RFC 9162 Merkle proofs, TUF 1.0 client workflow and compromised mirrors. |

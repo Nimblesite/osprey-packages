@@ -1,20 +1,20 @@
-# Plan 0020 — Package Registry and Manager
+# Package Registry and Manager
 
 Goal: deliver the registry this plan's contracts fix: a local engine with canonical digests, locks and a complete resolver; a verifiable public registry with TUF trust, hosted ownership behind the same Osprey API, hermetic publication and fair discovery; and a hardened general-availability launch. The folder registry, verified fetch/install, deterministic resolver, locks, overlays and folder publish already run (`make _registry-test`, CI jobs `test-registry-gc` and `test-registry-arc`).
 
-Contract: [0029 Package Management](../specs/ecosystem/0029-PackageManagement.md), [0030 Trust and Discovery](../specs/ecosystem/0030-PackageRegistryTrustAndDiscovery.md), [0031 Domain Model](../specs/ecosystem/0031-PackageDomainModel.md), [0031 Domain Invariants](../specs/ecosystem/0031-PackageDomainInvariants.md), [0032 Evidence and Fair Discovery](../specs/ecosystem/0032-PackageEvidenceAndDiscovery.md), [0043 Python-Flavor Ports](https://github.com/Nimblesite/osprey/blob/main/docs/specs/ecosystem/0043-PythonFlavorPorts.md), [0044 Deployment and Ownership](../specs/ecosystem/0044-PackageRegistryDeploymentAndOwnership.md), [0045 Organization Governance](../specs/ecosystem/0045-OrganizationPackageGovernance.md)
+Contract: [Package Management](../specs/ecosystem/PackageManagement.md), [Trust and Discovery](../specs/ecosystem/PackageRegistryTrustAndDiscovery.md), [Domain Model](../specs/ecosystem/PackageDomainModel.md), [Domain Invariants](../specs/ecosystem/PackageDomainInvariants.md), [Evidence and Fair Discovery](../specs/ecosystem/PackageEvidenceAndDiscovery.md), [Python-Flavor Ports](https://github.com/Nimblesite/osprey/blob/main/docs/specs/ecosystem/0043-PythonFlavorPorts.md), [Deployment and Ownership](../specs/ecosystem/PackageRegistryDeploymentAndOwnership.md), [Organization Governance](../specs/ecosystem/OrganizationPackageGovernance.md)
 
-## Milestone 0 — Stand it up anywhere
+## Stand it up anywhere `[PLAN-STANDUP]`
 
 - [ ] (verify) The folder registry serves a second machine at its LAN address: `GET /v1/health` and `GET /v1/packages/@demo/maths` answer from another host on the same network (last seen 2026-11-27 from a Linux aarch64 VM) [PACKAGE-FOLDER-REGISTRY].
 
-## Milestone A — Local package engine
+## Local package engine `[PLAN-ENGINE]`
 
-### Phase 1 — Canonical build plan and release artifacts
+### Canonical build plan and release artifacts `[PLAN-ENGINE-BUILD]`
 
 - [ ] Generate the canonical deterministic `BuildPlan` (project graph, toolchain, target, dependencies, inferred type/effect/capability surface) and `ReleaseDigest` with the `H(d,x)` domains `osprey.build-plan.v1` and `osprey.release.v1`; the derived compiler manifest in `cli/lib/build.osp` does not close this. Check: cross-platform golden vectors prove identical `SourceDigest` and lock bytes on Linux, macOS and Windows [PACKAGE-SOURCE-CANONICAL] [PACKAGE-TYPE-INVARIANTS] [PACKAGE-CONFORMANCE].
 
-### Phase 2 — Release lock, provider catalog, CAS and atomic activation
+### Release lock, provider catalog, CAS and atomic activation `[PLAN-ENGINE-LOCK]`
 
 - [ ] Implement the RFC 8785 `osprey.lock` as the `ReleaseLockfile`/`DevelopmentLockfile`: bind manifest, selected-root source, the typed TUF/status/log verification bundle, catalog snapshot and `asOf`, policy, the complete runtime/toolchain/SDK/sysroot, target/CPU/flags, sandbox, normalized environment/time/randomness, system artifacts, provenance and the complete transitive graph [PACKAGE-TYPES]; canonically sort and deduplicate every set-like array, encode UTC millisecond times, non-negative integers and digests once, retain Merkle proof order and store structured reason-code proofs (list order and duplicates are done in `manager/core/src/set_order.osp`; times, digests and reason codes are unverified) [PACKAGE-TYPE-INVARIANTS].
 - [ ] Resolve each system capability through the threshold-signed provider catalog: one catalog entry per capability and one digest per provider identity across the graph; publishers never choose host packages [PACKAGE-MANIFEST].
@@ -24,51 +24,51 @@ Contract: [0029 Package Management](../specs/ecosystem/0029-PackageManagement.md
 - [ ] Require unexpired TUF state for resolve, fetch and activate; allow a cached verified graph to rebuild after expiry only with an explicit stale-freshness report; confine known revoked bytes to a capability-denied `--audit-revoked` reproduction [PACKAGE-TRUST].
 - [ ] Close the type-level confinement gap: refuse an ambient builtin in a dependency source root unless the root grants its capability; until then the scan is the gate and the lock is the evidence [PACKAGE-CAPABILITY-CONFINEMENT].
 
-### Phase 3 — Resolver completion
+### Resolver completion `[PLAN-ENGINE-RESOLVER]`
 
-- [ ] Evaluate every time-dependent objective at the signed catalog `asOf`, not the host clock, and include it in the deterministic inputs (`Objective::overdueDays` already takes milliseconds; `asOf` arrives with the Milestone B signed catalog). Check: on a representative 100,000-release catalog after metadata load, the CI reference machine keeps ordinary add/update p95 below 2 s and adversarial unsat below 10 s without weakening completeness or determinism [PACKAGE-RESOLUTION].
+- [ ] Evaluate every time-dependent objective at the signed catalog `asOf`, not the host clock, and include it in the deterministic inputs (`Objective::overdueDays` already takes milliseconds; `asOf` arrives with the [PLAN-REGISTRY] signed catalog). Check: on a representative 100,000-release catalog after metadata load, the CI reference machine keeps ordinary add/update p95 below 2 s and adversarial unsat below 10 s without weakening completeness or determinism [PACKAGE-RESOLUTION].
 
-### Phase 4 — Command surface completion
+### Command surface completion `[PLAN-ENGINE-COMMANDS]`
 
 - [ ] Implement `login`, `audit`, `yank` and the authenticated `publish`; `Dispatch` in `cli/lib/dispatch.osp` answers not-implemented for the first three today [PACKAGE-API].
 - [ ] Make `add`, `remove`, `lock` and `update` show dependency, epoch, capability and vulnerability deltas before one atomic manifest/lock update whose per-key baselines are rebased, the overlay graph validated and release/`publishedBaseLock` written only for a complete registry solution, and snapshot-test the remaining auth, quarantine, revocation and missing-system-capability diagnostics (terse success, offline, conflict, capability and recovery lines are asserted) [PACKAGE-API] [PACKAGE-LOCAL-OVERRIDE].
 
-## Milestone B — Verifiable public registry
+## Verifiable public registry `[PLAN-REGISTRY]`
 
-### Phase 5 — Client trust plane
+### Client trust plane `[PLAN-REGISTRY-TRUST]`
 
 - [ ] Embed and fingerprint the initial 3-of-5 TUF root; implement sequential old-and-new-threshold root updates, 2-of-3 release-bearing roles, consistent snapshots, expiry and persisted version floors; implement the 2-of-3 `release-status` role and the monotonic typed `Eligible`/`Yanked`/`Revoked` record chain with one fresh exact record plus inclusion and stored-checkpoint consistency proofs per locked release, and the exact client behavior where cached locks survive yanks and known revocations block activation [PACKAGE-TRUST].
 - [ ] Verify locally the OIDC ephemeral-key and WebAuthn publisher proofs, DSSE/in-toto attestations, SLSA provenance, Merkle inclusion and consistency, the 3-of-4 witness quorum, gossip and external cross-log receipts [PACKAGE-TRUST].
 - [ ] Fetch source from interchangeable mirrors, distrust transport and storage, and accept bytes only after metadata, proof, closure and digest checks; run compromise simulations for every TUF role, publisher, forge, mirror, API, database, builder, scanner, log, witness and the local cache [PACKAGE-TRUST] [PACKAGE-REGISTRY-CONFORMANCE].
 
-### Phase 6 — Hosted Supabase data plane behind the same Osprey API
+### Hosted Supabase data plane behind the same Osprey API `[PLAN-REGISTRY-HOSTED]`
 
 - [ ] Create append-only identifiers plus mutable projections for principals, scopes, packages, release intents and releases, dependency edges, provider catalog and status records, assessments and evidence, advisories, appeals, ownership and exposure ledgers [PACKAGE-OWNERSHIP-DATABASE].
 - [ ] Store CAS replicas at digest-derived keys with a create-only service policy, keeping TUF and log authority and all signing material outside Supabase, and prove the catalog and immutable objects can be reconstructed from CAS, TUF and the transparency log after deleting the Supabase project [PACKAGE-HOSTED-PUBLISH] [PACKAGE-HOSTED-RELEASE].
 - [ ] Configure Supabase Auth for passkeys and OIDC, short sessions, MFA for privileged actions, RLS defense in depth and no browser service role [PACKAGE-HOSTED-AUTH].
 - [ ] Build the Osprey `/v1` REST API with cursor pagination, digest ETags, idempotent writes, `application/problem+json`, rate limits and audit IDs; the browser uses only the API and every authorization decision is repeated server-side against stable principal and scope IDs [PACKAGE-API] [PACKAGE-HOSTED-BOUNDARY].
 
-### Phase 7 — Source collection and publication orchestration
+### Source collection and publication orchestration `[PLAN-REGISTRY-PUBLICATION]`
 
 - [ ] Bind package and subdirectory to a stable forge repository and release branch with scope plus forge-admin proof (log rebinding and quarantine it for 24 hours) through a GitHub App adapter with stable repository IDs, exact commits, configured release-branch reachability and least privilege, and the same adapter contract for GitLab and Codeberg fixtures [PACKAGE-PUBLISH].
 - [ ] Implement proof-free RFC 8785 payloads plus detached ordered-proof envelopes for binding, intent, one-use challenge and final authorization (exact DSSE/WebAuthn bytes, threshold principal sets), bind the intent to the publisher-computed canonical `SourceDigest` and forge hash, recompute commit identity, reachability, manifest and source digests before admitting the snapshot to CAS, and require the CLI to recompute and compare every challenge field before final signing [PACKAGE-TYPE-INVARIANTS] [PACKAGE-PUBLISH].
 - [ ] Fetch source server-side, validate and canonicalize it, archive it in CAS, reject every upload, archive substitution, native payload, hook, generator or undeclared asset before work enters the build queue, and allocate ordinal and epoch under a serializable package lock, enforcing compatibility claims, mapping each release digest permanently to one epoch and ordinal and letting expired challenges retry the reserved identity [PACKAGE-PUBLISH] [PACKAGE-IDENTITY].
 - [ ] Implement quarantine, independent appeal, publication, yank, revocation, transfer, recovery and tombstone as logged state machines, publish TUF metadata only after the evidence, reproducibility and policy gates complete, and compute and sign each release's capability surface at publication, serving it in catalog metadata so a client never fetches an excluded candidate [PACKAGE-TRUST] [PACKAGE-PUBLICATION-GATES] [PACKAGE-CAPABILITY-CONFINEMENT].
 
-### Phase 8 — Hermetic build and deterministic assessment
+### Hermetic build and deterministic assessment `[PLAN-REGISTRY-BUILD]`
 
 - [ ] Provision two separately administered SLSA Build L3 platforms with ephemeral workers, independent images and control planes, declared CAS inputs, resource ceilings, isolated caches and protected attestation keys [PACKAGE-TRUST].
 - [ ] Compile, type and effect check, run registry tests, infer capabilities, compare public contract, ABI and behavior claims, analyze affected clients and require bit-identical reference outputs from both pools; generate canonical Osprey-profile SPDX 3.0.1 SBOMs and in-toto/DSSE attestations with separate subjects for source assembly and each reference output, testing byte equality independently of SLSA conformance [PACKAGE-PUBLICATION-GATES] [PACKAGE-PUBLISH].
 - [ ] Integrate OSV-style advisories, reachability, secrets, licenses, SAST, taint, dependency intelligence and sandboxed dynamic behavior analysis; add Osprey branch coverage, mutation operators, a property/fuzz runner and client-impact testing with disclosed denominators, exclusions and limits [PACKAGE-ASSESSMENT] [PACKAGE-EVIDENCE-TESTING].
 - [ ] Fail publication on confirmed malware, secrets, provenance failure, non-reproducibility, forbidden capabilities or reachable critical/high vulnerabilities; send uncertain findings to quarantine and appeal [PACKAGE-PUBLICATION-GATES].
 
-### Phase 9 — AI review under measured authority
+### AI review under measured authority `[PLAN-REGISTRY-AI-REVIEW]`
 
 - [ ] Build complete signed temporal receipt frames and a finite generated adversarial frame with no repository, author, family or near-duplicate leakage, drawing each one-use sample through the pre-window independent evaluator VRF; add whole-source and semantic-diff review after deterministic analysis that treats package text as prompt injection, exposes no tools, network, credentials, mutable memory or production actions, deterministically chunks every raw token and AST node with cross-file graph context, signs a complete coverage ledger and keeps any omission, truncation, timeout or model error quarantined [PACKAGE-ASSESSMENT].
 - [ ] Permit automatic authority only for content-addressed weights, runtime, deterministic kernels and hardware profile, tokenizer, decoding/RNG/retry rules, prompt, tools, chunker, aggregation, threshold and policy; mutable APIs stay advisory and every behavior change starts unqualified [PACKAGE-ASSESSMENT].
 - [ ] Enforce the simultaneous exact package-level recall, false-positive, prevalence-derived precision and adversarial-recall hypergeometric bounds with logged alpha spending (worst-interval ECE diagnostic only), shadow each candidate model (PR-AUC, recall at FPR, false positives per million, Brier score, abstention, latency and cost at the observed class prior), and ensure no AI-only pass, publication, yank or revocation path exists and the only AI-only rejection is the per-submission security scan [PACKAGE-SECURITY-SCAN] and appeal reviewers never see the original model verdict [PACKAGE-ASSESSMENT].
 
-### Phase 9a — Publication security scan
+### Publication security scan `[PLAN-REGISTRY-SECURITY-SCAN]`
 
 - [ ] Define the NAP security-scan agent and its strict verdict contract: `accepted` or a non-empty list of failure messages; anything else fails closed [PACKAGE-SECURITY-SCAN-VERDICT].
 - [ ] Run the scan on every upload's frozen canonical source before publication; a rejection publishes nothing and `accepted` still runs every other gate [PACKAGE-SECURITY-SCAN] [PACKAGE-HOSTED-PUBLISH].
@@ -77,17 +77,17 @@ Contract: [0029 Package Management](../specs/ecosystem/0029-PackageManagement.md
 - [ ] E2E: accepted, rejected, malformed verdict, timeout and agent-unavailable uploads, asserting the published projection, the rejection records and unchanged publisher standing [PACKAGE-HOSTED-CONFORMANCE].
 - [ ] Open decision: the publisher-warning policy for repeated rejections (threshold, window, effect, display, review and clearing). Nothing is flagged automatically until it is specified [PACKAGE-SECURITY-SCAN-STANDING].
 
-## Milestone C — Quality and fair discovery
+## Quality and fair discovery `[PLAN-DISCOVERY]`
 
-### Phase 10 — Maintenance evidence and scoring
+### Maintenance evidence and scoring `[PLAN-DISCOVERY-SCORING]`
 
-- [ ] Implement the fixed five-component, 24-month methodology and neutral confidence prior from spec 0032 in integer-only `src/osprey/packages/manager/core`, versioning and signing every calculation (`registry::Arithmetic` is in place) [PACKAGE-MAINTENANCE] [PACKAGE-EVIDENCE-ARITHMETIC].
+- [ ] Implement the fixed five-component, 24-month methodology and neutral confidence prior from the Evidence and Fair Discovery spec in integer-only `src/osprey/packages/manager/core`, versioning and signing every calculation (`registry::Arithmetic` is in place) [PACKAGE-MAINTENANCE] [PACKAGE-EVIDENCE-ARITHMETIC].
 - [ ] Measure median and p90 vulnerability response and propagation, reachable overdue risk, recurrence, continuity and handover, release reliability, tests/mutation/fuzz/client impact, normalized static findings and response quality from immutable evidence; treat missing data as `Unknown` and exclude raw vulnerabilities, commits, issues, stars, downloads, dependents, fame, age and activity volume [PACKAGE-MAINTENANCE].
 - [ ] Render score, confidence, component vector, raw evidence, timestamps, sample sizes, tools, rules, exclusions and method changes on every page; add counterfactual tests proving disclosure, a new package, a small community or absent popularity cannot mechanically lower rank, and differentially replay every normalizer, percentile, confidence and score against a second independent Osprey implementation and signed basis-point golden vectors [PACKAGE-MAINTENANCE] [PACKAGE-DISCOVERY] [PACKAGE-DISCOVERY-AUDIT].
 
-### Phase 11 — Fair search and Osprey WebAssembly UI
+### Fair search and Osprey WebAssembly UI `[PLAN-DISCOVERY-SEARCH]`
 
-Visitors browse and search packages at `/`, open a result to view or download a release, and select **Upload a package** to start publishing at `/upload/`, per the [public catalog contract](../specs/ecosystem/0044-PackageRegistryDeploymentAndOwnership.md#public-package-catalog-package-hosted-routes-catalog). The hosted homepage reads the public catalog through the API. Production population, paging and publication are tracked below.
+Visitors browse and search packages at `/`, open a result to view or download a release, and select **Upload a package** to start publishing at `/upload/`, per the [public catalog contract](../specs/ecosystem/PackageRegistryDeploymentAndOwnership.md#public-package-catalog-package-hosted-routes-catalog). The hosted homepage reads the public catalog through the API. Production population, paging and publication are tracked below.
 
 - [ ] Run the complete catalog acceptance journey with the Osprey Language website blocked: all navigation, package and publisher pages resolve on the registry site and release downloads come through the approved content origin [PACKAGE-HOSTED-ROUTES-CATALOG].
 - [ ] Complete the authenticated upload journey from the catalog: preserve the selected package through sign-in, check the publisher grant, authorize the bound commit and show the receipt and publication status [PACKAGE-HOSTED-PUBLISH].
@@ -112,36 +112,36 @@ Visitors browse and search packages at `/`, open a result to view or download a 
 - [x] Load release-preparation choices from the running folder API and review the selected package and full commit in the browser. Hosted signing and publication remain tracked below [PACKAGE-HOSTED-AUTH].
 - [x] The standalone catalog shell holds at 390 px and 1440 px in the folder-registry preview (browse, search, no matches, package details, source download and the upload availability state): rebuild with `make _registry-website-preview` while `registry-serve` runs [PACKAGE-IMPLEMENTATION-LANGUAGE].
 
-## Milestone D — Operational launch
+## Operational launch `[PLAN-LAUNCH]`
 
-### Phase 12 — Hardening and general availability
+### Hardening and general availability `[PLAN-LAUNCH-HARDENING]`
 
 - [ ] Verify `[PACKAGE-IMPLEMENTATION-LANGUAGE]` across the delivered source and build graph: every package-system executable, test, adapter and operational tool is Osprey, with no package-specific Rust, C, JavaScript or Python component or launcher [PACKAGE-CONFORMANCE].
 - [ ] Operate independent CAS replicas, log monitors, four external witnesses with 3-of-4 quorum, cross-logging, 3-of-5 offline root custody, 2-of-3 release-role HSMs, documented ceremonies and compromise runbooks; complete SLSA Build L3 for all packages and Source L4 for privileged packages, publishing evidence only after independent verification [PACKAGE-TRUST].
-- [ ] Run disaster recovery without Supabase, the mirror/CDN, either build platform, one witness and each online signing role in turn; fuzz every parser and protocol boundary and pass the conformance suites of specs 0029–0032 on Linux, macOS and Windows [PACKAGE-REGISTRY-CONFORMANCE] [PACKAGE-CONFORMANCE].
+- [ ] Run disaster recovery without Supabase, the mirror/CDN, either build platform, one witness and each online signing role in turn; fuzz every parser and protocol boundary and pass the conformance suites of the package specs on Linux, macOS and Windows [PACKAGE-REGISTRY-CONFORMANCE] [PACKAGE-CONFORMANCE].
 - [ ] Commission an independent security, cryptography, privacy and fairness audit, close every critical/high finding and publish the report and remediations; launch with scoped source packages only, adding no binary publication, lifecycle hooks, SemVer selectors, direct database clients or pay-to-rank as post-audit shortcuts [PACKAGE-REGISTRY-CONFORMANCE] [PACKAGE-DECISIONS].
 - [ ] Run `make ci` and the registry deployment rehearsal from an empty account to published package, fresh-client add, offline rebuild, update, yank, revoke, restore and appeal [PACKAGE-HOSTED-CONFORMANCE].
 
-## Hosted rollout — Stage A (capabilities and contracts)
+## Hosted rollout: capabilities and contracts `[PLAN-ROLLOUT-CONTRACTS]`
 
 - [x] Build the hosted native entry point and test separate HTTP ingress and management listeners over loopback. Verify the empty probe response, edge admission, browser origin, and unavailable catalog status [PACKAGE-HOSTED-TOPOLOGY].
 
-- [ ] Map spec 0044 IDs to the existing packages and add named failing Osprey regressions before each implementation change [PACKAGE-HOSTED-CONFORMANCE].
+- [ ] Map the Registry Deployment and Ownership spec IDs to the existing packages and add named failing Osprey regressions before each implementation change [PACKAGE-HOSTED-CONFORMANCE].
 - [x] Build the native Linux AMD64 image from an exact Git revision and smoke-test its non-root API process, read-only runtime configuration, separate health port and scratch cleanup locally. Verified at revision `7ef8e7277` with `registry-hosted-image-check` [PACKAGE-HOSTED-TOPOLOGY].
 - [ ] Inventory and probe JWT/JWKS verification, WebAuthn/DSSE, entropy, secure time, constant-time comparisons, TLS verification, credential storage, PostgreSQL transactions and pooling, headers and cookies, secret delivery, browser/WASM host interfaces and the native API image's Cloud Run bind, port and secret access (test the Linux image with the mounted runtime configuration and both configured ports in staging; keep credentials out of commands and images); record absent capabilities in `src/osprey/packages/manager/blockers/` with failing assertions (`make _registry-blockers`) and resolve them through Osprey, never a native or JavaScript shim [PACKAGE-HOSTED-AUTH] [PACKAGE-HOSTED-TOPOLOGY].
-- [ ] Extend the canonical domain model (`src/manager/schemas/package-registry.td`) with stable principal, organization and package IDs, accepted memberships, the single administrator FK, explicit permission grants, epochs, sessions, invitations and handovers, reconciling spec 0031 before generating implementation types; no duplicate handwritten model [PACKAGE-OWNERSHIP-MODEL].
+- [ ] Extend the canonical domain model (`src/manager/schemas/package-registry.td`) with stable principal, organization and package IDs, accepted memberships, the single administrator FK, explicit permission grants, epochs, sessions, invitations and handovers, reconciling the Package Domain Model spec before generating implementation types; no duplicate handwritten model [PACKAGE-OWNERSHIP-MODEL].
 
-## Hosted rollout — Stage B (Supabase ownership and RLS)
+## Hosted rollout: Supabase ownership and RLS `[PLAN-ROLLOUT-OWNERSHIP]`
 
-Governed by spec 0045 and `src/osprey/packages/manager/supabase/migrations/schema.yaml`: provision the private `registry` schema as a platform resource before table migration, keep the bootstrap FORCE-RLS/default-deny with no runtime grants, and reject `ownership.not-ready` until policies, handlers and tests ship together.
+Governed by the Organization Package Governance spec and `src/osprey/packages/manager/supabase/migrations/schema.yaml`: provision the private `registry` schema as a platform resource before table migration, keep the bootstrap FORCE-RLS/default-deny with no runtime grants, and reject `ownership.not-ready` until policies, handlers and tests ship together.
 
 - [ ] Create isolated local and staging projects and apply the pinned DataProvider migration YAML (same-org composite FKs, one non-null active-member administrator, organization/name uniqueness, immutable identities, non-cascading history; no handwritten SQL or ORM schema) [PACKAGE-OWNERSHIP-DATABASE].
 - [ ] Provision restricted runtime logins with no owner, BYPASSRLS or elevated role membership, separated migration, collector, eligibility and audit permissions and no default grants or unused Data API, GraphQL or Realtime exposure; implement one transaction and context boundary with the exact RLS predicates and column permissions for organization memberships and package permissions, proving pooled request isolation across success, cancellation and rollback [PACKAGE-OWNERSHIP-RLS].
-- [ ] Implement spec 0045: organization-only ownership, custodians and members, one package administrator, explicit per-package permissions, targeted invitations, admin handover, maintenance responsibility and 30-day exceptional recovery; custodians cannot grant package permissions unless they hold that package's sole administrator reference, and every mutation produces atomic audit and outbox evidence [PACKAGE-OWNERSHIP-ADMIN].
+- [ ] Implement the Organization Package Governance spec: organization-only ownership, custodians and members, one package administrator, explicit per-package permissions, targeted invitations, admin handover, maintenance responsibility and 30-day exceptional recovery; custodians cannot grant package permissions unless they hold that package's sole administrator reference, and every mutation produces atomic audit and outbox evidence [PACKAGE-OWNERSHIP-ADMIN].
 - [ ] Implement durable rollout-mode and version checks with deny-on-store-failure and epoch invalidation of queued writes; package permissions cannot change deployment modes [PACKAGE-HOSTED-CONTROL].
 - [ ] Test two organizations, multiple packages and an outsider against every CRUD, join, view and storage path with production-shaped roles including direct Supabase requests (positive controls, row and column escalation attempts, stale sessions, same-connection reuse, concurrent removal and finalization), proving `(organization_id, name)` uniqueness with no global leaf-name claim; audit actual `pg_roles`, memberships, schema, column and default grants, policies, function execution, exposed schemas and storage policies, since a textual policy-name check alone is insufficient [PACKAGE-OWNERSHIP-CONFORMANCE] [PACKAGE-NAMES-NO-SITTING] [PACKAGE-OWNERSHIP-RLS].
 
-## Hosted rollout — Stage C (GitHub login and publication authority)
+## Hosted rollout: GitHub login and publication authority `[PLAN-ROLLOUT-LOGIN]`
 
 - [x] Distinguish a signed-out browser from an unavailable session verifier at `GET /v1/auth/session`. Test the native listener with no credentials, unrelated cookies, a session cookie and bearer credentials. Test the upload page’s sign-in, outage and signed-in displays [PACKAGE-HOSTED-AUTH].
 - [x] At the Supabase provider boundary, require the single GitHub identity to belong to the returned UUID subject. Exercise PKCE exchange and reject ambiguous, additionally linked, mismatched and malformed identities using provider fixtures [PACKAGE-HOSTED-AUTH].
@@ -160,13 +160,13 @@ Governed by spec 0045 and `src/osprey/packages/manager/supabase/migrations/schem
 - [ ] Prove revoked or unapproved linked identities lose private reads as well as mutations; anonymous reads use the separate published-projection reader; every human CLI publication uses browser WebAuthn and OS-store access tokens never sign releases [PACKAGE-HOSTED-AUTH].
 - [ ] Configure the separate least-privilege selected-repository GitHub App with dual-authority binding, stable provider IDs, signed webhook validation, replay rejection and synchronous installation, branch and owner revalidation; exercise all of `[PACKAGE-HOSTED-AUTH]`, including uninstallation, repository transfer with delayed webhooks and a removed maintainer retaining a valid JWT [PACKAGE-PUBLISH] [PACKAGE-HOSTED-AUTH].
 
-## Hosted rollout — Stage D (source publication, workers and independent trust)
+## Hosted rollout: source publication, workers and independent trust `[PLAN-ROLLOUT-PUBLICATION]`
 
 - [ ] Extend the API with signed intent, challenge and finalization endpoints sharing core policy (rejecting tarballs, multipart bytes, public storage writes and arbitrary repository URLs) that collect only a bound exact commit, freeze canonical source in private CAS, allocate immutable ordinal and digest reservations and enforce one-use expiring challenges and authority epochs; implement serializable ownership and publication transitions with consistent locks, idempotency and an outbox, revalidating authority before collection, signing and eligibility and proving the races with grant removal, transfers, duplicate requests and process crashes [PACKAGE-HOSTED-PUBLISH] [PACKAGE-PUBLISH] [PACKAGE-OWNERSHIP-RLS].
 - [ ] Complete parent-plan Phases 5 and 7–10 (independent reproducible builders, scanning and evidence, signing custody, TUF and status, the witnessed log and fresh-client verification) and the external operator and custody commitments: embed the reviewed initial TUF root in the CLI, publish its version and five fingerprints through the governance repository and DNSSEC, and verify the fresh-client bootstrap and sequential root rotation independently [PACKAGE-TRUST].
 - [ ] Prove storage overwrite, upsert, list and signed-upload refusal and quarantine isolation; run malicious source and prose, archive and path, SSRF and build-sandbox tests [PACKAGE-HOSTED-PUBLISH].
 
-## Hosted rollout — Stage E (Cloudflare and read-only staging)
+## Hosted rollout: Cloudflare and read-only staging `[PLAN-ROLLOUT-STAGING]`
 
 - [x] Declare the NAP/TradiSite edge in Terraform: transport-only Cloudflare Worker (X-Edge-Secret + X-Edge-Host overwrite, HTTPS redirect), Worker routes and Worker-only DNS for the API and cookieless content hosts, the Pages Direct Upload project and domain, one zone rate-limit rule and TLS 1.2. On GCP: Cloud Run on its `run.app` URL (max 2 instances), generated edge secret, runtime config and libpq service file, KMS sealing keys, private source bucket, budget alert and GitHub OIDC deploy identity. `make _registry-infra-check` validates it in CI [PACKAGE-HOSTED-TOPOLOGY] [PACKAGE-HOSTED-EDGE].
 - [x] One idempotent operator command, `make deploy ENV=…` (`src/manager/ops/deploy.sh`), creates the Supabase project and Auth config, applies Terraform (bootstrapping the first image through CI), syncs the GitHub environment, migrates the schema, converges the restricted logins (`src/manager/ops/supabase/roles.sql`, rehearsed twice on disposable PostgreSQL), releases and smoke-tests. `.github/workflows/deploy.yml` reruns CI at the exact SHA, then rolls the image digest and the Pages archive [PACKAGE-HOSTED-RELEASE].
@@ -178,7 +178,7 @@ Governed by spec 0045 and `src/osprey/packages/manager/supabase/migrations/schem
 - [ ] Prove private, cookie and `Authorization` responses never enter CDN caches (immutable source caches verify digests; mutable signed status stays fresh); load-test the numeric API, worker and instance limits and set cost alerts [PACKAGE-HOSTED-EDGE].
 - [ ] Cut over the GitHub OAuth and App webhooks only through the tested protected ingress; test invitation, owner and recovery notifications, SPF, DKIM and DMARC, failure alerts and the authenticated inbox, and complete private-data retention and deletion handling before public enrollment [PACKAGE-HOSTED-AUTH].
 
-## Hosted rollout — Stage F (deploy and recover rehearsal and release gates)
+## Hosted rollout: deploy and recover rehearsal and release gates `[PLAN-ROLLOUT-REHEARSAL]`
 
 - [x] Wire the disposable PostgreSQL migration replay and packaged Chromium tests into required PR CI. Build the fixture and pinned migration tool once, then test the downloaded artifacts in a separate job. Keep production credentials out of both jobs [PACKAGE-HOSTED-CONFORMANCE].
 - [ ] End the deferred CI arrangement before hosting: add the registry, security, database, browser and edge suites to the required checks, preserving every existing gate and coverage floor (the GC and ARC registry jobs already include the authentication, database configuration, governance, request-admission and website rendering suites) and updating the required-check configuration and its verification together; add dedicated registry build and deploy workflows in which every staging, production, frontend and manual deployment depends on a fresh unconditional exact-SHA `audit`, running `make audit`, `make ci`, `make _registry-test` and all hosted conformance checks, never reusing another SHA's passing audit [PACKAGE-HOSTED-CONFORMANCE] [PACKAGE-HOSTED-RELEASE].
@@ -188,7 +188,7 @@ Governed by spec 0045 and `src/osprey/packages/manager/supabase/migrations/schem
 - [ ] Provision and rehearse `[PACKAGE-HOSTED-CONTROL]`: named mode-promotion authority, a narrow independent incident job and credentials, freeze under edge or API outage and jointly approved unfreeze, proving that neither operator mode changes nor the incident path can grant package permissions or eligibility [PACKAGE-HOSTED-CONTROL].
 - [ ] Rehearse from an empty account: GitHub login, create organization, invite member, explicit publishing-permission grant, selected-repository binding, publish, fresh-client fetch and build, remove maintainer, reject queued or replayed publish, yank, revoke, transfer, recovery and restore, retaining the positive results and every expected denial; then obtain an independent application, RLS, cryptography and infrastructure audit and close all critical and high findings [PACKAGE-HOSTED-CONFORMANCE].
 
-## Hosted rollout — Stage G (controlled production rollout)
+## Hosted rollout: controlled production rollout `[PLAN-ROLLOUT-PRODUCTION]`
 
 - [ ] Promote the same artifacts from staging with server-side modes `read-only`, `allowlisted-publishers`, `public-publishers` and `write-frozen`, keeping separate switches for reads, ownership administration and publication so an incident can freeze sensitive mutations while eligible public reads and suspensions or revocations continue through the independent incident path [PACKAGE-HOSTED-CONTROL].
 - [ ] Roll out in waves (read-only, internal publishers ≥ 24 h, invited organizations ≥ 48 h, public enrollment), promoting only on each wave's recorded gate evidence; run the new-revision traffic progression 1% → 10% → 50% → 100% with ≥ 30-minute holds and ≥ 100 synthetic and API checks plus publication and revocation probes, promoting the static website artifact separately with prior-digest rollback [PACKAGE-HOSTED-CONTROL].

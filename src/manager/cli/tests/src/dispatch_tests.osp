@@ -61,7 +61,7 @@ module DispatchTests {
             length(explicit.lines) == length(help.lines),
             structuralEquals([Fixture::line(unknown, 0), Fixture::line(unknown, 1)],
                 ["unknown command: frobnicate", "usage: osprey-pkg [--json] <command>"]),
-            Fixture::line(planned, 0) == "not implemented: audit (plan 0020, Milestone A)",
+            Fixture::line(planned, 0) == "not implemented: audit ([PLAN-ENGINE])",
             Fixture::line(release, 0) == "build.usage"
         ])
     }

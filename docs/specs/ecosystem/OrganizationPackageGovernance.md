@@ -1,6 +1,6 @@
 # Organization Package Governance
 
-**Status:** normative model and DataProvider structural migration; hosted permission endpoints and mutation policies remain delivery work. This refines [names and ownership](0029-PackageManagement.md#names-and-ownership-package-names), [deployment security](0044-PackageRegistryDeploymentAndOwnership.md) and [rollout](../../plans/0020-package-manager.md). The canonical typeDiagram is [package-registry.td](https://nimblesite.github.io/osprey-packages/); the database source is [DataProvider schema.yaml](https://nimblesite.github.io/osprey-packages/). Neither a diagram nor an applied structural migration proves working authenticated publication.
+**Status:** normative model and DataProvider structural migration; hosted permission endpoints and mutation policies remain delivery work. This refines [names and ownership](PackageManagement.md#names-and-ownership-package-names), [deployment security](PackageRegistryDeploymentAndOwnership.md) and [rollout](../../plans/package-manager.md). The canonical typeDiagram is [package-registry.td](https://nimblesite.github.io/osprey-packages/); the database source is [DataProvider schema.yaml](https://nimblesite.github.io/osprey-packages/). Neither a diagram nor an applied structural migration proves working authenticated publication.
 
 ## Prevent name sitting `[PACKAGE-NAMES-NO-SITTING]`
 
@@ -58,7 +58,7 @@ CI uses a distinct verified workflow principal enrolled as an organization membe
 
 The organization remains publicly responsible through administrator changes, contributor departure, permission expiration and incident response. Show organization identity, current maintenance status, last evidence-backed review and public security advisories beside each public package. A package listing that cannot surface known security warnings must remain hidden, consistent with repository policy. A mutable maintainer display must not rewrite who authorized a historical release.
 
-Maintenance reports are scoped to a package and organization, carry an immutable reporter, evidence digest, creation time and explicit state (`open`, `acknowledged`, `resolved`, `withdrawn`). Reports/decisions enter the audit stream. `manage-maintenance` may publish a response or succession request, but cannot erase reports or mark independently recorded security findings resolved. No activity is fabricated because a package has a new admin. Maintenance scoring and independent appeals remain governed by spec 0032.
+Maintenance reports are scoped to a package and organization, carry an immutable reporter, evidence digest, creation time and explicit state (`open`, `acknowledged`, `resolved`, `withdrawn`). Reports/decisions enter the audit stream. `manage-maintenance` may publish a response or succession request, but cannot erase reports or mark independently recorded security findings resolved. No activity is fabricated because a package has a new admin. Maintenance scoring and independent appeals remain governed by the Evidence and Fair Discovery spec.
 
 Package lifecycle is explicit: `draft`, `active`, `write-frozen`, `deprecated`, `tombstoned`. Deprecation leaves old releases verifiable, with visible replacement guidance; a replacement always names another complete canonical key. Tombstoning never frees the key or deletes release/advisory history. Public availability and client acceptance continue to obey the signed Eligible/Yanked/Revoked protocol, not this mutable maintenance projection.
 
@@ -100,4 +100,4 @@ Runtime enforcement must independently distinguish package-admin control operati
 - Apply the actual DataProvider YAML to disposable PostgreSQL; verify every table above, constraints, forced RLS, default denial, composite FKs and convergence on a second migration. SQLite emulation and owner-only tests are insufficient security evidence.
 - Before hosted writes, run positive and negative Osprey tests as actual runtime roles for every table/operation, direct Supabase access path and pool-reuse/error/cancellation case. An applied bootstrap schema is not permission-test completion.
 
-The [rollout](../../plans/0020-package-manager.md) must not mark ownership complete until these tests and the wider trust/hosted conformance suite pass.
+The [rollout](../../plans/package-manager.md) must not mark ownership complete until these tests and the wider trust/hosted conformance suite pass.

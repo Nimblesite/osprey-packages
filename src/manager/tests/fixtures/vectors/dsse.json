@@ -1,7 +1,7 @@
 {
   "spec": "[PACKAGE-PUBLISH]",
   "description": "DSSE Pre-authentication Encoding vectors, including the protocol's own example, byte-length counting for multi-byte UTF-8, and the detached WebAuthn challenge and EnvelopeDigest of a ReleaseIntent.",
-  "source": "DSSE Protocol v1 PAE definition; spec 0030 [PACKAGE-PUBLISH] WebAuthn challenge and EnvelopeDigest; base64url without padding per RFC 4648 section 5.",
+  "source": "DSSE Protocol v1 PAE definition; the Registry Trust and Discovery spec [PACKAGE-PUBLISH] WebAuthn challenge and EnvelopeDigest; base64url without padding per RFC 4648 section 5.",
   "pae": [
     {
       "type": "http://example.com/HelloWorld",

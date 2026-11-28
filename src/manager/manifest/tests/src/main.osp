@@ -2,7 +2,7 @@ namespace registry_tests;
 import registry::Policy
 
 /// The manifest suites, kept apart from `src/manager/tests` until the type
-/// checker handles the TOML parser in seconds (plan 0020 Phase 1).
+/// checker handles the TOML parser in seconds ([PLAN-ENGINE-BUILD]).
 fn suites() = {
     TomlTests::run()
     ManifestTests::run()

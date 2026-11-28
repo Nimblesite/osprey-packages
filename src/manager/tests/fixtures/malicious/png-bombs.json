@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-PUBLISH]",
-  "description": "PNG asset structure and decompression-bomb vectors. Format v1 PNG: valid CRCs, only IHDR/PLTE/tRNS/IDAT/IEND, at most 4,096 by 4,096 and 16 million decoded pixels, at most 8 MiB (spec 0030). `code` is the full verdict; `structure`, when present, is the verdict of the header and chunk walk alone, which refuses every dimension bomb before inflation.",
+  "description": "PNG asset structure and decompression-bomb vectors. Format v1 PNG: valid CRCs, only IHDR/PLTE/tRNS/IDAT/IEND, at most 4,096 by 4,096 and 16 million decoded pixels, at most 8 MiB (the Registry Trust and Discovery spec). `code` is the full verdict; `structure`, when present, is the verdict of the header and chunk walk alone, which refuses every dimension bomb before inflation.",
   "limits": {
     "maxSide": 4096,
     "maxPixels": 16000000,

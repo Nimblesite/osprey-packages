@@ -16,7 +16,7 @@ import registry::Release
 /// registry. The transport is never trusted — the source bundle is decoded
 /// and its digest recomputed from the files before anything is written — and
 /// every failure is a stable dotted reason code. Implements the client half
-/// of [PACKAGE-FOLDER-REGISTRY] (plan 0020, Milestone 0 Phase F3).
+/// of [PACKAGE-FOLDER-REGISTRY] ([PLAN-STANDUP]).
 module Fetch {
     /// The folder-registry base URL when no `--registry` flag is given.
     export let defaultRegistry = "http://127.0.0.1:8787"

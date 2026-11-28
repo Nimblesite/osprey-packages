@@ -1,6 +1,6 @@
 # Registry operations
 
-Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy ENV=staging|production`. This file says what the pieces are. The shape is NAP and TradiSite's: Cloudflare → Cloud Run → Supabase ([spec 0044](../../../docs/specs/ecosystem/0044-PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
+Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy ENV=staging|production`. This file says what the pieces are. The shape is NAP and TradiSite's: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
 
 ```mermaid
 flowchart LR
@@ -61,4 +61,4 @@ Migrations are explicit: `make deploy ENV=<env> STEP=database`, never at build o
 - `make _registry-hosted-image-check`: the image with mounted config on both ports (needs Docker).
 - `make _registry-website-check` / `make _registry-integration-check`: the packaged site in Chromium, against a fixture API and against the real API on PostgreSQL.
 
-Public writes stay disabled until spec 0044's conformance table passes in staging.
+Public writes stay disabled until the Registry Deployment and Ownership spec's conformance table passes in staging.

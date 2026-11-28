@@ -9,7 +9,7 @@ import registry::Domains
 
 /// Byte-exact canonical forms of every serialized model object, and the
 /// digest bindings between them. Each fixture under fixtures/canonical holds
-/// a value, its RFC 8785 bytes and, when spec 0031 names a domain, its
+/// a value, its RFC 8785 bytes and, when the Package Domain Model spec names a domain, its
 /// `H(d, x)`; fixtures/canonical/relations.json pins the acyclic
 /// selection-to-plan-to-lock staging, every self-omitting digest and every
 /// envelope digest. Implements [PACKAGE-TYPE-INVARIANTS].

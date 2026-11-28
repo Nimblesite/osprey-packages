@@ -1,9 +1,9 @@
 namespace registry_tests;
 
-/// Spec 0031 links the canonical model once and never inlines a copy of it. [PACKAGE-TYPES]
+/// The Package Domain Model spec links the canonical model once and never inlines a copy of it. [PACKAGE-TYPES]
 module SchemaTests {
     fn modelReference() = {
-        let spec = readFile("docs/specs/ecosystem/0031-PackageDomainModel.md") ?: ""
+        let spec = readFile("docs/specs/ecosystem/PackageDomainModel.md") ?: ""
         checkAll("spec references the canonical package model once", [
             length(split(spec, "(../../../src/manager/schemas/package-registry.td)") ?: []) == 2,
             !contains(spec, "```typediagram")

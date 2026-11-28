@@ -1,7 +1,7 @@
 namespace registry;
 
 /// The DSSE protocol v1 pre-authentication encoding and the two detached
-/// hash forms spec 0030 builds on it: the PAE bytes a detached envelope
+/// hash forms the Registry Trust and Discovery spec builds on it: the PAE bytes a detached envelope
 /// signs, the base64url WebAuthn challenge over those bytes, and the
 /// EnvelopeDigest of canonical envelope bytes. Implements [PACKAGE-PUBLISH].
 module Dsse {
@@ -92,12 +92,12 @@ module Dsse {
     fn domainChained(domain, bytes) = Bytes::concatAll([ascii(domain), [nul], bytes])
 
     /// base64url(SHA256("osprey.webauthn.v1" || 0x00 || PAE)) without
-    /// padding — the WebAuthn challenge of spec 0030. Implements
+    /// padding — the WebAuthn challenge of the Registry Trust and Discovery spec. Implements
     /// [PACKAGE-PUBLISH].
     export fn webAuthnChallenge(paeBytes) = base64Url(Sha256::digest(domainChained(Domains::webAuthnDomain(), paeBytes)))
 
     /// "sha256:" + lowercase hex of SHA256("osprey.envelope.v1" || 0x00 ||
     /// canonical envelope bytes), with no length prefix — the EnvelopeDigest
-    /// of spec 0030. Implements [PACKAGE-PUBLISH].
+    /// of the Registry Trust and Discovery spec. Implements [PACKAGE-PUBLISH].
     export fn envelopeDigest(canonicalEnvelopeBytes) = Digests::format(Sha256::digest(domainChained(Domains::envelopeDomain(), canonicalEnvelopeBytes)))
 }

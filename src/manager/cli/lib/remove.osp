@@ -4,7 +4,7 @@ import registry::Names
 /// `osprey-pkg remove @scope/name [--registry <base-url>] [--project <dir>]`:
 /// drop the key's dependency line from `osprey.toml` and relock atomically,
 /// so the lock loses the package and whatever only it required
-/// ([PACKAGE-API], plan 0020 Phase 4). A key not declared is `remove.missing`.
+/// ([PACKAGE-API], [PLAN-ENGINE-COMMANDS]). A key not declared is `remove.missing`.
 module Remove {
     let usageCode = "remove.usage"
     let missingCode = "remove.missing"

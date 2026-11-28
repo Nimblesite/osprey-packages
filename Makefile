@@ -139,7 +139,7 @@ registry-serve: target/osprey-registry target/local-registry.stamp
 _registry-serve-sample: $(TOOLCHAIN)
 	cd src/manager/api && $(OSPREY) . --run
 
-# _registry-blockers: Probe the host capabilities plan 0020 still needs (argv, exit status,
+# _registry-blockers: Probe the host capabilities the package-manager plan still needs (argv, exit status,
 #                    binary-safe reads, ...). Expected to FAIL until each capability lands; never
 #                    part of `test`. A probe turning green is the signal to delete its entry from
 #                    src/manager/core/src/capabilities.osp.

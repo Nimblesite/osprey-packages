@@ -9,7 +9,7 @@ import registry::Dsse
 import registry::Json
 
 /// Primary-specification vectors — FIPS 180-4 SHA-256, RFC 8785 JCS, DSSE
-/// PAE with the spec 0030 WebAuthn challenge and EnvelopeDigest, digest
+/// PAE with the Registry Trust and Discovery spec WebAuthn challenge and EnvelopeDigest, digest
 /// algorithm agility, and RFC 9162 Merkle inclusion/consistency proofs —
 /// read from src/manager/tests/fixtures/vectors and asserted against the core
 /// helpers. Every golden was computed independently of the code under test.

@@ -38,7 +38,7 @@ module TufCheck {
 
     /// TUF 1.0 5.3 root update: one version at a time, verified at both the
     /// old and the new threshold. A candidate at or below the trusted
-    /// version is the rollback attack; one further ahead refuses spec 0030's
+    /// version is the rollback attack; one further ahead refuses the Registry Trust and Discovery spec's
     /// one-version-at-a-time rule. Implements [PACKAGE-TRUST].
     export fn rootUpdate(trustedVersion, candidateVersion, oldSigs, newSigs, oldThreshold, newThreshold) =
         if candidateVersion <= trustedVersion { rollbackCode }
@@ -94,7 +94,7 @@ module TufCheck {
     fn releaseKey(record) = Canonical::serialize(Json::get(record, "release") ?: Json::Null) ?: ""
 
     /// `H("osprey.release-status.v1", canonical preceding record)`: the
-    /// previousStatus binding of spec 0031. Implements
+    /// previousStatus binding of the Package Domain Model spec. Implements
     /// [PACKAGE-TYPE-INVARIANTS].
     fn recordDigest(previous) = Digests::hashText(Domains::releaseStatusDomain(), Canonical::serialize(previous) ?: "")
 
@@ -106,7 +106,7 @@ module TufCheck {
         _ => false
     }
 
-    /// Spec 0031 for the first record of a sequence: Eligible at sequence 1,
+    /// The Package Domain Model spec for the first record of a sequence: Eligible at sequence 1,
     /// with no previousStatus and no reasonDigest. Implements
     /// [PACKAGE-TYPE-INVARIANTS].
     fn initialStatus(next) =
@@ -116,7 +116,7 @@ module TufCheck {
         else if hasField(next, "reasonDigest") { reasonCode }
         else { "" }
 
-    /// Spec 0031 for every later record: sequence grows by exactly one, the
+    /// The Package Domain Model spec for every later record: sequence grows by exactly one, the
     /// move is allowed, previousStatus is the digest of the exact preceding
     /// record, a reason is carried, and the release never changes.
     /// Implements [PACKAGE-TYPE-INVARIANTS].

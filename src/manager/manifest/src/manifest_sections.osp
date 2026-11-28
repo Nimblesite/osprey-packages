@@ -134,7 +134,7 @@ module ManifestSections {
     type FlavorSources = { python: List<string>, typescript: List<string> }
 
     // Flavor sources are root-confined relative paths with the flavor's
-    // extension ([PACKAGE-MANIFEST], spec 0054); the extension
+    // extension ([PACKAGE-MANIFEST], the Osprey TypeScript-flavor spec); the extension
     // rule shares the roots failure's code and span. `.d.ts` declares types only.
     fn flavorPath(path, suffix) = endsWith(path, suffix) && !endsWith(path, ".d.ts")
 

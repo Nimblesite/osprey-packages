@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-TYPE-INVARIANTS]",
-  "description": "Every list order and duplicate rule of spec 0031. `element` is the list's element type, `field` its field name; `code` is \"\" for canonical order, else the verdict at the first adjacent pair that is not strictly ascending.",
+  "description": "Every list order and duplicate rule of the Package Domain Model spec. `element` is the list's element type, `field` its field name; `code` is \"\" for canonical order, else the verdict at the first adjacent pair that is not strictly ascending.",
   "cases": [
     {
       "element": "PackageKey",

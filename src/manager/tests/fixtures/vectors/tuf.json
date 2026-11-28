@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-TRUST]",
-  "description": "TUF 1.0 detailed client workflow (5.3 root, 5.4 timestamp, 5.5 snapshot, 5.6 targets) under the spec 0030 profile: 3-of-5 root updated one version at a time, 2-of-3 targets, 7-day snapshot, 24-hour timestamp, 30-day targets. Slow retrieval and extraneous dependencies are outside these pure metadata checks: the first withholds bytes instead of lying about them, the second is a targets-map content policy.",
+  "description": "TUF 1.0 detailed client workflow (5.3 root, 5.4 timestamp, 5.5 snapshot, 5.6 targets) under the Registry Trust and Discovery spec profile: 3-of-5 root updated one version at a time, 2-of-3 targets, 7-day snapshot, 24-hour timestamp, 30-day targets. Slow retrieval and extraneous dependencies are outside these pure metadata checks: the first withholds bytes instead of lying about them, the second is a targets-map content policy.",
   "cases": [
     {
       "description": "root N to N+1 verified at the old 3-of-5 and new 3-of-5 threshold",
@@ -39,8 +39,8 @@
       "expect": "tuf.root-threshold-new"
     },
     {
-      "description": "root offered two versions ahead; spec 0030 updates one version at a time",
-      "source": "TUF 1.0 5.3.2 with spec 0030 [PACKAGE-TRUST] one-version-at-a-time",
+      "description": "root offered two versions ahead; the Registry Trust and Discovery spec updates one version at a time",
+      "source": "TUF 1.0 5.3.2 with the Registry Trust and Discovery spec [PACKAGE-TRUST] one-version-at-a-time",
       "kind": "rootUpdate",
       "trustedVersion": 2,
       "candidateVersion": 4,
@@ -96,7 +96,7 @@
     },
     {
       "description": "timestamp accepted one millisecond before its 24-hour expiry boundary",
-      "source": "TUF 1.0 5.4.2 expiry with spec 0030 24-hour timestamp",
+      "source": "TUF 1.0 5.4.2 expiry with the Registry Trust and Discovery spec 24-hour timestamp",
       "kind": "roleUpdate",
       "trusted": {
         "version": 8,
@@ -116,7 +116,7 @@
     },
     {
       "description": "timestamp expired at the exact 24-hour expiry millisecond (indefinite freeze)",
-      "source": "TUF 1.0 5.4.2 expiry with spec 0030 24-hour timestamp",
+      "source": "TUF 1.0 5.4.2 expiry with the Registry Trust and Discovery spec 24-hour timestamp",
       "kind": "roleUpdate",
       "trusted": {
         "version": 8,
@@ -216,7 +216,7 @@
     },
     {
       "description": "snapshot accepted one millisecond before its 7-day expiry boundary",
-      "source": "TUF 1.0 5.5 expiry with spec 0030 7-day snapshot",
+      "source": "TUF 1.0 5.5 expiry with the Registry Trust and Discovery spec 7-day snapshot",
       "kind": "roleUpdate",
       "trusted": {
         "version": 11,
@@ -236,7 +236,7 @@
     },
     {
       "description": "snapshot expired at the exact 7-day expiry millisecond",
-      "source": "TUF 1.0 5.5 expiry with spec 0030 7-day snapshot",
+      "source": "TUF 1.0 5.5 expiry with the Registry Trust and Discovery spec 7-day snapshot",
       "kind": "roleUpdate",
       "trusted": {
         "version": 11,
@@ -276,7 +276,7 @@
     },
     {
       "description": "targets expired at the exact 30-day expiry millisecond",
-      "source": "TUF 1.0 5.6.2 expiry with spec 0030 30-day targets",
+      "source": "TUF 1.0 5.6.2 expiry with the Registry Trust and Discovery spec 30-day targets",
       "kind": "roleUpdate",
       "trusted": {
         "version": 29,

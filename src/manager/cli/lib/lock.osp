@@ -108,7 +108,7 @@ module Lock {
 
     fn vanishedLine(c) = "${vanishedCode} ${Lockfile::compact(c)}"
 
-    /// The refusal names the flag that would accept the removal (spec 0029 "Folder lock").
+    /// The refusal names the flag that would accept the removal (the Package Management spec "Folder lock").
     fn vanishedRefusal(c) = "${vanishedLine(c)} (rerun with ${removalsFlag} to drop it from the lock)"
 
     // ---- fetching the listing ----

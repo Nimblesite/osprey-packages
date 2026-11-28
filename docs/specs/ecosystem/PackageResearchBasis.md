@@ -2,7 +2,7 @@
 
 The evidence behind [PACKAGE-RESEARCH]: 66 sources, cut off on 24 July 2026, covering versioning, resolution, reproducibility, supply-chain security, maintenance evidence, AI-assisted scanning and fair discovery. 53 are peer-reviewed, ten are final official standards or guidance, one is an official public-comment draft, and two are marked preprints.
 
-Quotations are short source excerpts. Each **Osprey consequence** is Osprey's inference, not the source's prescription, and the normative rules are in [Package Management](0029-PackageManagement.md), [Trust and Discovery](0030-PackageRegistryTrustAndDiscovery.md) and [Evidence and Fair Discovery](0032-PackageEvidenceAndDiscovery.md).
+Quotations are short source excerpts. Each **Osprey consequence** is Osprey's inference, not the source's prescription, and the normative rules are in [Package Management](PackageManagement.md), [Trust and Discovery](PackageRegistryTrustAndDiscovery.md) and [Evidence and Fair Discovery](PackageEvidenceAndDiscovery.md).
 
 ## Decisions supported by the corpus
 
@@ -15,7 +15,7 @@ Quotations are short source excerpts. Each **Osprey consequence** is Osprey's in
 | Repository, publisher, forge, builder, scanner, and mirror compromises are distinct. | Layer source collection, hermetic builds, TUF-style update metadata, attestations, immutable storage, and witnessed transparency. |
 | Popularity feedback is self-reinforcing and manipulable. | Keep stars, downloads, dependents, and paid promotion out of default ranking; reserve measured exposure for vetted, relevant, underexposed packages. |
 
-## 1. Compatibility, dependency solving, and reproducibility
+## Compatibility, dependency solving, and reproducibility
 
 ### <a id="r01"></a>R01 — Semantic versioning versus breaking changes
 
@@ -157,7 +157,7 @@ Gibb et al., ICFP 2026. **Peer-reviewed, accepted.** [Official conference record
 
 **Osprey consequence:** every root and transitive edge resolves in one graph with exactly one selected source per package key; external system inputs become explicit and pinned.
 
-## 2. Supply-chain attacks, provenance, and transparency
+## Supply-chain attacks, provenance, and transparency
 
 ### <a id="r20"></a>R20 — A Look in the Mirror: Attacks on Package Managers
 
@@ -250,7 +250,7 @@ Hof and Carle, 2017. **Preprint — not peer-reviewed.** [arXiv:1711.07278](http
 
 **Osprey consequence:** publication events form an append-only Merkle log whose signed roots are independently witnessed and cross-logged against equivocation.
 
-## 3. Maintenance evidence, testing, static analysis, and AI
+## Maintenance evidence, testing, static analysis, and AI
 
 ### <a id="r32"></a>R32 — Do Software Security Practices Yield Fewer Vulnerabilities?
 
@@ -350,7 +350,7 @@ Guo et al., ICML 2017. **Peer-reviewed.** [PMLR paper](https://proceedings.mlr.p
 
 **Osprey consequence:** security probabilities are calibrated on a held-out temporal set and exposed with uncertainty; thresholds are versioned policy, not universal truth.
 
-## 4. Fair discovery and resistance to popularity capture
+## Fair discovery and resistance to popularity capture
 
 ### <a id="r46"></a>R46 — Fairness of Exposure in Rankings
 
@@ -408,7 +408,7 @@ Mansoury et al., CIKM 2020. **Peer-reviewed.** [DOI 10.1145/3340531.3412152](htt
 
 **Osprey consequence:** discovery dashboards publish coverage, exposure Gini, publisher concentration, exposure-to-merit ratios, new-package exposure, and utility cost.
 
-## 5. Standards and other official sources
+## Standards and other official sources
 
 ### <a id="r54"></a>R54 — The Update Framework Specification 1.0.35
 

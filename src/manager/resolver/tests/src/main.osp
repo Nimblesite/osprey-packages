@@ -2,7 +2,7 @@ namespace registry_tests;
 import registry::Policy
 
 /// The resolver suites, kept apart from `src/manager/tests` until the SAT core
-/// type-checks (plan 0020 Phase 3).
+/// type-checks ([PLAN-ENGINE-RESOLVER]).
 fn suites() = {
     SatTests::run()
     0

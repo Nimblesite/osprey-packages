@@ -1,7 +1,7 @@
 {
   "spec": "[PACKAGE-TRUST]",
   "description": "Algorithm agility of the sha256:<64 lowercase hex> digest envelope: unknown algorithms, wrong prefixes, bad lengths and non-lowercase hex are rejected.",
-  "source": "Spec 0030 [PACKAGE-TRUST] trust metadata; envelope form of spec 0031 [PACKAGE-TYPE-INVARIANTS]; expected codes per src/manager/core/src/digests.osp.",
+  "source": "The Registry Trust and Discovery spec [PACKAGE-TRUST] trust metadata; envelope form of the Package Domain Model spec [PACKAGE-TYPE-INVARIANTS]; expected codes per src/manager/core/src/digests.osp.",
   "valid": [
     "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
   ],

@@ -17,7 +17,7 @@ module Dispatch {
 
     fn notImplemented(command) = Reports::Report {
         status: notImplementedStatus,
-        lines: ["not implemented: ${command} (plan 0020, Milestone A)"]
+        lines: ["not implemented: ${command} ([PLAN-ENGINE])"]
     }
 
     fn other(command) = if listContains(planned, command) { notImplemented(command) } else { unknown(command) }

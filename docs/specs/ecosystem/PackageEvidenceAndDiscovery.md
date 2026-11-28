@@ -4,15 +4,15 @@
 > Every executable part of the package system is Osprey, with no exceptions
 > (`[PACKAGE-IMPLEMENTATION-LANGUAGE]`). The first deliverable is the
 > database-free folder registry of `[PACKAGE-FOLDER-REGISTRY]` in
-> [spec 0029](0029-PackageManagement.md); everything in this document layers
+> [Package Management](PackageManagement.md); everything in this document layers
 > onto that running service.
 
 **Status:** normative target. This specification makes the maintenance and
-discovery rules in [Registry Trust and Discovery](0030-PackageRegistryTrustAndDiscovery.md)
+discovery rules in [Registry Trust and Discovery](PackageRegistryTrustAndDiscovery.md)
 reproducible. A conforming implementation MUST produce the same integer scores,
 candidate set, and ranking from the same signed inputs. The empirical basis is
-the [maintenance evidence](PackageResearchBasis.md#3-maintenance-evidence-testing-static-analysis-and-ai)
-and [fair-discovery](PackageResearchBasis.md#4-fair-discovery-and-resistance-to-popularity-capture)
+the [maintenance evidence](PackageResearchBasis.md#maintenance-evidence-testing-static-analysis-and-ai)
+and [fair-discovery](PackageResearchBasis.md#fair-discovery-and-resistance-to-popularity-capture)
 corpus,
 especially the findings that coverage is not a quality target, mutation testing
 better predicts fault detection, static tools have material blind spots, and
@@ -22,7 +22,7 @@ The key words `MUST`, `MUST NOT`, `SHOULD`, and `MAY` are interpreted as BCP 14
 (RFC 2119 and RFC 8174) when capitalized. There are no implementation-selected
 weights, thresholds, priors, tie-breakers, or missing-data substitutions.
 
-The scoring, discovery, replay, simulation, and conformance implementations MUST all be Osprey under [the implementation-language contract](0029-PackageManagement.md#implementation-language-package-implementation-language). Independent test oracles and reference implementations MUST also be Osprey. Independence means separately derived algorithms and code, not an exception to the implementation-language requirement.
+The scoring, discovery, replay, simulation, and conformance implementations MUST all be Osprey under [the implementation-language contract](PackageManagement.md#implementation-language-package-implementation-language). Independent test oracles and reference implementations MUST also be Osprey. Independence means separately derived algorithms and code, not an exception to the implementation-language requirement.
 
 ## Canonical arithmetic `[PACKAGE-EVIDENCE-ARITHMETIC]`
 

@@ -3,8 +3,7 @@ import registry::Policy
 
 /// The suites over the package frontend (`src/manager/cli/lib`), assembled apart
 /// from `src/manager/tests` so the frontend can depend on the manifest parser
-/// without that program paying the parser's type-check cost (plan 0020,
-/// Phase 1).
+/// without that program paying the parser's type-check cost ([PLAN-ENGINE-BUILD]).
 fn suites() = {
     DispatchTests::run()
     FetchTests::run()

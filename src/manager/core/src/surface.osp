@@ -230,7 +230,7 @@ module Surface {
 
     fn shadowsFile(f) = isSource(pathOf(f)) && !isEmpty(declaredIn(scannedFile(f)))
 
-    // A `.d.ts` file declares types only and is never compiled (spec 0054).
+    // A `.d.ts` file declares types only and is never compiled (the Osprey TypeScript-flavor spec).
     fn typescriptSource(path) = endsWith(path, ".ts") && !endsWith(path, ".d.ts")
 
     fn isSource(path) = endsWith(path, ".osp") || endsWith(path, ".ospml") || endsWith(path, ".py") || typescriptSource(path)

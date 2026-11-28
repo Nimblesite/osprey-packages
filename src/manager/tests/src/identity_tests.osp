@@ -58,9 +58,9 @@ module IdentityTests {
         Digests::hashText("", "abc") == "sha256:3ff3f22b0f8c2a1553022e4cba10e16915655cf0d3f4c908c950ab539ec2d9b6"
     ])
 
-    fn spec0031Domains() = {
+    fn modelDomains() = {
         let all = Domains::all()
-        checkAll("every H(d, x) domain is spelled as spec 0031 writes it, once", [
+        checkAll("every H(d, x) domain is spelled as the Package Domain Model spec writes it, once", [
             structuralEquals([length(all), length(Order::canonicalSet(all) ?: [])], [26, 26]),
             foldList(all, true, fn(ok, d) => ok && startsWith(d, "osprey.") && endsWith(d, ".v1")),
             Fixtures::mapsTo([
@@ -76,11 +76,11 @@ module IdentityTests {
         ])
     }
 
-    /// The identity suite: digest envelopes, the spec 0031 domain spellings,
+    /// The identity suite: digest envelopes, the Package Domain Model spec domain spellings,
     /// domain-separated hashes, the display grammar and canonical order.
     export fn run() = {
         test("digests: envelopes and preimages", digests)
-        test("domains: spec 0031 spellings", spec0031Domains)
+        test("domains: Package Domain Model spellings", modelDomains)
         test("digests: domain-separated hashes", domainHashes)
         test("identity: display grammar", displayForms)
         test("identity: canonical order", ordering)
