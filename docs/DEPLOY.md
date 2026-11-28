@@ -70,10 +70,10 @@ The names are single-label on purpose: Cloudflare's free certificate covers `*.<
 ## Cost
 
 - Cloudflare: US$0.
-- Cloud Run: scales to zero, at most 2 instances, about US$0–5/month.
-- Supabase: US$0 on a free org slot, or about US$10/month per project on a paid org.
+- Cloud Run: 1 vCPU / 512 MiB, billed only while serving, scales to zero, at most 2 instances: about US$0–5/month.
+- Supabase: always the smallest (Micro) compute, about US$10/month per project on the paid org. Keep the org's spend cap on.
 - Domain: US$0, since both options use a domain you already own.
-- Budget alert at US$25 (50/90/100%).
+- One project-wide GCP budget alert at US$50/month (50/90/100%), created by every `make deploy` before anything else.
 
 ## Later
 

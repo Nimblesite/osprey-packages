@@ -17,21 +17,6 @@ variable "region" {
   default = "australia-southeast1"
 }
 
-variable "billing_account" {
-  description = "Billing account ID (XXXXXX-XXXXXX-XXXXXX) that receives the cost alert budget."
-  type        = string
-  validation {
-    condition     = can(regex("^[A-F0-9]{6}-[A-F0-9]{6}-[A-F0-9]{6}$", var.billing_account))
-    error_message = "Use the billing account ID shown by `gcloud billing accounts list`."
-  }
-}
-
-variable "monthly_budget_usd" {
-  description = "Budget alert ceiling; email alerts at 50%, 90% and 100%."
-  type        = number
-  default     = 25
-}
-
 variable "cloudflare_account_id" {
   type = string
 }
@@ -126,6 +111,6 @@ locals {
   required_services = toset([
     "artifactregistry.googleapis.com", "run.googleapis.com", "storage.googleapis.com", "cloudkms.googleapis.com",
     "secretmanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com",
-    "logging.googleapis.com", "monitoring.googleapis.com", "billingbudgets.googleapis.com", "cloudresourcemanager.googleapis.com"
+    "logging.googleapis.com", "monitoring.googleapis.com", "cloudresourcemanager.googleapis.com"
   ])
 }

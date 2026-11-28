@@ -55,6 +55,25 @@ secret_put() { # NAME (value on stdin)
 
 owner_password() { gcloud secrets versions access latest --secret="$NAME-db-owner" --project="$GCP_PROJECT_ID"; }
 
+# --- Cost guard: one project-wide alert before anything can spend ----------------------------
+BUDGET_USD=50
+
+# Both environments share the project, so the budget is one project singleton, not per-environment Terraform.
+ensure_budget() {
+  gcloud services enable billingbudgets.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
+  local existing; existing="$(gcloud billing budgets list --billing-account="$GCP_BILLING_ACCOUNT" \
+    --filter="displayName=osprey-registry" --format='value(name)' 2>/dev/null)"
+  local args=(--billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="${BUDGET_USD}USD")
+  if [[ -n "$existing" ]]; then
+    gcloud billing budgets update "$existing" "${args[@]}" >/dev/null
+  else
+    gcloud billing budgets create "${args[@]}" --display-name=osprey-registry \
+      --filter-projects="projects/$GCP_PROJECT_ID" \
+      --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 >/dev/null
+  fi
+  log "budget alert US\$$BUDGET_USD/month on $GCP_PROJECT_ID (50/90/100%)"
+}
+
 # --- Supabase: project, keys, pooler, Auth [PACKAGE-HOSTED-AUTH] ------------------------------
 supabase_ref() { supabase_api GET /projects | jq -r --arg n "$NAME" '[.[] | select(.name == $n)][0].id // empty'; }
 
@@ -63,7 +82,7 @@ supabase_create() {
   local password; password="$(openssl rand -hex 32)"
   printf '%s' "$password" | secret_put "$NAME-db-owner"
   jq -nc --arg n "$NAME" --arg o "$SUPABASE_ORG_ID" --arg r "$SUPABASE_REGION" --arg p "$password" \
-    '{name:$n, organization_slug:$o, region:$r, db_pass:$p}' | supabase_api POST /projects body >/dev/null
+    '{name:$n, organization_slug:$o, region:$r, db_pass:$p, desired_instance_size:"micro"}' | supabase_api POST /projects body >/dev/null
 }
 
 supabase_wait() {
@@ -125,10 +144,10 @@ tfvars() { # IMAGE
   [[ "$ENV_NAME" == production ]] && others="$(jq -nc --arg a "packages-api-staging.$DOMAIN" --arg c "packages-content-staging.$DOMAIN" \
     --arg extra "${RATE_LIMIT_EXTRA_HOSTS:-}" '[$a,$c] + ($extra | split(" ") | map(select(. != "")))')"
   jq -n --slurpfile s "$WORK/supabase.json" --arg env "$ENV_NAME" --arg project "$GCP_PROJECT_ID" \
-    --arg billing "$GCP_BILLING_ACCOUNT" --arg cfa "$CLOUDFLARE_ACCOUNT_ID" --arg cfz "$CLOUDFLARE_ZONE_ID" \
+    --arg cfa "$CLOUDFLARE_ACCOUNT_ID" --arg cfz "$CLOUDFLARE_ZONE_ID" \
     --arg api "$(host packages-api)" --arg web "$(host packages)" --arg content "$(host packages-content)" \
     --arg image "$1" --argjson others "$others" '{
-      environment:$env, project_id:$project, billing_account:$billing,
+      environment:$env, project_id:$project,
       cloudflare_account_id:$cfa, cloudflare_zone_id:$cfz,
       api_hostname:$api, website_hostname:$web, content_hostname:$content, image:$image,
       supabase_project_ref:$s[0].ref, supabase_publishable_key:$s[0].publishable_key,
@@ -240,6 +259,7 @@ step_release() {
 
 main() {
   load_config
+  ensure_budget
   [[ "$STEP" == supabase ]] || tf_init
   case "$STEP" in
     all) step_supabase; step_infra; step_github; step_database; step_release; step_smoke ;;

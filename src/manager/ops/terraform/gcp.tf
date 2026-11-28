@@ -188,24 +188,3 @@ resource "google_cloud_run_v2_service_iam_member" "public" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
-
-resource "google_billing_budget" "registry" {
-  billing_account = var.billing_account
-  display_name    = local.name
-  budget_filter {
-    projects = ["projects/${data.google_project.this.number}"]
-  }
-  amount {
-    specified_amount {
-      currency_code = "USD"
-      units         = tostring(var.monthly_budget_usd)
-    }
-  }
-  dynamic "threshold_rules" {
-    for_each = [0.5, 0.9, 1.0]
-    content {
-      threshold_percent = threshold_rules.value
-    }
-  }
-  depends_on = [google_project_service.required]
-}
