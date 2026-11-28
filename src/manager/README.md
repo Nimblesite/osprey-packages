@@ -17,7 +17,7 @@ The loopback consumer uses Default-flavor source. Real compiler checks also pass
 | `core/tests/`, `cli/tests/` | Core and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
 | `core/fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
 | `sample-registry/` | Example release trees |
-| `e2e/` | Loopback server/client demo and Default-flavor consumer |
+| `cli/e2e/` | Loopback server/client demo and Default-flavor consumer |
 | `core/blockers/` | Explicit probes for incomplete host capabilities |
 | `schemas/package-registry.td` | Canonical domain model shared with the Package Domain Model spec |
 
@@ -40,10 +40,10 @@ The server reads `sample-registry/` and listens on `http://127.0.0.1:8787`. Leav
 
 ```sh
 curl http://127.0.0.1:8787/v1/packages
-echo "lock --project $PWD/src/manager/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
-echo "fetch --project $PWD/src/manager/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
-echo "verify --offline --project $PWD/src/manager/e2e/consumer" | ./target/osprey-pkg
-echo "build --run --compiler $PWD/target/osprey/osprey --project $PWD/src/manager/e2e/consumer" | ./target/osprey-pkg
+echo "lock --project $PWD/src/manager/cli/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
+echo "fetch --project $PWD/src/manager/cli/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
+echo "verify --offline --project $PWD/src/manager/cli/e2e/consumer" | ./target/osprey-pkg
+echo "build --run --compiler $PWD/target/osprey/osprey --project $PWD/src/manager/cli/e2e/consumer" | ./target/osprey-pkg
 ```
 
 Every client command prints `status: N`; require `0`. The frontend reads one command from stdin because argument-vector and process-exit-status builtins are unavailable. The stdin entry splits on whitespace, so paths containing spaces are not supported there. Prefix a command with `--json` for a structured report. The [command reference](https://www.ospreylang.dev/docs/package-manager/#commands) covers local overrides, publication and update behavior.

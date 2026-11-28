@@ -36,7 +36,7 @@ canary: export OSPREY_E2E_MEMORY = $(CLI_MEMORY)
 canary: $(TOOLCHAIN)
 	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/core/fixture-check --memory=$(CLI_MEMORY))
 	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY)
-	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY))
+	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/cli/e2e --memory=$(CLI_MEMORY))
 
 ## ci: Every check this host can run: each suite once, under its app's memory strategy, with coverage, the hashing and
 ##     website checks, then the per-project coverage gate (scripts/coverage-thresholds.json).
@@ -83,7 +83,7 @@ _package-hashing: $(TOOLCHAIN)
 # fixture value is schema-valid and canonically ordered, and every registry
 # source cites only defined sections. src/manager/manifest/tests is the TOML
 # parser and manifest-rule suite, a separate program until that code joins
-# core. src/manager/e2e runs last: it starts the
+# core. src/manager/cli/e2e runs last: it starts the
 # server over src/manager/sample-registry on 127.0.0.1:18797, compares every
 # endpoint with the pure router, fetches every release, and builds and runs a
 # consumer project against the fetched sources. Each suite runs once, under the memory strategy of the
@@ -118,7 +118,7 @@ _test_registry:
 	@echo "==> Registry (Osprey package system) tests..."
 	$(OSPREY) test src/manager/core/tests --memory=$(CLI_MEMORY) $(call registry_coverage,core-tests)
 	@echo "==> Registry end-to-end: server, fetch and consumer build..."
-	$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY) $(call registry_coverage,e2e)
+	$(OSPREY) test src/manager/cli/e2e --memory=$(CLI_MEMORY) $(call registry_coverage,cli-e2e)
 	$(OSPREY) test src/manager/api/tests --memory=$(API_MEMORY) $(call registry_coverage,api-tests)
 	$(OSPREY) test src/manager/web --memory=$(WASM_MEMORY) $(call registry_coverage,web)
 	$(OSPREY) test src/manager/editor/tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-tests)
