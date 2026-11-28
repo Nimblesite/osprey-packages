@@ -30,6 +30,7 @@ async function routeApi(page, website, api, state) {
   const preflight = route => route.fulfill({status:204, headers:{...headers,
     'access-control-allow-methods':'POST', 'access-control-allow-headers':'Content-Type'}});
   await page.route(api + '/v1/packages', route => route.fulfill({headers, json:{packages:[]}}));
+  await page.route(api + '/v1/account', route => route.fulfill({headers, json:{organizations:[], packages:[]}}));
   await page.route(api + '/v1/auth/session', route => route.fulfill({status:state.signedIn ? 200 : 401, headers,
     json:{authenticated:state.signedIn, csrfToken}}));
   await page.route(api + '/v1/auth/passkey/options', route => {

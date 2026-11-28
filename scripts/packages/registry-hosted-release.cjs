@@ -84,12 +84,56 @@ async function journey(page, current, steps) {
     `/v1/packages/${pkg}/releases`, `{"commit":"${commit}","epoch":2,"ordinal":13}`);
 }
 
+const otherOrg = '55555555-5555-4555-8555-555555555555';
+const otherPkg = '66666666-6666-4666-8666-666666666666';
+const listing = JSON.stringify({organizations: [{id: otherOrg, handle: 'atlas', name: 'Atlas'}, {id: 'bad', handle: 'ghost', name: 'Ghost'}],
+  packages: [{id: otherPkg, key: '@atlas/net', organizationId: otherOrg, epoch: 1, nextOrdinal: 3, bound: true, repositoryId: '4242', branch: 'main', subdirectory: ''},
+    {id: pkg, key: '@atlas/raw', organizationId: otherOrg, epoch: 2, nextOrdinal: 1, bound: false, repositoryId: null, branch: null, subdirectory: null}]});
+
+// A returning publisher [PACKAGE-HOSTED-PUBLISH-FLOW]: GET /v1/account offers each organization and
+// package; a choice carries its ids into the steps and the next version into the release form.
+async function returning(page, current, account, website, steps) {
+  const picker = page.locator('[data-release-pick]');
+  const choose = page.getByLabel('Continue with');
+  account.reply = {status: 503};
+  await page.goto(website + '/release/');
+  await picker.getByRole('status').filter({hasText: /./}).waitFor();
+  assert.equal(await picker.getByRole('status').textContent(), 'Your organizations and packages could not be loaded. Reload to retry.');
+  assert.deepEqual(await choose.locator('option').allTextContents(), ['A new organization']);
+  account.reply = {status: 200, body: listing};
+  await page.goto(website + '/release/');
+  await page.waitForFunction(() => document.querySelectorAll('[data-release-pick] option').length === 4);
+  assert.deepEqual(await choose.locator('option').allTextContents(), ['A new organization', '@atlas (organization)', '@atlas/net', '@atlas/raw'], 'a malformed id is never offered');
+  await choose.selectOption({label: '@atlas/net'});
+  assert.equal(await picker.getByRole('status').textContent(), '@atlas/net chosen. Its repository is linked: request the release in step 4.');
+  assert.equal(await steps.release.getByLabel('Version').inputValue(), 'e1.r3');
+  await fill(steps.release, {'Git commit': commit});
+  one(await submit(page, current, steps.release, 'Request release', {status: 201, body: `{"id":"${submission}"}`},
+    `Release requested. The registry fetches that commit, scans it and publishes it once a reviewer approves. Submission ID: ${submission}`),
+    `/v1/packages/${otherPkg}/releases`, `{"commit":"${commit}","epoch":1,"ordinal":3}`);
+  await choose.selectOption({label: '@atlas/raw'});
+  assert.equal(await picker.getByRole('status').textContent(), '@atlas/raw chosen. Link its GitHub repository in step 3.');
+  assert.equal(await steps.release.getByLabel('Version').inputValue(), 'e2.r1');
+  await choose.selectOption({label: '@atlas (organization)'});
+  assert.equal(await picker.getByRole('status').textContent(), '@atlas chosen. Create its package in step 2.');
+  await fill(steps.pkgStep, {'Package name': 'web'});
+  one(await submit(page, current, steps.pkgStep, 'Create package', {status: 201, body: `{"id":"${pkg}"}`}, 'Package created. Now link its GitHub repository.'),
+    `/v1/organizations/${otherOrg}/packages`, '{"name":"web"}');
+  await choose.selectOption({label: 'A new organization'});
+  assert.equal(await picker.getByRole('status').textContent(), '');
+  await fill(steps.pkgStep, {'Package name': 'web'});
+  assert.deepEqual(await submit(page, current, steps.pkgStep, 'Create package', {status: 201}, 'Create the organization first.'), [], 'a new organization clears the chosen ids');
+}
+
 const checkHostedRelease = browser => withHostedPage(browser, async ({page, website, api}) => {
   let session = 401;
   await page.route(api + '/v1/auth/session', route => route.fulfill({status: session, headers: {'access-control-allow-origin': website, 'access-control-allow-credentials': 'true'},
     json: {authenticated: session === 200, csrfToken}}));
   const current = {reply: null, requested: []};
   await routeApi(page, api, website, current);
+  const account = {reply: {status: 200, body: '{"organizations":[],"packages":[]}'}};
+  await page.route(api + '/v1/account', route => route.fulfill({status: account.reply.status, headers: {'access-control-allow-origin': website, 'access-control-allow-credentials': 'true'},
+    contentType: 'application/json', body: account.reply.body ?? '{"code":"x"}'}));
   await page.goto(website + '/release/');
   await page.locator('[data-session-url]').getByRole('link', {includeHidden: true}).waitFor();
   assert.equal(await page.locator('[data-release-steps]').isVisible(), false, 'signed out: no release steps');
@@ -104,6 +148,7 @@ const checkHostedRelease = browser => withHostedPage(browser, async ({page, webs
   assert.deepEqual(await submit(page, current, steps.pkgStep, 'Create package', {status: 201}, 'Create the organization first.'), [], 'no POST before an organization exists');
   await refusals(page, current, steps);
   await journey(page, current, steps);
+  await returning(page, current, account, website, steps);
 });
 
 module.exports = { checkHostedRelease };

@@ -213,11 +213,34 @@ function bindReleaseSteps(parts) {
     if (outcome === 'ok' && form.dataset.creates) section.dataset[form.dataset.creates] = rest[0];
     status.textContent = outcome === 'ok' ? `${rest[1]}${form.dataset.creates === 'submission' ? ' ' + rest[0] : ''}` : rest[0];
   }
-  for (const form of section.querySelectorAll('form')) {
+  for (const form of section.querySelectorAll('form[data-release-step]')) {
     form.addEventListener('submit', event => {
       event.preventDefault();
       submit(form).catch(() => { form.querySelector('[role=status]').textContent = 'The registry is unavailable. Try again shortly.'; });
     });
   }
-  return {open() { section.hidden = false; }, close() { section.hidden = true; }};
+  // A returning publisher continues with an organization or package from GET /v1/account.
+  const pick = section.querySelector('[data-release-pick]');
+  const choice = pick.querySelector('select');
+  let picks = [];
+  async function account() {
+    let code = '0', text = '';
+    try {
+      const response = await accountRequest(section.dataset.api + '/v1/account');
+      [code, text] = [String(response.status), oneLine(await response.text())];
+    } catch { /* the guest words a request that never completed */ }
+    const lines = (await guest(['release-account', code, text])).filter(Boolean).map(l => l.split('\t'));
+    choice.length = 1;
+    picks = lines.filter(([kind]) => kind === 'pick');
+    picks.forEach(([, label], i) => choice.add(new Option(label, String(i))));
+    pick.querySelector('[role=status]').textContent = lines.find(([kind]) => kind === 'error')?.[1] ?? '';
+  }
+  choice.addEventListener('change', () => {
+    const [, , organization, pkg, version, message] = (choice.value === '' ? undefined : picks[Number(choice.value)]) ?? ['', '', '', '', '', ''];
+    section.dataset.organization = organization;
+    section.dataset.package = pkg;
+    if (version) section.querySelector('[data-release-step=release] [name=version]').value = version;
+    pick.querySelector('[role=status]').textContent = message;
+  });
+  return {open() { section.hidden = false; account().catch(() => {}); }, close() { section.hidden = true; }};
 }

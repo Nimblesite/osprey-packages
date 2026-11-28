@@ -101,6 +101,7 @@ fn step(name, needs, creates, title, fields, action) = "<form data-release-step=
 /// The four steps of [PACKAGE-HOSTED-PUBLISH-FLOW], shown once the account panel verifies a session.
 fn releaseForm(origin, adapter, host, guest) = join([
         "<section data-release-steps data-api=\"${origin}\" hidden><h2>Release from GitHub</h2>",
+        "<form data-release-pick><label>Continue with <select name=\"existing\"><option value=\"\">A new organization</option></select></label><p role=\"status\"></p></form>",
         step(organization, "", organization, "1. Found an organization", textField("handle", "Handle", "required maxlength=\"39\"") + textField("name", "Name", "required maxlength=\"128\""), "Create organization"),
         step(package, organization, package, "2. Create its package", textField("name", "Package name", "required maxlength=\"64\""), "Create package"),
         step("repository", package, "", "3. Link its GitHub repository", textField("repositoryId", "GitHub repository ID", "required inputmode=\"numeric\" maxlength=\"19\"") + textField("branch", "Branch", "required maxlength=\"255\" value=\"main\"") + textField("subdirectory", "Subdirectory (blank for the repository root)", "maxlength=\"255\""), "Link repository"),
@@ -137,6 +138,10 @@ fn page() = {
             "release-request" => {
                 let name = trim(input())
                 ReleaseSteps::request(name, split(input(), "\t") ?: [])
+            }
+            "release-account" => {
+                let code = parseInt(trim(input())) ?: 0
+                ReleaseAccount::choices(code, input())
             }
             "release-reply" => {
                 let name = trim(input())

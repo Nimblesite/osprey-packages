@@ -117,6 +117,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
     if (signOutRequests === 1) return route.fulfill({status:503,headers,json:{code:'registry.not-ready',status:503}});
     return route.fulfill({status:204,headers});
   });
+  await page.route(api + '/v1/account', route => route.fulfill({status:200,headers,json:{organizations:[],packages:[]}}));
   for (const code of [401, 503, 200]) {
     await page.route(api + '/v1/auth/session', route => route.fulfill({status:code,headers,json:{authenticated:code === 200,csrfToken}}));
     await page.goto(website + '/release/');
