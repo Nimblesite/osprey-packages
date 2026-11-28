@@ -61,8 +61,8 @@ smoke 200
 if smoke 200 "308 https://packages.example.test/"; then echo "wrong website redirect passed" >&2; exit 1; fi
 if smoke 503; then echo "unavailable catalog passed production smoke" >&2; exit 1; fi
 
-mkdir -p "$work/archive/upload"
-for path in index.html upload/index.html module.mjs style.css site.wasm; do echo "$path" > "$work/archive/$path"; done
+mkdir -p "$work/archive/upload" "$work/archive/signin"
+for path in index.html upload/index.html signin/index.html module.mjs style.css site.wasm; do echo "$path" > "$work/archive/$path"; done
 cp -R "$work/archive" "$work/served"
 verify_site() {
   PATH="$work/bin:$PATH" SERVED_SITE="$work/served" WEBSITE_REDIRECT='308 https://packages.example.test/upload/?from=registry' \
@@ -94,9 +94,30 @@ failed=$?
 set -e
 [[ "$failed" != 0 && "$(tail -1 "$work/steps")" == step_database ]] || { echo "failed migration did not stop release" >&2; exit 1; }
 
+# The dispatch response identifies the only run this operator may accept.
+verify_dispatch() (
+  source "$root/src/manager/ops/deploy.sh" production release
+  gh() {
+    if [[ "$1 $2" == "workflow run" ]]; then
+      [[ "$*" == *"expected_sha=$(git rev-parse HEAD)"* ]] || return 91
+      echo "$1" >> "$work/dispatched"
+      echo "$DISPATCH_URL"
+    elif [[ "$1 $2 $3" == "run watch 123" ]]; then
+      echo watched >> "$work/dispatched"
+    else
+      return 92
+    fi
+  }
+  dispatch
+)
+DISPATCH_URL=https://github.com/Nimblesite/osprey-packages/actions/runs/123 verify_dispatch
+printf '%s\n' workflow watched | diff - "$work/dispatched"
+if DISPATCH_URL=https://github.com/other/project/actions/runs/123 verify_dispatch; then exit 1; fi
+
 need() { grep -Fq -- "$2" "$root/$1" || { echo "$1 lost its main-only guard: $2" >&2; exit 1; }; }
 need .github/workflows/deploy.yml 'run: test "$GITHUB_REF" = refs/heads/main'
 need .github/workflows/deploy.yml 'needs: main-only'
+need .github/workflows/deploy.yml 'run: test "$GITHUB_SHA" = "$EXPECTED_SHA"'
 need .github/workflows/pages.yml 'run: test "$GITHUB_REF" = refs/heads/main'
 need src/manager/ops/terraform/identity.tf "assertion.ref == 'refs/heads/main'"
 need src/manager/ops/deploy.sh '--ref main'

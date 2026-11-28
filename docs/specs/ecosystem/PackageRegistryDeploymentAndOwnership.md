@@ -223,6 +223,8 @@ Pin external actions referenced in repository workflows and composite actions to
 
 Build a native Osprey API container and static WASM artifact from one reviewed commit, with immutable image/artifact digests and a manifest binding compiler, policy, schema, frontend, API and tests. Deploy the identical artifacts to production, the only environment, with pinned secret versions; a test environment, if one is ever needed, is an exact paused copy of production. Runtime secrets are in Secret Manager and Supabase's provider configuration; deployment uses short-lived federated CI identity with separate deploy/migration/runtime permissions. No secrets enter an image, build argument, log or frontend.
 
+The release dispatch must bind the workflow to the same main commit used for migration. Watch only the run returned by that dispatch and fail if its identity is unavailable.
+
 Both operator and workflow Pages uploads must verify the singular hostname preserves the upload path and query in its permanent redirect. Fetch the canonical homepage, upload page, JavaScript, CSS and WASM over HTTPS and compare their bytes with the uploaded archive before reporting success.
 
 Standalone production smoke checks use read-only requests and existing service metadata. They must fail when the public catalog returns an error. They must never provision resources, change IAM, link billing or run migrations.

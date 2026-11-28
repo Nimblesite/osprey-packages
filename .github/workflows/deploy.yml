@@ -8,6 +8,10 @@ name: Deploy
 on:
   workflow_dispatch:
     inputs:
+      expected_sha:
+        description: Reviewed main commit for this release
+        type: string
+        required: true
       environment:
         description: Target environment
         type: choice
@@ -30,6 +34,11 @@ jobs:
     steps:
       - name: Refuse any ref but main
         run: test "$GITHUB_REF" = refs/heads/main
+
+      - name: Verify reviewed release commit
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: test "$GITHUB_SHA" = "$EXPECTED_SHA"
 
   ci:
     needs: main-only

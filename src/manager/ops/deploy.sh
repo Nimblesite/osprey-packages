@@ -284,12 +284,11 @@ step_github() {
 }
 
 dispatch() {
-  local before; before="$(gh run list --repo "$REPO" --workflow=deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')"
-  gh workflow run deploy.yml --repo "$REPO" --ref main -f environment="$ENV_NAME"
-  local run=""
-  while [[ -z "$run" || "$run" == "$before" ]]; do sleep 5
-    run="$(gh run list --repo "$REPO" --workflow=deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-  done
+  local url run sha
+  sha="$(git -C "$ROOT" rev-parse HEAD)"
+  url="$(gh workflow run deploy.yml --repo "$REPO" --ref main -f environment="$ENV_NAME" -f expected_sha="$sha")" || die "workflow dispatch failed"
+  run="${url##*/}"
+  [[ "$run" =~ ^[1-9][0-9]*$ && "$url" == "https://github.com/$REPO/actions/runs/$run" ]] || die "GitHub did not identify the dispatched run"
   log "watching deploy run $run (CI at the exact SHA first)"
   gh run watch "$run" --repo "$REPO" --exit-status >&2
 }
