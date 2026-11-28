@@ -11,6 +11,7 @@ module ScanJob {
         query: fn(string) -> Result<string, string>
         bundle: fn(string, string) -> Result<string, string>
         settings: fn() -> Result<string, string>
+        store: fn(string, string) -> Result<string, string>
     }
 
     fn query(statement, values) = perform Inputs.query(Database::scanScript(statement, values))
@@ -63,7 +64,8 @@ module ScanJob {
         let id = field(doc, "id")
         if !Bytes::canonicalUuid(id) { Error { message: "publication.release-job" } }
         else { andThen(Digests::parse(field(doc, "digest")), fn(digest) => andThen(perform Inputs.bundle(id, digest), fn(bytes) =>
-                    andThen(PublicationScan::listed(field(doc, "dir"), digest, bytes), fn(found) => published(id, found)))) }
+                    andThen(PublicationScan::listed(field(doc, "dir"), digest, bytes), fn(found) =>
+                        andThen(perform Inputs.store(digest, bytes), fn(_stored) => published(id, found))))) }
     }
 
     /// Publish one approved version from its frozen bundle, or "idle" when none waits [PACKAGE-HOSTED-PUBLISH-FLOW].

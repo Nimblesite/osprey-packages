@@ -46,6 +46,7 @@ module ScanWorkerTests {
         query script => Database::completed(CatalogWriter::piped("registry_scan_worker", script), "fixture.pg")
         bundle requested pinned => if requested == id && pinned == digest { Success { value: bytes } } else { Error { message: "fixture.missing-bundle" } }
         settings => Success { value: "{\"configId\":\"${session}\",\"apiKey\":\"test\",\"agentRevision\":\"sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765\"}" }
+        store pinned frozen => FixtureObjects::store("target/live-published", pinned, frozen)
     }
 
     export fn scanned(id, digest, bytes, verdict) = mounts(id, digest, bytes)(fn() => agent(verdict)(fn() => ScanJob::run(id)))

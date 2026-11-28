@@ -1,0 +1,32 @@
+namespace registry_api_tests;
+import registry_api::CloudObjects
+import registry_api::Supabase
+
+/// Storage-boundary checks for immutable release bytes [PACKAGE-HOSTED-PUBLISH-FLOW].
+module ObjectTests {
+    let pin = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    fn hexName() = drop(pin, 7) + ".json"
+    let job = "11111111-1111-4111-8111-111111111111"
+
+    fn transport(name, status) = handler Supabase::Provider {
+        request method base path headers body =>
+        if method == "GET" && base == "http://metadata.google.internal" && path == "/computeMetadata/v1/instance/service-accounts/default/token"
+        && headers == "Metadata-Flavor: Google" && body == "" { Success { value: Supabase::Reply { status: 200, body: "{\"token_type\":\"Bearer\",\"access_token\":\"fixture\"}" } } }
+        else if method == "POST" && base == "https://storage.googleapis.com" && headers == "Authorization: Bearer fixture\r\nContent-Type: application/json"
+        && path == "/upload/storage/v1/b/test-registry/o?uploadType=media&ifGenerationMatch=0&name=" + name && body == "frozen" {
+            Success { value: Supabase::Reply { status: status, body: "{}" } }
+        } else { Error { message: "unexpected request" } }
+    }
+
+    fn store(id, name, status, same) = transport(name, status)(fn() => CloudObjects::create("test-registry", id, pin, "frozen",
+            fn() => if same { Success { value: "matched" } } else { Error { message: "conflict" } })) ?: "refused"
+
+    export fn run() = test("object creation pins generation zero for both storage namespaces", fn() => checkAll("create, exact retry and refusal", [
+                store("", hexName(), 200, false) == hexName(),
+                store(job, job + "%2F" + hexName(), 200, false) == job + "%2F" + hexName(),
+                store("", hexName(), 412, true) == "matched",
+                store("", hexName(), 412, false) == "refused",
+                store("", hexName(), 403, true) == "refused",
+                store("", hexName(), 503, true) == "refused"
+    ]))
+}

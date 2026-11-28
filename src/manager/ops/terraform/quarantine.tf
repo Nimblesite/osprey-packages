@@ -24,6 +24,16 @@ resource "google_storage_bucket_iam_member" "quarantine" {
   member   = "serviceAccount:${google_service_account.publication[each.key].email}"
 }
 
+# [PLAN-ROLLOUT-PUBLICATION-SOURCE] The scanner publishes: it creates each approved bundle in the
+# published-source bucket the API serves from and reads it back. Create and read only: no delete,
+# so an object it wrote is never replaced.
+resource "google_storage_bucket_iam_member" "published_source_writer" {
+  for_each = toset(["roles/storage.objectCreator", "roles/storage.objectViewer"])
+  bucket   = google_storage_bucket.published_source.name
+  role     = each.value
+  member   = "serviceAccount:${google_service_account.publication["scanner"].email}"
+}
+
 # The agent configuration (including its API key) is supplied directly in Secret Manager.
 # Each publication identity can read its own database login. The listener receives neither.
 moved {
@@ -101,6 +111,10 @@ resource "google_cloud_run_v2_job" "scan" {
       containers {
         image   = var.image
         command = ["/usr/local/bin/registry-scan-once"]
+        env {
+          name  = "REGISTRY_OBJECT_BUCKET"
+          value = google_storage_bucket.published_source.name
+        }
         resources {
           limits = { cpu = "1", memory = "1Gi" }
         }
@@ -114,6 +128,10 @@ resource "google_cloud_run_v2_job" "scan" {
         volume_mounts {
           name       = "quarantine"
           mount_path = "/run/registry-quarantine"
+        }
+        volume_mounts {
+          name       = "published-source"
+          mount_path = "/run/registry-source"
         }
       }
       dynamic "volumes" {
@@ -134,6 +152,13 @@ resource "google_cloud_run_v2_job" "scan" {
         name = "quarantine"
         gcs {
           bucket    = google_storage_bucket.quarantine.name
+          read_only = true
+        }
+      }
+      volumes {
+        name = "published-source"
+        gcs {
+          bucket    = google_storage_bucket.published_source.name
           read_only = true
         }
       }

@@ -44,7 +44,7 @@ module LoginKms {
 
     fn ciphertext(limit, doc) = disclosed(envelopeOk(limit, AuthText::field(doc, "ciphertext")), AuthText::field(doc, "ciphertext"))
 
-    fn credentials() = andThen(perform Supabase::Provider.request("GET", "http://metadata.google.internal",
+    export fn credentials() = andThen(perform Supabase::Provider.request("GET", "http://metadata.google.internal",
             "/computeMetadata/v1/instance/service-accounts/default/token", "Metadata-Flavor: Google", ""), fn(reply) => andThen(json(8192, reply), token))
 
     fn request(key, operation, token, body, limit, read) = andThen(perform Supabase::Provider.request("POST", "https://cloudkms.googleapis.com",

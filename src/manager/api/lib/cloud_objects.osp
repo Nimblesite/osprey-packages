@@ -1,0 +1,33 @@
+namespace registry_api;
+import registry::Bytes
+import registry::Digests
+import registry_host::Host
+
+/// One atomic Cloud Storage media insert per frozen bundle [PACKAGE-HOSTED-PUBLISH-FLOW].
+module CloudObjects {
+    let failure = "publication.object-store"
+
+    fn created(bucket, name, bytes, token, existing) = andThen(perform Supabase::Provider.request("POST", "https://storage.googleapis.com",
+            "/upload/storage/v1/b/${bucket}/o?uploadType=media&ifGenerationMatch=0&name=${name}",
+            "Authorization: Bearer ${token}\r\nContent-Type: application/json", bytes), fn(reply) =>
+        if reply.status == 200 { Success { value: name } }
+        else if reply.status == 412 { existing() }
+        else { Error { message: failure } })
+
+    export fn create(bucket, job, digest, bytes, existing) = if byteLength(bucket) < 3 || byteLength(bucket) > 63
+    || !Bytes::everyByte(bucket, fn(b) => Bytes::isLowerDigitIn(b, [Bytes::hyphen]))
+    || (job != "" && !Bytes::canonicalUuid(job)) { Error { message: failure } }
+    else { andThen(Digests::parse(digest), fn(pin) => andThen(LoginKms::credentials(), fn(token) =>
+                created(bucket, (if job == "" { "" } else { job + "%2F" }) + Digests::hexOf(pin) + ".json", bytes, token, existing))) }
+
+    fn matches(path, bytes) = andThen(fileSize(path), fn(size) => if size != byteLength(bytes) { Error { message: failure } }
+        else { andThen(readFile(path), fn(found) => if found == bytes { Success { value: path } } else { Error { message: failure } }) })
+
+    /// Each workload selects its bucket from deployment configuration. Its mount is used only to verify exact retries.
+    export fn mounted(root, job, digest, bytes) = {
+        let bucket = perform Host::Process.run("printenv REGISTRY_OBJECT_BUCKET")
+        let path = root + "/" + (if job == "" { "" } else { job + "/" }) + Digests::hexOf(digest) + ".json"
+        if bucket.status != 0 { Error { message: failure } }
+        else { create(trim(bucket.stdout), job, digest, bytes, fn() => matches(path, bytes)) }
+    }
+}

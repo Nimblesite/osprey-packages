@@ -1,0 +1,24 @@
+namespace registry_live_tests;
+import registry::Digests
+import registry_host::Host
+
+module FixtureObjects {
+    /// A hard link installs the completed fixture bytes atomically and refuses to replace an existing file.
+    export fn store(dir, digest, bytes) = {
+        let staged = perform Host::Process.run("mkdir -p " + Host::shellWord(dir) + " && mktemp " + Host::shellWord(dir) + "/.bundle.XXXXXXXX")
+        let temp = trim(staged.stdout)
+        let path = dir + "/" + Digests::hexOf(digest) + ".json"
+        if staged.status != 0 { Error { message: "fixture.stage" } }
+        else { install(temp, path, bytes) }
+    }
+
+    fn install(temp, path, bytes) = {
+        let written = andThen(writeFile(temp, bytes), fn(_) => {
+                let link = perform Host::Process.run("ln " + Host::shellWord(temp) + " " + Host::shellWord(path))
+                if link.status == 0 { Success { value: path } }
+                else { andThen(readFile(path), fn(found) => if found == bytes { Success { value: path } } else { Error { message: "fixture.conflict" } }) }
+        })
+        let clean = perform Host::Process.run("rm -f " + Host::shellWord(temp))
+        if clean.status == 0 { written } else { Error { message: "fixture.cleanup" } }
+    }
+}

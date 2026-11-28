@@ -11,6 +11,7 @@ module HostedSuite {
         ListenerTests::run()
         MemoTests::run()
         ScanTests::run()
+        ObjectTests::run()
         0
     }
 

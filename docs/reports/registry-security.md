@@ -24,7 +24,9 @@ The regression applies the simulated revocation before the publication statement
 
 ## Published-source creation on filesystem mounts
 
-**Open · [PACKAGE-HOSTED-PUBLISH-FLOW].** The proposed filesystem writer checks existing contents, then uses an ordinary write after any read failure. Those operations alone do not ensure atomic creation during concurrent writes. The Cloud Storage role restricts object overwrites separately. Verify create-only semantics on each supported backend before claiming that guarantee.
+**Fixed on feature branch · [PACKAGE-HOSTED-PUBLISH-FLOW].** The collector and scanner previously attempted an ordinary write after a read failure. Both now request an atomic generation-zero insert at the Cloud Storage API. A precondition failure succeeds only if the job can read back the exact existing bytes. The scanner’s source mount is read-only. A collector with only object-creation permission cannot verify an existing object after a lost response and must fail closed until readback or recovery is provisioned.
+
+Transport fixtures verified the precondition and retry decisions. A local concurrency check ran 16 conflicting writes against the hard-link fixture and observed one winner. Eight identical retries succeeded. Cloud deployment and provider-backed concurrency verification remain open.
 
 ## Production observations
 

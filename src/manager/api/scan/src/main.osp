@@ -15,12 +15,13 @@ fn mounted() = handler ScanJob::Inputs {
     query script => Database::scan(script)
     bundle id digest => frozen(id, digest)
     settings => readFile("/run/registry-scan/agent.json")
+    store digest bytes => CloudObjects::mounted("/run/registry-source", "", digest, bytes)
 }
 
 /// Scan one waiting version, then publish one approved version [PACKAGE-HOSTED-PUBLISH-FLOW].
-fn work() = ProviderNative::bounded(120000)(fn() => match andThen(ScanJob::run(input()), fn(_) => ScanJob::publish()) {
-        Success => 0
-        Error => 1
-})
+fn work() = match andThen(ScanJob::run(input()), fn(_) => ScanJob::publish()) {
+    Success => 0
+    Error => 1
+}
 
-fn main() = print("status: ${Policy::guarded(fn() => Native::session(fn() => mounted()(work)))}")
+fn main() = print("status: ${Policy::guarded(fn() => Native::session(fn() => ProviderNative::bounded(120000)(fn() => mounted()(work))))}")
