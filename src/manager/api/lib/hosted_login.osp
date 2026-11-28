@@ -36,7 +36,7 @@ module HostedLogin {
         let sessionKey = field(doc, "sessionKmsKey")
         let disabled = key == "" && sessionKey == "" && oauth.supabaseOrigin == "" && oauth.publishableKey == ""
         let sessionReady = sessionKey == "" || (sessionKey != key && LoginKms::validKey(sessionKey))
-        let forge = ForgeGithub::App { id: field(doc, "forgeAppId"), installation: field(doc, "forgeInstallationId"), key: field(doc, "forgeKmsKey") }
+        let forge = ForgeGithub::appOf(doc)
         let forgeReady = forge.id + forge.installation + forge.key == "" || ForgeGithub::configured(forge)
         if forgeReady && (disabled || (sessionReady && LoginKms::validKey(key) && OAuth::configCode(oauth) == "")) {
             Success { value: Settings { oauth: oauth, key: key, sessionKey: sessionKey, forge: forge } }

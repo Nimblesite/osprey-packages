@@ -1,6 +1,7 @@
 namespace registry_api;
 import registry_collect::CollectJob
 import registry::Policy
+import registry_host::Host
 import registry_host::Database
 import registry_host::Native
 
@@ -10,7 +11,10 @@ fn mounted() = handler CollectJob::Inputs {
 }
 
 /// Freeze one waiting release intent [PACKAGE-HOSTED-PUBLISH-FLOW].
-fn work() = match Forge::closed()(fn() => CollectJob::run()) {
+fn collect() = andThen(readFile("/run/registry-collector/forge.json"), fn(source) =>
+    andThen(ForgeGithub::collectorApp(source), fn(app) => ForgeGithub::github(app, Host::utcSeconds)(CollectJob::run)))
+
+fn work() = match collect() {
     Success => 0
     Error => 1
 }

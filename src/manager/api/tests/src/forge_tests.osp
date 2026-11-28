@@ -146,6 +146,13 @@ module ForgeTests {
         let misconfigured = "auth.configuration"
         checkAll("the API starts with a whole App or none", [
                 code(settings("")) == "",
+                code(ForgeGithub::collectorApp("{}")) == Forge::unconfigured,
+                code(ForgeGithub::collectorApp("invalid")) == ForgeGithub::unavailable,
+                code(ForgeGithub::collectorApp(runtime(installed))) == Forge::unconfigured,
+                match ForgeGithub::collectorApp(runtime(installed + member("forgeKmsKey", key))) {
+                    Success { value } => (github("")(fn() => ForgeGithub::github(value, clock)(fn() => perform Forge::Repository.admin("4242", "7201"))) ?: false)
+                    Error => false
+                },
                 match settings(installed + member("forgeKmsKey", key)) {
                     Success { value } => ForgeGithub::configured(value.forge)
                     Error => false

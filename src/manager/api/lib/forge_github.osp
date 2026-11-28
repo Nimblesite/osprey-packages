@@ -30,6 +30,14 @@ module ForgeGithub {
         Error => false
     }
 
+    export fn appOf(doc) = App { id: AuthText::field(doc, "forgeAppId"), installation: AuthText::field(doc, "forgeInstallationId"), key: AuthText::field(doc, "forgeKmsKey") }
+
+    /// A collector deployment must identify its App before opening the release queue.
+    export fn collectorApp(text) = andThen(parsed(text), fn(doc) => {
+            let app = appOf(doc)
+            if configured(app) { Success { value: app } } else { Error { message: Forge::unconfigured } }
+    })
+
     /// True when every part of `app` is well formed; an empty App leaves the forge closed.
     export fn configured(app: App) = Forge::repositoryOk(app.id) && Forge::repositoryOk(app.installation) && keyOk(app.key)
 
