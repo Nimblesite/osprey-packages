@@ -71,7 +71,7 @@ module Probes {
 
     fn runBuild(cwd, args) = buildProcess(cwd)(fn() => Build::run(args))
 
-    fn configText(cwd) = "{\"address\":\"127.0.0.1\",\"port\":${port},\"root\":\"${cwd}/${managerDir}/sample-registry\"}"
+    fn configText(cwd) = "{\"address\":\"127.0.0.1\",\"port\":${port},\"root\":\"${cwd}/${managerDir}/cli/e2e/sample-registry\"}"
 
     /// Build the server binary and start it in the work directory, where it
     /// reads `registry-server.json`; `exec` keeps the recorded PID the server's.
@@ -362,7 +362,7 @@ module Probes {
         concatAll([endpoints, fetches, files, projects(cwd, catalog)])
     }
 
-    fn catalogOf(cwd) = match Loader::load("${cwd}/${managerDir}/sample-registry") {
+    fn catalogOf(cwd) = match Loader::load("${cwd}/${managerDir}/cli/e2e/sample-registry") {
         Success { value } => value
         Error { message } => Release::Catalog { served: [], refused: [Release::Refused { dir: cwd, code: message }], yanked: [] }
     }

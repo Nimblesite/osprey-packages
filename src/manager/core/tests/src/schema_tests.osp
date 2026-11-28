@@ -5,7 +5,7 @@ module SchemaTests {
     fn modelReference() = {
         let spec = readFile("docs/specs/ecosystem/PackageDomainModel.md") ?: ""
         checkAll("spec references the canonical package model once", [
-                length(split(spec, "(../../../src/manager/schemas/package-registry.td)") ?: []) == 2,
+                length(split(spec, "(../../../src/manager/core/schemas/package-registry.td)") ?: []) == 2,
                 !contains(spec, "```typediagram")
         ])
     }

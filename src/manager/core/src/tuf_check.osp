@@ -151,7 +151,7 @@ module TufCheck {
     else { "" }
 
     /// The release-status state machine over two full ReleaseStatus records
-    /// (src/manager/schemas/package-registry.td); `previous` is `Json::Null` for the
+    /// (src/manager/core/schemas/package-registry.td); `previous` is `Json::Null` for the
     /// first record of a sequence. Answers "" or the first rule the pair
     /// breaks. Implements [PACKAGE-TRUST].
     export fn statusTransition(previous, next) = match previous {

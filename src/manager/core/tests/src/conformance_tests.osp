@@ -12,8 +12,8 @@ module ConformanceTests {
     let roots = "src/manager"
 
     fn classification() = checkAll("only Osprey source and declarative inputs pass", [
-            length(Conformance::violations(["src/manager/core/src/names.osp", "src/manager/x.ospml", "src/manager/schemas/package-registry.td"])) == 0,
-            length(Conformance::violations(["src/manager/core/osprey.toml", "src/manager/core/tests/fixtures/manifest.json", "src/manager/README.md", "src/manager/sample-registry/@demo/pyadd/1.1/uv.lock"])) == 0,
+            length(Conformance::violations(["src/manager/core/src/names.osp", "src/manager/x.ospml", "src/manager/core/schemas/package-registry.td"])) == 0,
+            length(Conformance::violations(["src/manager/core/osprey.toml", "src/manager/core/tests/fixtures/manifest.json", "src/manager/README.md", "src/manager/cli/e2e/sample-registry/@demo/pyadd/1.1/uv.lock"])) == 0,
             length(Conformance::violations(["src/manager/web/assets/registry.css", "src/manager/web/assets/registry-mark.svg", "src/manager/web/assets/_headers", "src/manager/web/assets/registry-form.mjs", "src/manager/web/assets/registry-catalog.mjs", "src/manager/web/assets/list-filter.mjs"])) == 0,
             length(Conformance::violations(["src/manager/web/assets/app.js", "src/manager/core/_headers"])) == 2,
             length(Conformance::violations(["src/manager/ops/Dockerfile", "src/manager/core/Dockerfile"])) == 1,

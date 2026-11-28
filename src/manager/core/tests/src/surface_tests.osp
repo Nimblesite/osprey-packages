@@ -161,7 +161,7 @@ module SurfaceTests {
             }
     ])
 
-    fn sampleFile(release, path) = file(path, readFile("src/manager/sample-registry/${release}/${path}") ?: "<missing>")
+    fn sampleFile(release, path) = file(path, readFile("src/manager/cli/e2e/sample-registry/${release}/${path}") ?: "<missing>")
 
     fn unknownBuiltin() = checkAll("unclassified terminal operations block publication", [
             surfaceOf("termUnclassified()", ioUnknown),

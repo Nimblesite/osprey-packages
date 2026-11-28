@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-TYPE-INVARIANTS]",
-  "description": "Release-status state transitions per the Package Domain Model spec: sequence starts at one and increments exactly; only Eligible-to-Yanked, Eligible-to-Revoked and Yanked-to-Revoked; later records carry previousStatus = H(\"osprey.release-status.v1\", precedingRecord) and a reason digest, initial Eligible carries neither. Records follow src/manager/schemas/package-registry.td type ReleaseStatus; digests computed independently with python hashlib. `malformed` chains break the record schema on purpose: the transition check must still refuse them, never treat an absent field as a value.",
+  "description": "Release-status state transitions per the Package Domain Model spec: sequence starts at one and increments exactly; only Eligible-to-Yanked, Eligible-to-Revoked and Yanked-to-Revoked; later records carry previousStatus = H(\"osprey.release-status.v1\", precedingRecord) and a reason digest, initial Eligible carries neither. Records follow src/manager/core/schemas/package-registry.td type ReleaseStatus; digests computed independently with python hashlib. `malformed` chains break the record schema on purpose: the transition check must still refuse them, never treat an absent field as a value.",
   "chains": [
     {
       "description": "valid Eligible(1) -> Yanked(2) -> Revoked(3) for @finch/ledger",

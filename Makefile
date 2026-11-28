@@ -83,7 +83,7 @@ _package-hashing: $(TOOLCHAIN)
 # fixture value is schema-valid and canonically ordered, and every registry
 # source cites only defined sections. src/manager/core/tests also runs the TOML
 # parser, manifest-rule and SAT resolver suites. src/manager/cli/e2e runs last: it starts the
-# server over src/manager/sample-registry on 127.0.0.1:18797, compares every
+# server over src/manager/cli/e2e/sample-registry on 127.0.0.1:18797, compares every
 # endpoint with the pure router, fetches every release, and builds and runs a
 # consumer project against the fetched sources. Each suite runs once, under the memory strategy of the
 # app it tests; the TAP runner propagates failed checks.
@@ -139,7 +139,7 @@ registry-serve: target/osprey-registry target/local-registry.stamp
 	  > target/local-registry-server/registry-server.json
 	cd target/local-registry-server && $(abspath target/osprey-registry)
 
-# _registry-serve-sample: Serve src/manager/sample-registry (the @demo packages the e2e consumer
+# _registry-serve-sample: Serve src/manager/cli/e2e/sample-registry (the @demo packages the e2e consumer
 #                        uses) on 127.0.0.1:8787 (settings in src/manager/api/registry-server.json).
 _registry-serve-sample: $(TOOLCHAIN)
 	cd src/manager/api && $(OSPREY) . --run

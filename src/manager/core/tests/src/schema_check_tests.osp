@@ -7,14 +7,14 @@ import registry::SchemaCheck
 /// The typeDiagram schema validator, exercised through the declarative
 /// fixtures under src/manager/core/tests/fixtures/schema and .../time. `SchemaCheck`
 /// pins the JSON encoding rules of [PACKAGE-TYPE-INVARIANTS] against the
-/// canonical src/manager/schemas/package-registry.td, which is parsed once per test.
+/// canonical src/manager/core/schemas/package-registry.td, which is parsed once per test.
 module SchemaCheckTests {
     /// The label of the parse checks the validator cases share.
     let diagramParses = "typeDiagram parses"
     /// The located refusal of a schema document that is no JSON.
     let nonIntegerAt = "json.non-integer@0"
 
-    let schemaPath = "src/manager/schemas/package-registry.td"
+    let schemaPath = "src/manager/core/schemas/package-registry.td"
 
     fn isAlias(decl) = match decl {
         TypeDiagram::Alias { _ } => true

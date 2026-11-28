@@ -2,7 +2,7 @@ namespace registry;
 
 /// The canonical manifest: the typeDiagram `PackageManifest` and its parts,
 /// as `osprey.toml` projects onto them. Field names follow
-/// `src/manager/schemas/package-registry.td` exactly so the JSON projection is mechanical.
+/// `src/manager/core/schemas/package-registry.td` exactly so the JSON projection is mechanical.
 /// Implements the canonical-manifest rule of [PACKAGE-TYPE-INVARIANTS].
 module ManifestModel {
     /// A pinned dependency: the package, the compatibility epoch it must be in and the lowest ordinal accepted.

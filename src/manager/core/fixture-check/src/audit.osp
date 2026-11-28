@@ -11,7 +11,7 @@ import registry::TypeDiagram
 /// encoding and list rules of [PACKAGE-TYPE-INVARIANTS].
 module Audit {
     let fixtureRoot = "src/manager/core/tests/fixtures"
-    let schemaPath = "src/manager/schemas/package-registry.td"
+    let schemaPath = "src/manager/core/schemas/package-registry.td"
 
     fn regular(walked) = match walked {
         Success { value } => value.regular

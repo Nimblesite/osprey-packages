@@ -17,10 +17,10 @@ The loopback consumer uses Default-flavor source. Real compiler checks also pass
 | `web/`, `web/editor/` | The registry website and the VS Code package workspace, both WASM |
 | `core/tests/`, `cli/tests/` | Core (with manifest and resolver) and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
 | `core/fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
-| `sample-registry/` | Example release trees |
+| `cli/e2e/sample-registry/` | Example release trees the loopback demo serves |
 | `cli/e2e/` | Loopback server/client demo and Default-flavor consumer |
 | `core/blockers/` | Explicit probes for incomplete host capabilities |
-| `schemas/package-registry.td` | Canonical domain model shared with the Package Domain Model spec |
+| `core/schemas/package-registry.td` | Canonical domain model shared with the Package Domain Model spec |
 
 These projects compose sibling modules through explicit `source_roots`. Registry suites are ordinary modules called by their project's `src/main.osp`; use the commands below rather than assuming test-file discovery selects them.
 
@@ -37,7 +37,7 @@ make build
 make _registry-serve-sample
 ```
 
-The server reads `sample-registry/` and listens on `http://127.0.0.1:8787`. Leave it running. In another terminal:
+The server reads `cli/e2e/sample-registry/` and listens on `http://127.0.0.1:8787`. Leave it running. In another terminal:
 
 ```sh
 curl http://127.0.0.1:8787/v1/packages
@@ -122,4 +122,4 @@ To browse local packages, start `make registry-serve`, then run `make _registry-
 
 [Organization governance](../../docs/specs/ecosystem/OrganizationPackageGovernance.md) prevents package-name sitting: `@org-a/helper-functions` and `@org-b/helper-functions` are independent valid keys. Every hosted package belongs to an organization, has one package administrator and permits multiple explicit publishing/maintenance permission holders. Personal ownership and global leaf-name reservations do not exist.
 
-The [typeDiagram](schemas/package-registry.td) defines the model and [DataProvider YAML](supabase/migrations/schema.yaml) defines ownership tables, pending GitHub logins, browser sessions and the public catalog projection. Bootstrap forces RLS and grants no runtime privileges. The public catalog has a dedicated reader policy; ownership writes remain disabled. Run `make _registry-migration-check` to build the pinned DataProvider CLI and verify the migration twice against a disposable PostgreSQL instance. The [rollout plan](../../docs/plans/package-manager.md) tracks the production rollout and authenticated writes.
+The [typeDiagram](core/schemas/package-registry.td) defines the model and [DataProvider YAML](supabase/migrations/schema.yaml) defines ownership tables, pending GitHub logins, browser sessions and the public catalog projection. Bootstrap forces RLS and grants no runtime privileges. The public catalog has a dedicated reader policy; ownership writes remain disabled. Run `make _registry-migration-check` to build the pinned DataProvider CLI and verify the migration twice against a disposable PostgreSQL instance. The [rollout plan](../../docs/plans/package-manager.md) tracks the production rollout and authenticated writes.

@@ -14,6 +14,6 @@
   },
   "osprey.diagnostics.exclude": [
     "src/manager/cli/e2e/consumer/**",
-    "src/manager/sample-registry/@demo/report/**"
+    "src/manager/cli/e2e/sample-registry/@demo/report/**"
   ]
 }

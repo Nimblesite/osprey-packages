@@ -107,7 +107,7 @@ module TufTests {
     /// Every record in every chain, valid or not as a transition, is a
     /// schema-valid `ReleaseStatus`: transition rules are tested on
     /// well-formed records only.
-    fn shapeTable() = match TypeDiagram::parse(readFile("src/manager/schemas/package-registry.td") ?: "") {
+    fn shapeTable() = match TypeDiagram::parse(readFile("src/manager/core/schemas/package-registry.td") ?: "") {
         Success { value } => Fixtures::report("release-status records are schema-valid", records(), fn(r) => schemaValid(value, r))
         Error { message } => check("typeDiagram parses", "", message)
     }

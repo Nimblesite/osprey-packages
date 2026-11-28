@@ -27,4 +27,4 @@ An organization owns a package. One administrator chooses its publishers. A publ
 
 A release follows its repository binding, intent, challenge and signed authorization. A client verifies its source digest, signed status, transparency log and witness receipts before activating it. Build plans and locks record the exact inputs needed to reproduce it. The final section describes assessment and discovery. See the [model invariants](PackageDomainInvariants.md).
 
-The canonical typeDiagram is [`package-registry.td`](../../../src/manager/schemas/package-registry.td).
+The canonical typeDiagram is [`package-registry.td`](../../../src/manager/core/schemas/package-registry.td).

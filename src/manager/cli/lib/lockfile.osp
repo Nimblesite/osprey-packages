@@ -18,7 +18,7 @@ import registry::Order
 /// so this lock is integrity-only. The edge projection is byte-identical to
 /// `ManifestJson` ([PACKAGE-MANIFEST]); the `ReleaseId` JSON is the
 /// `package`/`epoch`/`ordinal`/`digest` record of
-/// `src/manager/schemas/package-registry.td`.
+/// `src/manager/core/schemas/package-registry.td`.
 module Lockfile {
     /// The two lock members the reader requires of every root: its dependency edges and the digest of the manifest it was computed from.
     let dependenciesKey = "dependencies"
