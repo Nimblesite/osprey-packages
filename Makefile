@@ -197,7 +197,7 @@ _registry-migration-verify:
 	  migrate() { "$(abspath $(REGISTRY_MIGRATOR))" migrate --provider postgres --schema src/manager/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
-	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
+	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 18 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
 	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/api/tests/live --memory=$(API_MEMORY) $(call registry_coverage,api-tests-live)
 
 .PHONY: _registry-integration-check _registry-integration-verify
@@ -215,6 +215,7 @@ _registry-integration-verify:
 _registry-infra-check: export TF_DATA_DIR = $(CURDIR)/target/registry-infra/data
 _registry-infra-check:
 	shellcheck -S warning src/manager/ops/deploy.sh
+	node scripts/packages/test-edge-worker.mjs
 	terraform -chdir=$(REGISTRY_TERRAFORM) fmt -check
 	terraform -chdir=$(REGISTRY_TERRAFORM) init -backend=false -lockfile=readonly -input=false
 	terraform -chdir=$(REGISTRY_TERRAFORM) validate
