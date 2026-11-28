@@ -235,6 +235,17 @@ DO $$ BEGIN
   IF (SELECT count(*) FROM release_approvals) <> 1 OR EXISTS (SELECT FROM review_submissions WHERE ordinal=99)
   THEN RAISE EXCEPTION 'immutable decision or submission changed'; END IF;
 END $$;
+SAVEPOINT final_publish_authority;
+UPDATE package_permissions SET state='revoked' WHERE id=md5('grant')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
+SELECT pg_temp.require_denied('SELECT registry.publish_approved_release(md5(''1'')::uuid,''MIT'',''Test package'',''[]'',''[]'')');
+DO $$ BEGIN
+  IF registry.approved_release_job() IS NOT NULL THEN
+    RAISE EXCEPTION 'withdrawn publication authority still occupied the publication queue';
+  END IF;
+END $$;
+ROLLBACK TO final_publish_authority;
+RELEASE SAVEPOINT final_publish_authority;
 CREATE FUNCTION pg_temp.publish(n int, content text) RETURNS void LANGUAGE sql AS $$
   INSERT INTO registry.releases(id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,
     license_expression,summary,keywords,warnings,notices,state,published_at)

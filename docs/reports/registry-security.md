@@ -12,6 +12,12 @@ The corrected insert policy matches intent ID, publisher, package, epoch and ord
 
 **Open · Publisher signature.** The request path still needs independent evidence of the publisher’s signature over the exact intent. Verify this boundary in the database-backed publication journey before enabling public writes.
 
+## Revocation after approval did not stop publication
+
+**High · [PACKAGE-HOSTED-PUBLISH-FLOW].** In disposable PostgreSQL, the scanner could make an approved version eligible after the publisher lost the package grant. The release table checked the digest, administrator approval, package and organization, but omitted current publisher authority. Both the release insert policy and queue selection now apply the same current-grant predicate as intent admission. Scanner reads of principals, memberships and grants are scoped to publishers of approved submissions.
+
+The regression applies the simulated revocation before the publication statement and checks denial at insertion and omission from the queue. Concurrent revocation/finalization and authority changes between grant removal and reissuance still need separate evidence.
+
 ## Production observations
 
 A TLS-verified anonymous GET returned 200 for the plural hostname’s homepage and catalog API, 401 for the session endpoint, and 404 for the website’s release page. The singular hostname failed DNS resolution from the test host. These observations establish availability and guest-session behavior only. No production publication or private package access was exercised.
