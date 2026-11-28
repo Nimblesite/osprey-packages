@@ -236,6 +236,7 @@ REGISTRY_HOSTED_BINARY ?= target/osprey-registry-hosted
 _registry-hosted-api: $(REGISTRY_HOSTED_BINARY)
 
 $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
+	@mkdir -p $(dir $@)
 	$(OSPREY) build src/manager/api/hosted --quiet --warnings-as-errors -o $@
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
