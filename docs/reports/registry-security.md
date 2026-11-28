@@ -1,5 +1,9 @@
 # Registry security findings
 
+## Release requests accepted undeclared fields
+
+**Request validation · [PACKAGE-HOSTED-PUBLISH-FLOW].** The listener accepted a valid commit request containing an extra archive field. It ignored that field and continued to use the bound repository. A non-string repository subdirectory also fell back to an empty path. Organization, package, repository and release requests now require exactly their declared fields. Repository binding requires a string subdirectory, with the empty string explicitly selecting the root.
+
 ## Publication acknowledged conflicting discovery metadata
 
 **Integrity of retry receipts · [PACKAGE-HOSTED-PUBLISH-FLOW].** A scanner retry could change the license, summary, keywords or notices and receive a successful publication ID for the previous values. The existing catalog row stayed immutable. PostgreSQL now acknowledges only an eligible row whose four stored fields exactly match the retry. A disposable database regression changes each field independently and exercises an exact retry.

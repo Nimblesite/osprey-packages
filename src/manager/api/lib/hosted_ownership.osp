@@ -16,8 +16,11 @@ module HostedOwnership {
     export let badRequest = "ownership.request"
     export let refused = "ownership.refused"
 
-    fn document(body) = match Json::parse(body) {
-        Success { value } => Success { value: value }
+    fn document(body, count) = match Json::parse(body) {
+        Success { value } => match value {
+            Json::Obj { members } => if length(members) == count { Success { value: value } } else { Error { message: badRequest } }
+            _ => Error { message: badRequest }
+        }
         Error => Error { message: badRequest }
     }
     fn text(doc, key) = JsonRead::text(JsonRead::field(doc, key))
@@ -47,9 +50,9 @@ module HostedOwnership {
     fn bind(token, pkg, doc, operations: HostedReview::Operations) = {
         let repository = text(doc, "repositoryId")
         let branch = text(doc, "branch")
-        let dir = text(doc, "subdirectory")
-        if !Forge::repositoryOk(repository) || !branchOk(branch) || !subdirectoryOk(dir) { Error { message: badRequest } }
-        else { operations.bind(token, pkg, repository, branch, dir) }
+        andThen(JsonRead::requiredText(doc, "subdirectory", badRequest), fn(dir) =>
+            if !Forge::repositoryOk(repository) || !branchOk(branch) || !subdirectoryOk(dir) { Error { message: badRequest } }
+            else { operations.bind(token, pkg, repository, branch, dir) })
     }
 
     fn release(token, pkg, doc, operations: HostedReview::Operations) = {
@@ -78,7 +81,7 @@ module HostedOwnership {
     }
 
     /// The created id for `path` and `body`, or the request or ownership refusal.
-    export fn route(path, token, body, operations) = andThen(document(body), fn(doc) =>
+    export fn route(path, token, body, operations) = andThen(document(body, if path == organizations { 2 } else if startsWith(path, packages) { 3 } else { 1 }), fn(doc) =>
         if path == organizations { organize(token, doc, operations) }
         else if startsWith(path, packages) { packageRoute(path, token, doc, operations) }
         else { createPackage(token, Bytes::before(drop(path, byteLength(organizations) + 1), "/"), doc, operations) })

@@ -55,6 +55,8 @@ module ReviewHttpTests {
                 startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"9999\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"), "409|"),
                 answer(client, releasing, json(auth), named) == "201|{\"id\":\"${intent}\"}",
                 startsWith(answer(client, releasing, json(cookie), named), "403|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":2,\"archive\":\"fixture\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":null}"), "400|"),
                 startsWith(answer(client, releasing, json(auth), "{\"commit\":\"main\",\"epoch\":1,\"ordinal\":2}"), "400|"),
                 startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":0,\"ordinal\":2}"), "400|"),
                 startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":\"1\",\"ordinal\":2}"), "400|"),

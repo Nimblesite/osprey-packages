@@ -117,6 +117,7 @@ Items no agent can complete, because each needs a person or an outside party:
 - [x] Roll a provisioned scanner before the API using the same digest. Exercise enabled and disabled job configuration, failed updates and mutable image rejection in the release suite [PACKAGE-HOSTED-RELEASE].
 - [x] Declare a dedicated collector database secret and provision its restricted login alongside the scanner login. The offline Terraform check compares all eight login roles with the migration and verifies that the API credential map excludes both publication roles [PACKAGE-HOSTED-PUBLISH] [PACKAGE-OWNERSHIP-RLS].
 - [x] Bind DSSE signing vectors to the canonical typeDiagram release intent and its detached signed envelope. The WebAuthn challenge, envelope digest and downstream release-challenge reference agree. The core suite passes all 380 tests [PACKAGE-PUBLISH] [PACKAGE-TYPE-INVARIANTS].
+- [x] Reject undeclared fields on ownership and release requests, including archives alongside valid commits. Require an explicit string for repository subdirectories [PACKAGE-HOSTED-PUBLISH-FLOW].
 - [x] Verify a publication retry against the stored eligible release’s license, summary, keywords and notices before acknowledging success [PACKAGE-HOSTED-PUBLISH-FLOW].
 - [x] Make frozen-upload admission idempotent under a current grant. The migrated PostgreSQL suite verifies exact replay, conflicting digest and job ID refusal, collector read scope and revoked-grant refusal [PACKAGE-SECURITY-SCAN-APPROVAL].
 - [ ] Provision the tool-free NAP agent and run the worker from hosted signed-intent intake against the private quarantine store [PACKAGE-SECURITY-SCAN].
@@ -218,6 +219,7 @@ Governed by the Organization Package Governance spec and `src/manager/ops/supaba
 ## Hosted rollout: source publication, workers and independent trust `[PLAN-ROLLOUT-PUBLICATION]`
 
 - [ ] Release acceptance journey `[PLAN-ROLLOUT-PUBLICATION-JOURNEY]` (owner order 2026-11-28). One Chromium run on the packaged website, against the real Osprey API and PostgreSQL. Only the forge, Supabase Auth and Cloud KMS are fixtures.
+  - Chromium and disposable PostgreSQL passed 18/18 with the publisher requesting a commit through the release form. The worker processed the intent, a separate reviewer approved through the database routine, and the CLI consumed the resulting package. Review through the browser and production acceptance remain open.
   1. Sign in, create the organization and package, and bind the package to a fixture repository.
   2. On `/release/`, choose the package and a commit; the website posts only `{commit}` (and the expected epoch). The API fetches that exact commit from the forge, canonicalizes it, freezes its digest and queues the submission. A request carrying bytes, an archive or a repository URL is refused [PACKAGE-HOSTED-PUBLISH].
   3. The scan records a verdict, the reviewer approves on the receipt and the catalog refreshes.
