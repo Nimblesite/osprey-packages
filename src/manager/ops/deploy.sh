@@ -300,10 +300,15 @@ step_database() {
   local password; password="$(owner_password)"
   export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGPASSWORD="$password"
   psql -X -v ON_ERROR_STOP=1 -qc 'CREATE SCHEMA IF NOT EXISTS registry'
-  local migrator; migrator="$(make -s -C "$ROOT" _registry-migration-tool | tail -1)"
-  log "applying src/manager/supabase/migrations/schema.yaml"
-  "$migrator" migrate --provider postgres --schema "$ROOT/src/manager/supabase/migrations/schema.yaml" \
-    --output "Host=$pooler;Port=5432;Username=postgres.$ref;Database=postgres;SSL Mode=VerifyFull;Root Certificate=$CA"
+  log "applying src/manager/supabase/migrations/schema.yaml in Cloud Build"
+  gcloud secrets add-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None >/dev/null \
+    --member="serviceAccount:$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
+    --role=roles/secretmanager.secretAccessor
+  local context="$WORK/migrate.tar.gz"
+  git -C "$ROOT" archive --format=tar.gz --output="$context" HEAD Makefile src/manager/supabase/migrations/schema.yaml \
+    src/manager/ops/supabase/supabase-root-2021.crt src/manager/ops/cloudbuild-migrate.yaml
+  gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region="$REGION" --config="$OPS/cloudbuild-migrate.yaml" \
+    --substitutions="_HOST=$pooler,_USER=postgres.$ref,_SECRET=$NAME-db-owner" >&2
   local logins; logins="$(tf output -json database_logins)"
   REGISTRY_CATALOG_READER_PASSWORD="$(jq -r .registry_catalog_reader <<<"$logins")" \
   REGISTRY_LOGIN_RUNTIME_PASSWORD="$(jq -r .registry_login_runtime <<<"$logins")" \
