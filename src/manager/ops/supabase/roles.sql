@@ -1,7 +1,7 @@
 -- Implements [PACKAGE-OWNERSHIP-RLS]: restricted runtime logins, one per mounted
 -- libpq service (src/manager/ops/terraform/secrets.tf). Idempotent; run after the
 -- DataProvider migration. Passwords come from the environment through \getenv, never
--- argv. Grants mirror src/manager/database-tests/live, which proves them.
+-- argv. Grants mirror src/manager/api/tests/live, which proves them.
 \set ON_ERROR_STOP on
 \getenv catalog_password REGISTRY_CATALOG_READER_PASSWORD
 \getenv login_password REGISTRY_LOGIN_RUNTIME_PASSWORD

@@ -1,4 +1,4 @@
-namespace registry_tests;
+namespace registry_api_tests;
 import registry::Governance
 import registry::GovernanceTransitions
 import registry::Maybe

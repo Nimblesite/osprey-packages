@@ -37,7 +37,7 @@ function assertRealUv(registry) {
 }
 
 const cliSuites = ['fixture-check', 'manifest/tests', 'cli/tests', 'tests', 'e2e']
-const apiSuites = ['auth-tests', 'database-tests', 'governance-tests', 'hosted-tests']
+const apiSuites = ['api/tests']
 const wasmSuites = ['web', 'editor/tests', 'editor/wire-tests']
 const registrySuites = [...cliSuites, ...apiSuites, ...wasmSuites]
 const variableOf = (suite) => (cliSuites.includes(suite) ? 'CLI_MEMORY' : apiSuites.includes(suite) ? 'API_MEMORY' : 'WASM_MEMORY')

@@ -1,4 +1,4 @@
-namespace registry_auth_tests;
+namespace registry_api_tests;
 import registry_api::Supabase
 import registry_api::Jwt
 import registry::Bytes

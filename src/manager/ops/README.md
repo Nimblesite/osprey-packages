@@ -35,7 +35,7 @@ The only operator-held credentials are the Cloudflare tokens, the Supabase acces
 
 ## Database logins [PACKAGE-OWNERSHIP-RLS]
 
-`roles.sql` runs after the DataProvider migration. Every login is `NOSUPERUSER NOBYPASSRLS NOINHERIT` with schema `USAGE`, and `anon`/`authenticated` lose all access to `registry`. `src/manager/database-tests/live` proves the same grants:
+`roles.sql` runs after the DataProvider migration. Every login is `NOSUPERUSER NOBYPASSRLS NOINHERIT` with schema `USAGE`, and `anon`/`authenticated` lose all access to `registry`. `src/manager/api/tests/live` proves the same grants:
 
 | Login | Grants |
 | --- | --- |

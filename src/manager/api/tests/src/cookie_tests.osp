@@ -1,4 +1,4 @@
-namespace hosted_tests;
+namespace registry_api_tests;
 import registry_api::HostedCookies
 
 /// Strict cookie selection from a Cookie header value: exact-name lookup,

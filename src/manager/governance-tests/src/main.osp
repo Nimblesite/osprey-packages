@@ -1,9 +1,0 @@
-namespace registry_tests;
-import registry::Policy
-
-/// Every governance suite in run order: each `run` registers its named cases.
-fn suites() = foldList([MembershipTests::run, IdentityTests::run, AdminTests::run, GrantTests::run, HandoverTests::run], 0, fn(count, run) => {
-    run()
-    count
-})
-fn main() = Policy::guarded(suites)

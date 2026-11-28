@@ -119,10 +119,7 @@ _test_registry:
 	$(OSPREY) test src/manager/tests --memory=$(CLI_MEMORY) $(call registry_coverage,tests)
 	@echo "==> Registry end-to-end: server, fetch and consumer build..."
 	$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY) $(call registry_coverage,e2e)
-	$(OSPREY) test src/manager/auth-tests --memory=$(API_MEMORY) $(call registry_coverage,auth-tests)
-	$(OSPREY) test src/manager/database-tests --memory=$(API_MEMORY) $(call registry_coverage,database-tests)
-	$(OSPREY) test src/manager/governance-tests --memory=$(API_MEMORY) $(call registry_coverage,governance-tests)
-	$(OSPREY) test src/manager/hosted-tests --memory=$(API_MEMORY) $(call registry_coverage,hosted-tests)
+	$(OSPREY) test src/manager/api/tests --memory=$(API_MEMORY) $(call registry_coverage,api-tests)
 	$(OSPREY) test src/manager/web --memory=$(WASM_MEMORY) $(call registry_coverage,web)
 	$(OSPREY) test src/manager/editor/tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-tests)
 	$(OSPREY) test src/manager/editor/wire-tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-wire-tests)
@@ -204,7 +201,7 @@ _registry-migration-verify:
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
 	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
-	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/database-tests/live --memory=$(API_MEMORY) $(call registry_coverage,database-live)
+	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/api/tests/live --memory=$(API_MEMORY) $(call registry_coverage,api-tests-live)
 
 .PHONY: _registry-integration-check _registry-integration-verify
 # _registry-integration-check: Browse a real PostgreSQL-backed hosted API with the packaged website in Chromium.

@@ -1,4 +1,4 @@
-namespace hosted_tests;
+namespace registry_api_tests;
 import registry_api::HostedService
 import registry_api::HostedLogin
 import registry_host::Host

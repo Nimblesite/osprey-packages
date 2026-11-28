@@ -1,4 +1,4 @@
-namespace registry_auth_tests;
+namespace registry_api_tests;
 import registry_api::LoginKms
 import registry_api::OAuth
 import registry_api::HostedLogin
