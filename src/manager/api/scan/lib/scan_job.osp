@@ -23,11 +23,12 @@ module ScanJob {
     fn review(id, ticket, doc, config) = {
         let revision = field(config, "agentRevision")
         let configId = field(config, "configId")
-        if !Bytes::canonicalUuid(configId) || trim(revision) == "" || byteLength(revision) > 200 { Error { message: "publication.scan-config" } }
+        let selected = configId + "@" + revision
+        if !Bytes::canonicalUuid(configId) || field(doc, "agentRevision") != selected { Error { message: "publication.scan-config" } }
         else { andThen(Digests::parse(field(doc, "digest")), fn(digest) =>
                 andThen(perform Inputs.bundle(id, digest), fn(bytes) => PublicationScan::run(field(doc, "dir"), digest, bytes,
                         fn(source) => PublicationScan::nap(configId, revision, field(config, "apiKey"), source),
-                        fn(result) => receipt(id, ticket, configId + "@" + revision, result)))) }
+                        fn(result) => receipt(id, ticket, selected, result)))) }
     }
 
     fn document(raw) = match Json::parse(raw) {

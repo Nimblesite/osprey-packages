@@ -18,6 +18,14 @@ The corrected insert policy matches intent ID, publisher, package, epoch and ord
 
 The regression applies the simulated revocation before the publication statement and checks denial at insertion and omission from the queue. Concurrent revocation/finalization and authority changes between grant removal and reissuance still need separate evidence.
 
+## Private source dispatch used the worker’s mounted configuration alone
+
+**High · [PACKAGE-SECURITY-SCAN-VERDICT].** Receipt insertion checked the database operator’s selected NAP revision, but the worker had already opened the bundle and could send it to a different configuration selected by its mount. On the feature branch the worker now compares the mounted configuration ID and digest with the operator’s selection before it opens quarantine. A missing or mismatched selection stops processing. The worker still verifies the remote configuration and the database still checks the selection when recording a verdict. The regression exercises disabled and mismatched selections against disposable PostgreSQL. Production exposure has not been established.
+
+## Published-source creation on filesystem mounts
+
+**Open · [PACKAGE-HOSTED-PUBLISH-FLOW].** The proposed filesystem writer checks existing contents, then uses an ordinary write after any read failure. Those operations alone do not ensure atomic creation during concurrent writes. The Cloud Storage role restricts object overwrites separately. Verify create-only semantics on each supported backend before claiming that guarantee.
+
 ## Production observations
 
 A TLS-verified anonymous GET returned 200 for the plural hostname’s homepage and catalog API, 401 for the session endpoint, and 404 for the website’s release page. The singular hostname failed DNS resolution from the test host. These observations establish availability and guest-session behavior only. No production publication or private package access was exercised.

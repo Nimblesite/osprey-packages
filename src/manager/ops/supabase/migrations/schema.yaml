@@ -1036,7 +1036,8 @@ functions:
     returns: text
     executeRoles: [registry_scan_worker]
     body: >-
-      SELECT json_build_object('dir','@'||o.handle||'/'||p.name||'/'||j.epoch||'.'||j.ordinal,'digest',j.digest)::text
+      SELECT json_build_object('dir','@'||o.handle||'/'||p.name||'/'||j.epoch||'.'||j.ordinal,'digest',j.digest,
+      'agentRevision',(SELECT agent_revision FROM registry.scan_configuration WHERE id=1))::text
       FROM registry.review_submissions j JOIN registry.packages p ON p.id=j.package_id
       JOIN registry.organizations o ON o.id=p.organization_id WHERE j.id=job_id
 
