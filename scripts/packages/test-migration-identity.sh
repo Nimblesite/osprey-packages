@@ -17,11 +17,12 @@ gcloud() {
     'projects describe registry-fixture') echo 123 ;;
     'secrets get-iam-policy osprey-registry-production-db-owner')
       [[ "$LEGACY" != failed ]] || return 1
-      if [[ "$LEGACY" == present ]]; then
+      if [[ "$LEGACY" != absent ]]; then
         jq -nc --arg member "$default_account" '{bindings:[{role:"roles/secretmanager.secretAccessor",members:[$member]}]}'
       else echo '{}'; fi ;;
     'secrets remove-iam-policy-binding osprey-registry-production-db-owner')
       [[ "$*" == *"--member=$default_account"* && "$*" == *'--role=roles/secretmanager.secretAccessor'* && "$*" == *'--condition=None'* ]] || return 1
+      [[ "$LEGACY" != revoke-failed ]] || return 1
       echo revoke >> "$work/actions" ;;
     'builds submit context')
       [[ "$*" == *"--service-account=$migration_account"* && "$*" == *'--gcs-source-staging-dir=gs://fixture-stage/source'* ]] || return 1
@@ -29,7 +30,7 @@ gcloud() {
     *) return 1 ;;
   esac
 }
-for scenario in present absent failed; do
+for scenario in present absent failed revoke-failed; do
   : > "$work/actions"
   set +e
   ( set -e; LEGACY="$scenario" migrate_build context pooler ref )
@@ -38,6 +39,6 @@ for scenario in present absent failed; do
   case "$scenario" in
     present) [[ $outcome == 0 ]]; printf '%s\n' revoke build | diff - "$work/actions" ;;
     absent) [[ $outcome == 0 && $(cat "$work/actions") == build ]] ;;
-    failed) [[ $outcome != 0 && ! -s "$work/actions" ]] ;;
+    failed|revoke-failed) [[ $outcome != 0 && ! -s "$work/actions" ]] ;;
   esac
 done
