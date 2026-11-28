@@ -24,7 +24,7 @@ module SchemaCheck {
 
     fn err(code, pointer) = Error { message: "${code} at ${pointer}" }
 
-    fn escapeSegment(key) = replace(replace(key, "~", "~0") ?: key, "/", "~1") ?: key
+    fn escapeSegment(key) = Bytes::replaceBoth(key, "~", "~0", "/", "~1")
     fn child(pointer, key) = pointer + "/" + escapeSegment(key)
     fn itemAt(pointer, i) = pointer + "/" + "${i}"
 
@@ -51,23 +51,17 @@ module SchemaCheck {
     fn isLeap(year) = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 
     fn daysInMonth(year, month) = if month == 2 { if isLeap(year) { 29 } else { 28 } }
-        else if month == 4 || month == 6 || month == 9 || month == 11 { 30 }
-        else { 31 }
+    else if month == 4 || month == 6 || month == 9 || month == 11 { 30 }
+    else { 31 }
 
     /// `YYYY-MM-DDTHH:mm:ss.SSSZ`: four- then two-digit runs joined by `-`,
     /// `T`, `:` and `.`, closed by `Z`.
     let dateTimeRuns = [4, 2, 2, 2, 2, 2, 3]
     let dateTimeSeparators = [45, 45, 84, 58, 58, 46, 90]
-    /// `8-4-4-4-12` hex runs joined by `-`.
-    let uuidRuns = [8, 4, 4, 4, 12]
-    let uuidSeparators = [45, 45, 45, 45]
+    fn dateTimeShape(text) = runsFrom(text, digitsOk, dateTimeRuns, dateTimeSeparators, 0, 0)
 
-    fn dateTimeShape(text) = runsOk(text, digitsOk, dateTimeRuns, dateTimeSeparators)
-
-    /// True when `text` is exactly one `check`ed run per `runs` entry, each
-    /// followed by its `separators` byte, and nothing more.
-    fn runsOk(text, check, runs, separators) = runsFrom(text, check, runs, separators, 0, 0)
-
+    /// True when `text` from `from` is exactly one `check`ed run per remaining
+    /// `runs` entry, each followed by its `separators` byte, and nothing more.
     fn runsFrom(text, check, runs, separators, from, i) = match listGet(runs, i) {
         Error => from == byteLength(text)
         Success { value } => check(text, from, from + value) && afterRun(text, check, runs, separators, from + value, i)
@@ -97,9 +91,7 @@ module SchemaCheck {
     /// `schema.datetime`. Implements [PACKAGE-TYPE-INVARIANTS].
     export fn dateTimeCode(text) = if dateTimeShape(text) { dateTimeRange(text) } else { dateTimeFailure }
 
-    fn hexOk(text, from, to) = Bytes::lowerHexBetween(text, from, to)
-
-    fn uuidCode(text) = if runsOk(text, hexOk, uuidRuns, uuidSeparators) { "" } else { uuidFailure }
+    fn uuidCode(text) = if Bytes::canonicalUuid(text) { "" } else { uuidFailure }
 
     /// `code` for a string value through `check`; another kind is `notString`.
     fn textCodeOk(value, check) = match value {
@@ -107,9 +99,9 @@ module SchemaCheck {
         _ => false
     }
 
-    fn dateTimeOk(value) = textCodeOk(value, fn(text) => dateTimeCode(text))
+    fn dateTimeOk(value) = textCodeOk(value, dateTimeCode)
 
-    fn uuidOk(value) = textCodeOk(value, fn(text) => uuidCode(text))
+    fn uuidOk(value) = textCodeOk(value, uuidCode)
 
     fn digestOk(value) = match value {
         Json::Str { text } => Checked::succeeded(Digests::parse(text))
@@ -117,17 +109,18 @@ module SchemaCheck {
     }
 
     fn scalarCode(name, value) = if name == "String" { stringCode(value) }
-        else if name == "Int" { intCode(value) }
-        else if name == "Bool" { boolCode(value) }
-        else if name == "DateTime" { if dateTimeOk(value) { "" } else { dateTimeFailure } }
-        else { if uuidOk(value) { "" } else { uuidFailure } }
+    else if name == "Int" { intCode(value) }
+    else if name == "Bool" { boolCode(value) }
+    else if name == "DateTime" { if dateTimeOk(value) { "" } else { dateTimeFailure } }
+    else { if uuidOk(value) { "" } else { uuidFailure } }
 
     /// `value` when `code` is `""`, else the code at `pointer`.
     fn checked(code, value, pointer) = if code == "" { Success { value: value } } else { err(code, pointer) }
 
-    fn validateScalar(name, value, pointer) = checked(scalarCode(name, value), value, pointer)
+    /// `value` once `result` passes; its failure is returned as is.
+    fn kept(value, result) = andThen(result, fn(_) => Success { value: value })
 
-    fn isBuiltinScalar(name) = name == "String" || name == "Int" || name == "Bool" || name == "DateTime" || name == "Uuid"
+    fn validateScalar(name, value, pointer) = checked(scalarCode(name, value), value, pointer)
 
     fn pathCode(text) = match Paths::validate(text) {
         Success => ""
@@ -138,17 +131,14 @@ module SchemaCheck {
     /// key components ([PACKAGE-NAMES]) and root-confined relative paths
     /// ([PACKAGE-SOURCE-CANONICAL]); "" when it adds none or the text obeys it.
     fn aliasCode(aliasName, value) = if aliasName == "Digest" { if digestOk(value) { "" } else { digestCode } }
-        else if aliasName == "ScopeName" { Names::scopeCode(JsonRead::text(value)) }
-        else if aliasName == "PackageName" { Names::nameCode(JsonRead::text(value)) }
-        else if aliasName == "RelativePath" { pathCode(JsonRead::text(value)) }
-        else { "" }
+    else if aliasName == "ScopeName" { Names::scopeCode(JsonRead::text(value)) }
+    else if aliasName == "PackageName" { Names::nameCode(JsonRead::text(value)) }
+    else if aliasName == "RelativePath" { pathCode(JsonRead::text(value)) }
+    else { "" }
 
-    fn validateAlias(model, aliasName, target, value, pointer) = match validateRef(model, target, value, pointer) {
-        Error { message } => Error { message: message }
-        Success => checked(aliasCode(aliasName, value), value, pointer)
-    }
+    fn validateAlias(model, aliasName, target, value, pointer) = andThen(validateRef(model, target, value, pointer), fn(_) => checked(aliasCode(aliasName, value), value, pointer))
 
-    fn validateNamed(model, name, v, pointer) = if isBuiltinScalar(name) {
+    fn validateNamed(model, name, v, pointer) = if TypeDiagram::isBuiltin(name) {
         validateScalar(name, v, pointer)
     } else {
         match TypeDiagram::lookup(model, name) {
@@ -161,8 +151,7 @@ module SchemaCheck {
         }
     }
 
-    fn isField(fields, name) = foldList(fields, false, fn(found, f) => found || f.name == name)
-    fn isMember(members, name) = foldList(members, false, fn(found, m) => found || m.key == name)
+    fn anyOf(items, ok) = foldList(items, false, fn(found, item) => found || ok(item))
 
     fn isOption(typ) = match typ {
         TypeDiagram::OptionOf { _ } => true
@@ -170,47 +159,32 @@ module SchemaCheck {
     }
 
     fn checkUnknown(members, fields, pointer) = foldList(members, Success { value: members }, fn(acc, m) => match acc {
-        Error => acc
-        Success => if isField(fields, m.key) { acc } else { err(unknownField, child(pointer, m.key)) }
+            Error => acc
+            Success => if anyOf(fields, fn(f) => f.name == m.key) { acc } else { err(unknownField, child(pointer, m.key)) }
     })
 
-    fn checkField(model, f, members, pointer) = if !isMember(members, f.name) {
+    fn checkField(model, f, members, pointer) = if !anyOf(members, fn(m) => m.key == f.name) {
         if isOption(f.typ) { Success { value: members } } else { err(missingField, child(pointer, f.name)) }
     } else {
-        match Json::memberOr(members, f.name, missingField) {
-            Error { message } => Error { message: message }
-            Success { value } => match validateRef(model, f.typ, value, child(pointer, f.name)) {
-                Success => Success { value: members }
-                Error { message } => Error { message: message }
-            }
-        }
+        andThen(Json::memberOr(members, f.name, missingField), fn(value) => kept(members, validateRef(model, f.typ, value, child(pointer, f.name))))
     }
 
     fn checkMissing(model, fields, members, pointer) = foldList(fields, Success { value: members }, fn(acc, f) => match acc {
-        Error => acc
-        Success => checkField(model, f, members, pointer)
+            Error => acc
+            Success => checkField(model, f, members, pointer)
     })
 
-    fn validateFields(model, fields, members, pointer) = match checkUnknown(members, fields, pointer) {
-        Error { message } => Error { message: message }
-        Success => checkMissing(model, fields, members, pointer)
-    }
+    fn validateFields(model, fields, members, pointer) = andThen(checkUnknown(members, fields, pointer), fn(_) => checkMissing(model, fields, members, pointer))
 
     fn validateStruct(model, fields, value, pointer) = match value {
-        Json::Obj { members } => match validateFields(model, fields, members, pointer) {
-            Success => Success { value: value }
-            Error { message } => Error { message: message }
-        }
+        Json::Obj { members } => kept(value, validateFields(model, fields, members, pointer))
         _ => err(notObject, pointer)
     }
 
-    fn variantNamed(variants, name) = foldList(variants, Error { message: unknownVariant }, fn(acc, v) => match acc {
-        Success => acc
-        Error => if v.name == name { Success { value: v } } else { acc }
-    })
+    fn variantNamed(variants, name) = Checked::firstMatch(variants, fn(v) => v.name == name, unknownVariant)
 
     fn validateVariantMember(model, variants, members, pointer) = {
-        let member = listGet(members, 0) ?: Json::Member { key: "", value: Json::Null }
+        let member = Json::firstMember(members)
         match variantNamed(variants, member.key) {
             Error => err(unknownVariant, child(pointer, member.key))
             Success { value } => validateStruct(model, value.payload, member.value, child(pointer, member.key))
@@ -229,19 +203,13 @@ module SchemaCheck {
     }
 
     fn validateList(model, element, value, pointer) = match value {
-        Json::Arr { items } => match validateItems(model, element, items, pointer, 0) {
-            Success => Success { value: value }
-            Error { message } => Error { message: message }
-        }
+        Json::Arr { items } => kept(value, validateItems(model, element, items, pointer, 0))
         _ => err(notArray, pointer)
     }
 
     fn validateItems(model, element, items, pointer, i) = match i >= length(items) {
         true => Success { value: items }
-        false => match validateRef(model, element, listGet(items, i) ?: Json::Null, itemAt(pointer, i)) {
-            Success => validateItems(model, element, items, pointer, i + 1)
-            Error { message } => Error { message: message }
-        }
+        false => andThen(validateRef(model, element, listGet(items, i) ?: Json::Null, itemAt(pointer, i)), fn(_) => validateItems(model, element, items, pointer, i + 1))
     }
 
     fn validateRef(model, ref, value, pointer) = if Json::isNull(value) {

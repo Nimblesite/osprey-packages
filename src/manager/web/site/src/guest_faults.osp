@@ -1,0 +1,18 @@
+namespace registry_web;
+
+/// The site guest's integer-fault policy. wasm32 cannot resume a control effect yet, so
+/// `Policy::guarded` cannot abort the guest; instead every fault prints `Bail out!` before the guest
+/// finishes writing, the build refuses any page that holds it (`_registry-website`), and the browser
+/// bridges show it in place of a page. A fault never passes as a rendered page.
+module GuestFaults {
+    fn faulted(text, value) = {
+        print("Bail out! ${text}")
+        value
+    }
+
+    export fn guarded(body) = handler Arith {
+        overflow op lhs rhs wrapped => faulted("integer overflow: ${lhs} ${op} ${rhs}", wrapped)
+        divideByZero lhs dividend => faulted("division by zero: ${lhs}", dividend)
+        remainderByZero lhs => faulted("remainder by zero: ${lhs}", 0)
+    }(body)
+}

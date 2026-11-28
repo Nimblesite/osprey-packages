@@ -24,10 +24,10 @@ release_docs() {
   fi
 }
 mkdir -p "$out/sources" "$out/tags" "$out/publishers" "$work/tags"
-cp "$site/registry-mark.svg" "$site/osprey-mark.svg" "$site"/form.*.mjs "$out/"
-cp -R "$site/guide" "$site/publishing" "$site/upload" "$out/"
+cp "$site/registry-mark.svg" "$site/osprey-mark.svg" "$site/favicon.ico" "$site"/form.*.mjs "$site"/nav.*.mjs "$out/"
+cp -R "$site/guide" "$site/publishing" "$site/release" "$site/signin" "$site/register" "$site/recover" "$out/"
 form_asset=("$out"/form.*.mjs)
-render local-upload "" "$(basename "${form_asset[0]}")" > "$out/upload/index.html"
+render release "" "$(basename "${form_asset[0]}")" > "$out/release/index.html"
 cp "$site/registry.$(shasum -a 256 src/manager/web/assets/registry.css | cut -c1-12).css" "$out/"
 sed "s/script-src 'self'/script-src 'self' 'wasm-unsafe-eval'/;s/form-action 'none'/form-action 'self'/" "$site/_headers" > "$out/_headers"
 fetch packages > "$work/catalog"

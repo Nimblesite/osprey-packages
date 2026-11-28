@@ -32,15 +32,13 @@ module PythonTests {
 
     /// The release ships its own `pyproject.toml` and `uv.lock` as ordinary tree entries.
     fn pyWith(pyprojectText) = Fixture::served("@demo/py/1.1", [
-        Fixture::file("osprey.toml", pyManifest()),
-        Fixture::file("src/py.osp", "fn add(a, b) = a + b\n"),
-        Fixture::file("pyproject.toml", pyprojectText),
-        Fixture::file("uv.lock", "version = 1\nrevision = 2\n")
+            Fixture::file("osprey.toml", pyManifest()),
+            Fixture::file("src/py.osp", "fn add(a, b) = a + b\n"),
+            Fixture::file("pyproject.toml", pyprojectText),
+            Fixture::file("uv.lock", "version = 1\nrevision = 2\n")
     ])
 
     fn py() = pyWith(pyproject())
-
-
 
     fn rootText() = RegistryFixture::manifestText("app") + "\n[dependencies]\n\"@demo/py\" = { epoch = 1, min_release = 1 }\n"
 
@@ -55,8 +53,8 @@ module PythonTests {
     fn composesVersion(floor, version) = contains(PythonPlane::compose([PythonPlane::Member { name: "demo-py", path: "./demo", floor: floor }]), "requires-python = \">=${version}\"\n")
 
     fn floorComposition() = checkAll("Python version floors use integer components", [
-        structuralEquals([composesVersion(31200, "3.12"), composesVersion(31307, "3.13.7")], [true, true]),
-        composesVersion(10000, "1.0")
+            structuralEquals([composesVersion(31200, "3.12"), composesVersion(31307, "3.13.7")], [true, true]),
+            composesVersion(10000, "1.0")
     ])
 
     fn pins() = Lockfile::PythonPins { pyprojectDigest: PythonPlane::digestOf(expectedPyproject()), uvLockDigest: PythonPlane::digestOf(uvLockText()) }
@@ -73,29 +71,32 @@ module PythonTests {
     fn bar(xs) = join(xs, " | ")
 
     /// What a run wrote and said, for a failing check's label.
-    fn pyprojectPath() = "${pythonDir}/pyproject.toml"
-
     fn observed(a) = "pyproject<<${RegistryFixture::writtenTo(a, pyprojectPath())}>> lock<<${RegistryFixture::writtenTo(a, RegistryFixture::lockPath)}>> ran<<${bar(RegistryFixture::ranOf(a))}>> lines<<${bar(RegistryFixture::linesOf(a))}>>"
 
     fn ranUv(a, words) = {
         let commands = RegistryFixture::ranOf(a)
         let command = listGet(commands, 0) ?: ""
         length(commands) == 1 && contains(command, "cd '/abs'")
-            && contains(command, "UV_PROJECT_ENVIRONMENT=\"$origin/.osprey/python/.venv\" uv ${words} )")
-            && contains(command, "trap 'rm -rf \"$stage\"' 0")
-            && contains(command, PythonPlane::digestOf(expectedPyproject()))
+        && contains(command, "UV_PROJECT_ENVIRONMENT=\"$origin/.osprey/python/.venv\" uv ${words} )")
+        && contains(command, "trap 'rm -rf \"$stage\"' 0")
+        && contains(command, PythonPlane::digestOf(expectedPyproject()))
     }
+
+    /// The run's two report lines: the release it acted on behind `mark`, then `python: <verb> <dir>`.
+    fn reports(a, mark, verb) = RegistryFixture::lineOf(a, 0) == "${mark} ${RegistryFixture::compact(py())}"
+    && RegistryFixture::lineOf(a, 1) == "python: ${verb} ${pythonDir}"
+
+    fn pyprojectPath() = "${pythonDir}/pyproject.toml"
 
     /// `lock` composes the project, runs `uv lock` and pins both digests.
     fn lockPins() = {
         let a = lockOver(py(), uvLockText())
         checkAll("lock composes the uv project and pins both digests: ${observed(a)} expectedPyproject<<${expectedPyproject()}>> expectedLock<<${expectedLock()}>>", [
-            RegistryFixture::accepted(a),
-            RegistryFixture::writtenTo(a, "${pythonDir}/pyproject.toml") == expectedPyproject(),
-            RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == expectedLock(),
-            ranUv(a, "lock"),
-            RegistryFixture::lineOf(a, 0) == "+ ${RegistryFixture::compact(py())}",
-            RegistryFixture::lineOf(a, 1) == "python: locked ${pythonDir}"
+                RegistryFixture::accepted(a),
+                RegistryFixture::writtenTo(a, "${pythonDir}/pyproject.toml") == expectedPyproject(),
+                RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == expectedLock(),
+                ranUv(a, "lock"),
+                reports(a, "+", "locked")
         ])
     }
 
@@ -105,17 +106,25 @@ module PythonTests {
 
     fn climbing() = pyWith(pyproject() + "\n[tool.uv.sources]\nnumpy = { path = \"../../elsewhere\" }\n")
 
-    /// P2: a member naming an index or an outside source stops `lock` before uv runs.
-    fn forbiddenMembers() = {
+    /// P2: a member naming an index stops `lock` before uv runs.
+    fn indexedMember() = {
         let index = lockOver(indexed(), uvLockText())
+        checkAll("python.index-forbidden names the member, writes no lock and runs no uv", [
+                RegistryFixture::reported(index, 1, "python.index-forbidden ${pathOf(indexed())}"),
+                isEmpty(RegistryFixture::ranOf(index)),
+                RegistryFixture::writesTo(index, RegistryFixture::lockPath) == 0
+        ])
+    }
+
+    /// P2: a member naming an outside source, by git or by a climbing path, stops `lock` the same way.
+    fn sourcedMember() = {
         let git = lockOver(gitSourced(), uvLockText())
         let climb = lockOver(climbing(), uvLockText())
-        checkAll("python.index-forbidden and python.source-forbidden name the member and run no uv", [
-            RegistryFixture::reported(index, 1, "python.index-forbidden ${pathOf(indexed())}"),
-            RegistryFixture::reported(git, 1, "python.source-forbidden ${pathOf(gitSourced())}"),
-            RegistryFixture::reported(climb, 1, "python.source-forbidden ${pathOf(climbing())}"),
-            isEmpty(RegistryFixture::ranOf(index)),
-            RegistryFixture::writesTo(index, RegistryFixture::lockPath) == 0
+        checkAll("python.source-forbidden names the member and runs no uv", [
+                RegistryFixture::reported(git, 1, "python.source-forbidden ${pathOf(gitSourced())}"),
+                RegistryFixture::reported(climb, 1, "python.source-forbidden ${pathOf(climbing())}"),
+                isEmpty(RegistryFixture::ranOf(git)),
+                RegistryFixture::writesTo(git, RegistryFixture::lockPath) == 0
         ])
     }
 
@@ -123,8 +132,8 @@ module PythonTests {
     fn unhashedLock() = {
         let a = lockOver(py(), uvLockOf(bareWheel))
         checkAll("python.uv-lock-hashes refuses the lock", [
-            RegistryFixture::reported(a, 1, "python.uv-lock-hashes"),
-            RegistryFixture::writesTo(a, RegistryFixture::lockPath) == 0
+                RegistryFixture::reported(a, 1, "python.uv-lock-hashes"),
+                RegistryFixture::writesTo(a, RegistryFixture::lockPath) == 0
         ])
     }
 
@@ -133,10 +142,10 @@ module PythonTests {
         let served = [RegistryFixture::one(), RegistryFixture::two()]
         let a = RegistryFixture::runWith(RegistryFixture::reads(RegistryFixture::rootManifest(1), served), [], RegistryFixture::websOf(served), ["lock", "--project", project])
         checkAll("without python/interop uv is never run", [
-            RegistryFixture::accepted(a),
-            RegistryFixture::writesTo(a, "${pythonDir}/pyproject.toml") == 0,
-            isEmpty(RegistryFixture::ranOf(a)),
-            RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(1), RegistryFixture::one(), RegistryFixture::two())
+                RegistryFixture::accepted(a),
+                RegistryFixture::writesTo(a, "${pythonDir}/pyproject.toml") == 0,
+                isEmpty(RegistryFixture::ranOf(a)),
+                RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(1), RegistryFixture::one(), RegistryFixture::two())
         ])
     }
 
@@ -152,48 +161,60 @@ module PythonTests {
 
     fn verifyReads(uvLock) = planeReads(expectedPyproject(), uvLock)
 
+    fn verifyOffline(reads, walks) = RegistryFixture::runWith(reads, walks, [], ["verify", "--offline", "--project", project])
+
     fn tamperedInput(command, projectText, uvLock, code) = {
         let a = RegistryFixture::runWith(planeReads(projectText, uvLock), [installedWalk(), venvWalk()], [], [command, "--project", project])
         checkAll("${command} rejects ${code} before running uv: ${observed(a)}", [
-            RegistryFixture::statusOf(a) == 1,
-            listContains(RegistryFixture::linesOf(a), code),
-            isEmpty(RegistryFixture::ranOf(a))
+                RegistryFixture::statusOf(a) == 1,
+                listContains(RegistryFixture::linesOf(a), code),
+                isEmpty(RegistryFixture::ranOf(a))
         ])
     }
 
-    fn tamperedInputs() = forEachList(["fetch", "verify"], fn(command) => {
+    /// `command` rejects a tampered pyproject and a tampered uv.lock before running uv.
+    fn tamperedInputs(command) = {
         tamperedInput(command, "# edited\n", uvLockText(), PythonPlane::workspaceDigest)
         tamperedInput(command, expectedPyproject(), "# edited\n", PythonPlane::uvLockStale)
-    })
+    }
+
+    /// Target-less `fetch` never runs uv over tampered generated inputs.
+    fn fetchTamperedInputs() = tamperedInputs("fetch")
+
+    /// `verify --offline` never runs uv over tampered generated inputs.
+    fn verifyTamperedInputs() = tamperedInputs("verify")
 
     /// `verify --offline` regenerates, compares, checks the environment and runs the offline check.
     fn verifyClean() = {
-        let a = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk(), venvWalk()], [], ["verify", "--offline", "--project", project])
+        let a = verifyOffline(verifyReads(uvLockText()), [installedWalk(), venvWalk()])
         checkAll("a pinned plane verifies with one offline uv check: ${observed(a)}", [
-            RegistryFixture::reported(a, 0, "verified 1 packages"),
-            ranUv(a, "lock --check --offline")
+                RegistryFixture::reported(a, 0, "verified 1 packages"),
+                ranUv(a, "lock --check --offline")
         ])
     }
 
-    /// A changed `uv.lock` and a missing environment are their codes.
-    fn verifyFindings() = {
-        let stale = RegistryFixture::runWith(verifyReads("# edited\n"), [installedWalk(), venvWalk()], [], ["verify", "--offline", "--project", project])
-        let noEnv = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk()], [], ["verify", "--offline", "--project", project])
-        checkAll("python.uv-lock-stale and python.environment-missing: stale ${observed(stale)} noEnv ${observed(noEnv)}", [
-            RegistryFixture::reported(stale, 1, "python.uv-lock-stale"),
-            isEmpty(RegistryFixture::ranOf(stale)),
-            RegistryFixture::reported(noEnv, 1, "python.environment-missing")
+    /// A `uv.lock` other than the pinned one is its code, before any uv run.
+    fn staleUvLock() = {
+        let stale = verifyOffline(verifyReads("# edited\n"), [installedWalk(), venvWalk()])
+        checkAll("a changed uv.lock is python.uv-lock-stale: ${observed(stale)}", [
+                RegistryFixture::reported(stale, 1, "python.uv-lock-stale"),
+                isEmpty(RegistryFixture::ranOf(stale))
         ])
+    }
+
+    /// A missing environment is its code.
+    fn missingEnvironment() = {
+        let noEnv = verifyOffline(verifyReads(uvLockText()), [installedWalk()])
+        checkAll("a missing environment is python.environment-missing: ${observed(noEnv)}", [RegistryFixture::reported(noEnv, 1, "python.environment-missing")])
     }
 
     /// Target-less `fetch` syncs the environment after installing.
     fn fetchSyncs() = {
         let a = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk()], [], ["fetch", "--project", project])
         checkAll("fetch runs uv sync --frozen once the trees are present", [
-            RegistryFixture::accepted(a),
-            RegistryFixture::lineOf(a, 0) == "= ${RegistryFixture::compact(py())}",
-            RegistryFixture::lineOf(a, 1) == "python: synced ${pythonDir}",
-            ranUv(a, "sync --frozen --no-editable")
+                RegistryFixture::accepted(a),
+                reports(a, "=", "synced"),
+                ranUv(a, "sync --frozen --no-editable")
         ])
     }
 
@@ -201,12 +222,15 @@ module PythonTests {
     export fn run() = {
         test("python: version floor components", floorComposition)
         test("python: lock composes and pins the uv project", lockPins)
-        test("python: forbidden indexes and sources", forbiddenMembers)
+        test("python: a member naming an index", indexedMember)
+        test("python: a member naming an outside source", sourcedMember)
         test("python: unhashed uv.lock", unhashedLock)
         test("python: no plane, no uv", noPlane)
         test("python: verify a pinned plane", verifyClean)
-        test("python: verify findings", verifyFindings)
+        test("python: a stale uv.lock", staleUvLock)
+        test("python: a missing environment", missingEnvironment)
         test("python: fetch syncs", fetchSyncs)
-        test("python: tampered generated inputs never run uv", tamperedInputs)
+        test("python: fetch rejects tampered generated inputs", fetchTamperedInputs)
+        test("python: verify rejects tampered generated inputs", verifyTamperedInputs)
     }
 }

@@ -1,0 +1,96 @@
+namespace registry_tests;
+import registry::Identity
+import registry_cli::Lockfile
+import registry_cli::Fetch
+
+/// `audit` against fixture registries: a lock whose every release is still
+/// listed and unyanked is clean; a yanked, vanished or replaced release is one
+/// finding line each, with status 1 and nothing written; an unreachable
+/// registry or a missing lock fails rather than reporting clean; a bad
+/// command line is usage ([PACKAGE-API], [PACKAGE-RESOLUTION], [PACKAGE-TRUST]).
+module AuditTests {
+    let vanished = "audit.vanished"
+    let yankedCode = "audit.yanked"
+    let registryFailed = "audit.registry "
+
+    fn served() = [RegistryFixture::one(), RegistryFixture::one2(), RegistryFixture::two()]
+
+    fn lockOf(packages) = RegistryFixture::lockText(RegistryFixture::otherDigest, [], packages)
+
+    fn pinned() = [RegistryFixture::onePkg(RegistryFixture::one2()), RegistryFixture::pkg(RegistryFixture::two(), [])]
+
+    fn auditWith(lockText, webs, args) = RegistryFixture::run([Fixture::readRoute(RegistryFixture::lockPath, lockText)], webs, listConcat(["audit", "--project", RegistryFixture::project], args))
+
+    fn audit(packages, yanked) = auditWith(lockOf(packages), RegistryFixture::websYanking(served(), yanked), [])
+
+    fn finding(code, s) = "${code} ${RegistryFixture::compact(s)}"
+
+    /// Every locked release is listed and unyanked; the registry flag picks the base.
+    fn clean() = {
+        let a = audit(pinned(), [])
+        let elsewhere = auditWith(lockOf(pinned()), [RegistryFixture::webRouteAt("http://elsewhere.test", Fetch::packagesListingPath, 200, "{\"packages\":[]}")], ["--registry", "http://elsewhere.test"])
+        checkAll("a lock of listed, unyanked releases audits clean", [
+                RegistryFixture::accepted(a),
+                RegistryFixture::hasLines(a, ["audited 2 packages: none yanked, vanished or replaced"]),
+                RegistryFixture::writeLogOf(a) == "",
+                RegistryFixture::reported(elsewhere, 1, finding(vanished, RegistryFixture::one2())),
+                RegistryFixture::lineOf(elsewhere, 1) == finding(vanished, RegistryFixture::two())
+        ])
+    }
+
+    /// A yanked release is a finding; an unlocked yank is not.
+    fn yanked() = {
+        let locked = audit(pinned(), ["@demo/one/1.2"])
+        let unlocked = audit(pinned(), ["@demo/one/1.1"])
+        let both = audit(pinned(), ["@demo/one/1.2", "@demo/two/1.1"])
+        checkAll("a locked yanked release is audit.yanked", [
+                RegistryFixture::reported(locked, 1, finding(yankedCode, RegistryFixture::one2())),
+                length(RegistryFixture::linesOf(locked)) == 1,
+                RegistryFixture::writeLogOf(locked) == "",
+                RegistryFixture::accepted(unlocked),
+                RegistryFixture::hasLines(both, [finding(yankedCode, RegistryFixture::one2()), finding(yankedCode, RegistryFixture::two())])
+        ])
+    }
+
+    fn forged(s) = {
+        let id = Fixture::idOf(s)
+        Lockfile::Package { release: Identity::ReleaseId { key: id.key, epoch: id.epoch, ordinal: id.ordinal, digest: Fixture::digestOf(RegistryFixture::two()) }, dependencies: [], surface: [] }
+    }
+
+    /// A slot the registry dropped, or now fills with other bytes, is a finding.
+    fn vanishedAndReplaced() = {
+        let gone = audit([RegistryFixture::pkg(RegistryFixture::three(), []), RegistryFixture::pkg(RegistryFixture::two(), [])], [])
+        let swapped = audit([forged(RegistryFixture::one()), RegistryFixture::pkg(RegistryFixture::two(), [])], ["@demo/one/1.1"])
+        checkAll("a vanished or replaced release is a finding", [
+                RegistryFixture::reported(gone, 1, finding(vanished, RegistryFixture::three())),
+                length(RegistryFixture::linesOf(gone)) == 1,
+                RegistryFixture::statusOf(swapped) == 1,
+                startsWith(RegistryFixture::lineOf(swapped, 0), "audit.replaced @demo/one e1.r1 "),
+                length(RegistryFixture::linesOf(swapped)) == 1
+        ])
+    }
+
+    /// No lock, an unreachable or malformed registry, or a bad flag never reports clean.
+    fn failsClosed() = {
+        let noLock = RegistryFixture::run([], RegistryFixture::websOf(served()), ["audit", "--project", RegistryFixture::project])
+        let offline = auditWith(lockOf(pinned()), [], [])
+        let malformed = auditWith(lockOf(pinned()), [RegistryFixture::webRouteAt(RegistryFixture::base, Fetch::packagesListingPath, 200, "not json")], [])
+        let refused = auditWith(lockOf(pinned()), [RegistryFixture::webRouteAt(RegistryFixture::base, Fetch::packagesListingPath, 503, "{}")], [])
+        checkAll("audit fails closed", [
+                RegistryFixture::statusOf(noLock) == 1 && startsWith(RegistryFixture::lineOf(noLock, 0), "audit.no-lock "),
+                RegistryFixture::statusOf(offline) == 1 && startsWith(RegistryFixture::lineOf(offline, 0), registryFailed),
+                RegistryFixture::statusOf(malformed) == 1 && startsWith(RegistryFixture::lineOf(malformed, 0), registryFailed),
+                RegistryFixture::statusOf(refused) == 1 && startsWith(RegistryFixture::lineOf(refused, 0), registryFailed),
+                RegistryFixture::reported(auditWith(lockOf(pinned()), [], ["--bogus"]), 2, "audit.usage"),
+                RegistryFixture::reported(auditWith(lockOf(pinned()), [], ["extra"]), 2, "audit.usage")
+        ])
+    }
+
+    /// Every audit test.
+    export fn run() = {
+        test("audit: a clean lock", clean)
+        test("audit: yanked releases", yanked)
+        test("audit: vanished and replaced releases", vanishedAndReplaced)
+        test("audit: fails closed", failsClosed)
+    }
+}

@@ -57,7 +57,6 @@ module PythonPlane {
     // Shared field names need typed receivers (issue #273).
     fn nameOf(m: Member) = m.name
     fn pathOf(m: Member) = m.path
-    fn floorOf(m: Member) = m.floor
     fn statusOf(r: Host::Run) = r.status
 
     fn declaring(s: ManifestModel::SystemRequirement) = s.capability == capability
@@ -69,14 +68,18 @@ module PythonPlane {
 
     // ---- the PEP 621 name ----
 
-    /// The text stored under `key`, or `code` when it is absent or not a string.
-    fn textIn(table, key, code) = match Toml::get(table, key) {
-        Error => Error { message: code }
+    /// The string `key` of `table` through `present`; `absent` when the
+    /// member is missing and `other` when it is not a string.
+    fn stringMember(table, key, absent, other, present) = match Toml::get(table, key) {
+        Error => absent
         Success { value } => match value {
-            Toml::Str { text } => Success { value: text }
-            _ => Error { message: code }
+            Toml::Str { text } => present(text)
+            _ => other
         }
     }
+
+    /// The text stored under `key`, or `code` when it is absent or not a string.
+    fn textIn(table, key, code) = stringMember(table, key, Error { message: code }, Error { message: code }, fn(text) => Success { value: text })
 
     fn nameIn(project) = textIn(project, "name", pyprojectMissing)
 
@@ -88,27 +91,18 @@ module PythonPlane {
 
     fn valueAt(table, key) = Toml::get(table, key) ?: Toml::emptyTable
 
-    fn uvTable(root) = match Toml::get(root, "tool") {
-        Error => Toml::emptyTable
-        Success { value } => valueAt(value, "uv")
-    }
+    fn uvTable(root) = valueAt(valueAt(root, "tool"), "uv")
 
     /// A path source stays inside the member's tree: relative and never climbing.
     fn insideTree(path) = !startsWith(path, "/") && !contains(path, "..")
 
-    fn pathOk(entry) = match Toml::get(entry, "path") {
-        Error => true
-        Success { value } => match value {
-            Toml::Str { text } => insideTree(text)
-            _ => false
-        }
-    }
+    fn pathOk(entry) = stringMember(entry, "path", true, false, insideTree)
 
     fn entryOk(entry) = pathOk(entry) && !has(entry, "git") && !has(entry, "url")
 
     /// One `[tool.uv.sources]` value: a table, or a list of them with markers.
     fn sourceOk(source) = match source {
-        Toml::Arr { items } => foldList(items, true, fn(ok, item) => ok && entryOk(item))
+        Toml::Arr { items } => Folds::all(items, entryOk)
         _ => entryOk(source)
     }
 
@@ -119,8 +113,8 @@ module PythonPlane {
 
     /// The member's name once its tree passes P2 of `[PACKAGE-HARDENING]`.
     fn named(root) = if has(uvTable(root), "index") { Error { message: indexForbidden } }
-        else if !sourcesOk(uvTable(root)) { Error { message: sourceForbidden } }
-        else { projectIn(root) }
+    else if !sourcesOk(uvTable(root)) { Error { message: sourceForbidden } }
+    else { projectIn(root) }
 
     fn pep621Name(pyprojectText) = Checked::orElseCode(Toml::parse(pyprojectText), pyprojectMissing, named)
 
@@ -128,27 +122,25 @@ module PythonPlane {
     /// declare the plane; `python.pyproject-missing <path>` when it does but
     /// `pyprojectText` is not a PEP 621 project.
     export fn memberOf(m, path, pyprojectText) = if !declares(m) { Success { value: Maybe::none() } } else { match pep621Name(pyprojectText) {
-        Error { message } => Error { message: "${message} ${path}" }
-        Success { value } => Success { value: Maybe::some(Member { name: value, path: path, floor: declaredFloor(m) }) }
-    } }
+            Error { message } => Error { message: "${message} ${path}" }
+            Success { value } => Success { value: Maybe::some(Member { name: value, path: path, floor: declaredFloor(m) }) }
+        } }
 
-    fn appendMember(done, member) = andThen(member, fn(value) => Success { value: Maybe::fold(value, done, fn(m) => listAppend(done, m)) })
+    fn appendMember(done, member) = Folds::mapped(member, fn(value) => Maybe::fold(value, done, fn(m) => listAppend(done, m)))
 
     /// Every member over `items`: `root` first, then `next(item)` for each.
     /// The first failure wins and stops the walk.
-    export fn membersOver(items, root, next) = foldList(items, appendMember([], root), fn(acc, item) => match acc {
-        Error => acc
-        Success { value } => appendMember(value, next(item))
-    })
+    export fn membersOver(items, root, next) = Folds::collect(items, appendMember([], root), fn(done, item) => appendMember(done, next(item)))
 
     // ---- composition ----
 
     fn versionText(floor) = {
         let patch = floor % 100
-        if patch == 0 { "${intDiv(floor, 10000)}.${intDiv(floor, 100) % 100}" } else { "${intDiv(floor, 10000)}.${intDiv(floor, 100) % 100}.${patch}" }
+        let majorMinor = "${intDiv(floor, 10000)}.${intDiv(floor, 100) % 100}"
+        if patch == 0 { majorMinor } else { "${majorMinor}.${patch}" }
     }
 
-    fn maxFloor(members) = foldList(members, 0, fn(best, m) => if floorOf(m) > best { floorOf(m) } else { best })
+    fn maxFloor(members) = Folds::largest(members, fn(m) => m.floor)
 
     fn quoted(m) = "\"" + nameOf(m) + "\""
 
@@ -166,18 +158,12 @@ module PythonPlane {
 
     // ---- P3: every distribution in uv.lock carries a hash ----
 
-    fn hashed(dist) = match Toml::get(dist, "hash") {
-        Error => false
-        Success { value } => match value {
-            Toml::Str { text } => !isEmpty(text)
-            _ => false
-        }
-    }
+    fn hashed(dist) = stringMember(dist, "hash", false, false, fn(text) => !isEmpty(text))
 
     fn wheelsHashed(pkg) = match Toml::get(pkg, "wheels") {
         Error => true
         Success { value } => match value {
-            Toml::Arr { items } => foldList(items, true, fn(ok, w) => ok && hashed(w))
+            Toml::Arr { items } => Folds::all(items, hashed)
             _ => false
         }
     }
@@ -190,7 +176,7 @@ module PythonPlane {
     fn packagesHashed(root) = match Toml::get(root, "package") {
         Error => true
         Success { value } => match value {
-            Toml::Arr { items } => foldList(items, true, fn(ok, p) => ok && sdistHashed(p) && wheelsHashed(p))
+            Toml::Arr { items } => Folds::all(items, fn(p) => sdistHashed(p) && wheelsHashed(p))
             _ => false
         }
     }
@@ -205,7 +191,7 @@ module PythonPlane {
     /// The plain `sha256:` digest of a generated file.
     export fn digestOf(text) = Digests::format(Sha256::digest(Bytes::ofString(text)))
 
-    fn inDir(project) = if project == "." || project == "" { dir } else { "${project}/${dir}" }
+    fn inDir(project) = Project::pathAt(project, dir)
 
     /// The composed `pyproject.toml` under `project`'s `.osprey/python`.
     export fn pyprojectPath(project) = "${inDir(project)}/${pyprojectName}"
@@ -220,26 +206,17 @@ module PythonPlane {
     // ---- lock ----
 
     fn pinned(text, uvLockText) = if !isEmpty(hashFindings(uvLockText)) { Error { message: uvLockHashes } }
-        else { Success { value: Lockfile::PythonPins { pyprojectDigest: digestOf(text), uvLockDigest: digestOf(uvLockText) } } }
+    else { Success { value: Lockfile::PythonPins { pyprojectDigest: digestOf(text), uvLockDigest: digestOf(uvLockText) } } }
 
     fn uvLocked(project, paths, text) = {
         let r = uv(project, paths, "lock", true, digestOf(text), "")
-        if statusOf(r) != 0 { failedRun(uvLockFailed, r) } else { match perform Host::Files.read(uvLockPath(project)) {
-            Error => Error { message: uvLockMissing }
-            Success { value } => pinned(text, value)
-        } }
+        if statusOf(r) != 0 { failedRun(uvLockFailed, r) } else { Checked::orElseCode(perform Host::Files.read(uvLockPath(project)), uvLockMissing, fn(value) => pinned(text, value)) }
     }
 
-    fn writtenProject(project, paths, text) = match perform Host::Files.write(pyprojectPath(project), text) {
-        Error { message } => Error { message: message }
-        Success => uvLocked(project, paths, text)
-    }
+    fn writtenProject(project, paths, text) = andThen(perform Host::Files.write(pyprojectPath(project), text), fn(_written) => uvLocked(project, paths, text))
 
     /// `lock`: write the composed project, run `uv lock`, read `uv.lock` and pin both digests.
-    export fn locked(project, members) = match perform Host::Tree.ensure(inDir(project)) {
-        Error { message } => Error { message: message }
-        Success => writtenProject(project, mapList(members, pathOf), compose(members))
-    }
+    export fn locked(project, members) = andThen(perform Host::Tree.ensure(inDir(project)), fn(_made) => writtenProject(project, mapList(members, pathOf), compose(members)))
 
     /// The line `lock` prints for a pinned plane.
     export fn lockedLine(project) = "python: locked ${inDir(project)}"
@@ -253,7 +230,7 @@ module PythonPlane {
 
     fn sourcePath(source) = textIn(source, "path", sourceForbidden)
 
-    fn appendedPath(paths, source) = andThen(sourcePath(source), fn(value) => Success { value: listAppend(paths, value) })
+    fn appendedPath(paths, source) = Folds::mapped(sourcePath(source), fn(value) => listAppend(paths, value))
 
     fn pathsIn(root) = {
         let sources = valueAt(uvTable(root), "sources")

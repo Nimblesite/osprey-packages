@@ -1,0 +1,134 @@
+namespace registry_tests;
+import registry::JsonRead
+import registry::Json
+import registry::Names
+import registry::Identity
+import registry::Paths
+import registry::Source
+import registry::Digests
+import registry::Bytes
+import registry::Png
+
+/// The declarative fixtures under src/manager/core/tests/fixtures, read through the
+/// Osprey JSON parser and asserted case by case. A fixture is the normative
+/// table; code here only interprets it. Each case is reported with the input
+/// so a failure names the exact row.
+module FixtureTests {
+    /// A text the judge accepts: its verdict on the text alone is success.
+    fn accepts(judge) = fn(t) => Fixtures::code(judge(t)) == ""
+
+    /// A case the judge refuses: its verdict on the case's `key` member is exactly the error code the case names.
+    fn refuses(key, judge) = fn(c) => Fixtures::code(judge(Fixtures::textOf(c, key))) == Fixtures::textOf(c, "code")
+
+    fn invalid(label, cases, key, judge) = Fixtures::report(label, cases, refuses(key, judge))
+
+    fn validInvalid(fx, label, key, judge) = {
+        Fixtures::report("${label} valid", Fixtures::textsOf(fx, "valid"), accepts(judge))
+        invalid("${label} invalid", Fixtures::itemsOf(fx, "invalid"), key, judge)
+    }
+
+    /// Every case of member `key` must satisfy `judge`.
+    export fn reportCases(fx, label, key, judge) = Fixtures::report(label, Fixtures::itemsOf(fx, key), judge)
+
+    fn names() = validInvalid(Fixtures::load("names.json"), "names", "text", Names::parse)
+
+    fn releaseIds() = {
+        let fx = Fixtures::load("release-ids.json")
+        Fixtures::report("release ids valid", Fixtures::textsOf(fx, "valid"), fn(t) => match Identity::parse(t) {
+                Success { value } => Identity::display(value) == t
+                Error => false
+        })
+        invalid("release ids invalid", Fixtures::itemsOf(fx, "invalid"), "text", Identity::parse)
+    }
+
+    fn pathRows() = {
+        let fx = Fixtures::load("paths.json")
+        validInvalid(fx, "paths", "path", Paths::validate)
+        reportCases(fx, "path collisions", "collisions", fn(c) => Fixtures::code(Paths::canonicalSet(Fixtures::textsOf(c, "paths"))) == Fixtures::textOf(c, "code"))
+        exclusionRows(fx, "excluded paths", "excluded", true)
+        exclusionRows(fx, "included paths", "included", false)
+    }
+
+    /// Every path of the table has the `Paths::excluded` verdict `excluded`.
+    fn exclusionRows(fx, label, key, excluded) = Fixtures::report(label, Fixtures::textsOf(fx, key), fn(p) => Paths::excluded(p) == excluded)
+
+    fn treeRows() = {
+        let fx = Fixtures::load("paths.json")
+        reportCases(fx, "forbidden kinds", "forbiddenKinds", fn(c) => Source::kindCode(Fixtures::textOf(c, "kind")) == Fixtures::textOf(c, "code"))
+        expectTrue(Source::lfsPointer(JsonRead::text(JsonRead::at(fx, "lfsPointer/content"))))
+        Fixtures::report("submission limits", JsonRead::items(JsonRead::at(fx, "limits/cases")), fn(c) =>
+            Source::limitCode(Fixtures::numberOf(c, "fileCount"), Fixtures::numberOf(c, "totalBytes"), Fixtures::numberOf(c, "assetBytes")) == Fixtures::textOf(c, "code"))
+    }
+
+    fn entryOf(file) = Source::entryOf(Fixtures::textOf(file, "path"), Bytes::ofString(Fixtures::textOf(file, "content")))
+
+    fn fileDigestsMatch(fx) = foldList(Fixtures::itemsOf(fx, "files"), true, fn(ok, file) => ok && Bytes::hex(entryOf(file).digest) == Fixtures::textOf(file, "sha256"))
+
+    fn tampered(fx, entries) = {
+        let sub = JsonRead::field(fx, "digestSubstitution")
+        let fakeDigest = Bytes::fromHex(Fixtures::textOf(sub, "sha256"))
+        let replaced = mapList(entries, fn(e: Source::Entry) => if e.path == Fixtures::textOf(sub, "path") { Source::Entry { path: e.path, byteLength: e.byteLength, digest: fakeDigest } } else { e })
+        digestMatches(replaced, Fixtures::textOf(sub, "sourceDigest"))
+    }
+
+    fn digestMatches(entries, expected) = (Source::digest(entries) ?: "") == expected
+
+    fn tree(name) = {
+        let fx = Fixtures::load("source/${name}.json")
+        let entries = mapList(Fixtures::itemsOf(fx, "files"), entryOf)
+        let envelope = Source::envelope(entries) ?: []
+        checkAll("source tree ${name}", [
+                fileDigestsMatch(fx),
+                length(envelope) == Fixtures::numberOf(fx, "envelopeLength"),
+                Bytes::hex(envelope) == Fixtures::textOf(fx, "envelopeHex"),
+                digestMatches(entries, Fixtures::textOf(fx, "sourceDigest")),
+                match Json::get(fx, "digestSubstitution") {
+                    Success => tampered(fx, entries)
+                    Error => true
+                }
+        ])
+    }
+
+    fn domainHashes() = {
+        let fx = Fixtures::load("digests.json")
+        Fixtures::report("H(d, x) cases", Fixtures::itemsOf(fx, "cases"), fn(c) => Digests::hashText(Fixtures::textOf(c, "domain"), Fixtures::textOf(c, "payload")) == Fixtures::textOf(c, "digest"))
+    }
+
+    fn confusables() = {
+        let fx = Fixtures::load("malicious/confusables.json")
+        invalid("confusable names", Fixtures::itemsOf(fx, "names"), "text", Names::parse)
+        reportCases(fx, "confusable lookalikes are valid names", "names", fn(c) => Fixtures::code(Names::parse(Fixtures::textOf(c, "lookalike"))) == "")
+        invalid("confusable paths", Fixtures::itemsOf(fx, "paths"), "path", Paths::validate)
+    }
+
+    /// The structural verdict a case expects: `structure` when the full
+    /// verdict needs inflation, else `code`.
+    fn structureExpected(c) = match Json::get(c, "structure") {
+        Success { value } => JsonRead::text(value)
+        Error => Fixtures::textOf(c, "code")
+    }
+
+    fn pngCaseHolds(c) = {
+        let bytes = Bytes::fromHex(Fixtures::textOf(c, "hex"))
+        length(bytes) == Fixtures::numberOf(c, "byteLength") && Png::structureCode(bytes) == structureExpected(c)
+    }
+
+    fn pngBombs() = Fixtures::report("png structure and bombs", Fixtures::loadItems("malicious/png-bombs.json", "cases"), pngCaseHolds)
+
+    /// Every declarative fixture under `tests/fixtures`, one test per table:
+    /// names, release ids, paths, tree rules, domain hashes, confusables and
+    /// PNG bombs.
+    export fn run() = {
+        test("fixtures: names", names)
+        test("fixtures: release ids", releaseIds)
+        test("fixtures: paths", pathRows)
+        test("fixtures: tree rules", treeRows)
+        test("fixtures: empty tree", fn() => tree("empty-tree"))
+        test("fixtures: minimal tree", fn() => tree("minimal-tree"))
+        test("fixtures: ordered tree", fn() => tree("ordered-tree"))
+        test("fixtures: python tree", fn() => tree("python-tree"))
+        test("fixtures: domain hashes", domainHashes)
+        test("fixtures: unicode confusables", confusables)
+        test("fixtures: png decompression bombs", pngBombs)
+    }
+}

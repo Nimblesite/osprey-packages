@@ -1,4 +1,5 @@
 namespace registry_web;
+import registry::JsonRead
 
 /// Shared presentation for the static site and registry screens.
 module Shell {
@@ -14,17 +15,14 @@ module Shell {
 
     export fn licenseBadge(expression) = "<span class=\"prose-license\" aria-label=\"License\">${escape(expression)}</span>"
 
-    fn documentName(item) = escape(jsonText(jsonField(item, "path") ?: JsonNull) ?: "")
+    /// The escaped text of the string member `key` of a notice `item`.
+    fn noticeText(item, key) = escape(JsonRead::text(JsonRead::field(item, key)))
+
+    fn documentName(item) = noticeText(item, "path")
 
     fn documentText(item) = {
-        let text = escape(jsonText(jsonField(item, "text") ?: JsonNull) ?: "")
+        let text = noticeText(item, "text")
         replace(text, "\n", "&#10;") ?: text
-    }
-
-    fn licenseDocument(item) = "<h4>${documentName(item)}</h4><pre>${documentText(item)}</pre>"
-
-    export fn releaseLicense(expression, items) = if isEmpty(items) { licenseBadge(expression) } else {
-        "<details class=\"prose-notice prose-notices\"><summary>${licenseBadge(expression)} Read license</summary>${join(mapList(items, licenseDocument), "")}</details>"
     }
 
     export fn licenseLink(expression, href) = "<a class=\"prose-license\" href=\"${href}\" aria-label=\"Read license\">${escape(expression)}</a>"
@@ -40,15 +38,28 @@ module Shell {
     }
 
     fn navigation() = {
-        let upload = "<a href=\"/upload/\">Upload a package</a>"
-        "<nav class=\"prose-desktop-nav\" aria-label=\"Primary\">${upload}</nav><details class=\"prose-mobile-menu\"><summary>Menu</summary><nav aria-label=\"Primary\"><a href=\"/\">Browse packages</a><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a>${upload}</nav></details>"
+        let account = "<a href=\"/signin/\" data-session=\"out\">Sign in</a><a href=\"/release/\" data-session=\"in\" hidden>Release a package</a>"
+        "<nav class=\"prose-desktop-nav\" aria-label=\"Primary\">${account}</nav><details class=\"prose-mobile-menu\"><summary>Menu</summary><nav aria-label=\"Primary\"><a href=\"/\">Browse packages</a><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a>${account}</nav></details>"
     }
 
-    let footer = "<footer class=\"prose-footer\"><a href=\"https://www.ospreylang.dev/\"><img src=\"/osprey-mark.svg?v=6efc798a098d\" width=\"56\" height=\"44\" alt=\"\">A package registry for the Osprey language</a></footer>"
+    let docs = "https://www.ospreylang.dev/"
+    let source = "https://github.com/Nimblesite/osprey-packages"
+    fn link(pair) = "<a href=\"${listGet(pair, 1) ?: ""}\">${listGet(pair, 0) ?: ""}</a>"
+    fn column(heading, links) = "<nav aria-label=\"${heading}\"><h2>${heading}</h2>${join(mapList(links, link), "")}</nav>"
+
+    /// Four link columns, then the mark and copyright [PACKAGE-HOSTED-ROUTES].
+    fn footer() = join([
+            "<footer class=\"prose-footer\"><div class=\"prose-footer-columns\">",
+            column("Packages", [["Browse packages", "/"], ["By publisher", "/publishers/"], ["By tag", "/tags/"], ["Release a package", "/release/"]]),
+            column("Publish", [["Publishing guide", "/publishing/"], ["Package guide", "/guide/"], ["Package manager docs", docs + "docs/package-manager/"]]),
+            column("Osprey", [["Website", docs], ["Install", docs + "docs/installation/"], ["Documentation", docs + "docs/"], ["Specification", docs + "spec/"]]),
+            column("Community", [["Discord", "https://discord.gg/EGk3XhcGyy"], ["GitHub", source], ["Issues", source + "/issues"]]),
+            "</div><a class=\"prose-footer-mark\" href=\"${docs}\"><img src=\"/osprey-mark.svg?v=6efc798a098d\" width=\"56\" height=\"44\" alt=\"\">A package registry for the Osprey language</a>",
+            "<p>© 2026 <a href=\"https://nimblesite.co/\">Nimblesite</a></p></footer>"], "")
 
     /// Shell for an already escaped title or a trusted text literal.
     export fn withEscapedTitle(title, body) = join([
-        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
-        title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.e5b3f1a50ee3.css\"></head><body>",
-        "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer, "</body></html>"], "")
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
+            title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.f8ae061a6f7a.css\"><script type=\"module\" src=\"/nav.b62f67bd3f44.mjs\"></script></head><body>",
+            "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer(), "</body></html>"], "")
 }

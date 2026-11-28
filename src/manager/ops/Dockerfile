@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /workspace
 COPY . .
-RUN make _registry-hosted-api REGISTRY_HOSTED_BINARY=/out/osprey-registry-hosted
+RUN make _registry-hosted-api target/osprey-registry-scan target/osprey-registry-collect REGISTRY_HOSTED_BINARY=/out/osprey-registry-hosted
 
 FROM docker.io/library/debian:trixie-slim@sha256:8aa5a7bf5a1955bddbe7d74fcdd0b91ab30e74362a8b73af672b0481b35b44a0
 
@@ -15,6 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /out/osprey-registry-hosted /usr/local/bin/osprey-registry-hosted
+COPY --from=build /workspace/target/osprey-registry-scan /usr/local/bin/osprey-registry-scan
+COPY --from=build /workspace/target/osprey-registry-collect /usr/local/bin/osprey-registry-collect
+COPY --from=build /workspace/scripts/packages/registry-scan-once.sh /usr/local/bin/registry-scan-once
+RUN ln -s registry-scan-once /usr/local/bin/registry-collect-once
 WORKDIR /tmp
 USER 65532:65532
 EXPOSE 8080 8081

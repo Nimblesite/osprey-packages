@@ -1,0 +1,62 @@
+namespace registry_tests;
+import registry::JsonRead
+import registry::Json
+import registry::ManifestModel
+import registry::Resolution
+
+/// The parsed declarative form of one bounded dependency-graph fixture: the
+/// target, granted capabilities, the root's dependency edges, an optional
+/// current lock, and the catalog of candidate releases. Test-only input for
+/// the resolver and the exhaustive oracle; the problem types live in
+/// `Resolution`, and requirements and edges reuse `ManifestModel`. Implements
+/// [PACKAGE-RESOLUTION].
+module GraphModel {
+    /// Whether `v` carries a member `key`.
+    fn has(v, key) = !Json::isNull(JsonRead::field(v, key))
+
+    /// The `package` member of `v` as the key it names.
+    fn packageKey(v) = Fixtures::keyOf(JsonRead::field(v, "package"))
+
+    /// The requirement object `v`: its package, epoch and minimumOrdinal floor.
+    fn requirement(v) = ManifestModel::Requirement { package: packageKey(v), epoch: Fixtures::numberOf(v, "epoch"), minimumOrdinal: Fixtures::numberOf(v, "minimumOrdinal") }
+
+    /// The requirement an edge body `value` carries.
+    fn required(value) = requirement(JsonRead::field(value, "requirement"))
+
+    /// One edge object `{"Runtime": {"requirement": {...}}}` into its
+    /// `ManifestModel::Edge` variant: `Runtime` outranks `Build`, and a body
+    /// naming neither is a `Test` edge whose requirement may be absent.
+    fn edge(v) = if has(v, "Runtime") { ManifestModel::Runtime { requirement: required(JsonRead::field(v, "Runtime")) } }
+    else if has(v, "Build") { ManifestModel::Build { requirement: required(JsonRead::field(v, "Build")) } }
+    else { ManifestModel::Test { requirement: required(JsonRead::field(v, "Test")) } }
+
+    fn releaseState(v) = match Json::get(v, "Eligible") {
+        Success => "Eligible"
+        Error => match Json::get(v, "Yanked") {
+            Success => "Yanked"
+            Error => "Revoked"
+        }
+    }
+
+    fn entry(v) = Resolution::Entry {
+        release: Fixtures::releaseIdOf(JsonRead::field(v, "release")),
+        activation: releaseState(JsonRead::field(v, "state")),
+        targets: Fixtures::textsOf(v, "targets"),
+        capabilities: Fixtures::textsOf(v, "capabilities"),
+        dependencies: Fixtures::mappedItems(v, "dependencies", edge)
+    }
+
+    /// One `{"package": {...}, "capabilities": [...]}` grant of the root.
+    fn grant(v) = ManifestModel::Grant { package: packageKey(v), capabilities: Fixtures::textsOf(v, "capabilities") }
+
+    /// The typed graph of one parsed fixture object, its members read in
+    /// fixture order; `grants` is optional and empty when the fixture carries none.
+    export fn graphOf(v) = Resolution::Graph {
+        target: Fixtures::textOf(v, "target"),
+        granted: Fixtures::textsOf(v, "grantedCapabilities"),
+        rootDeps: mapList(JsonRead::items(JsonRead::at(v, "root/dependencies")), edge),
+        current: Fixtures::mappedItems(v, "current", Fixtures::releaseIdOf),
+        catalog: Fixtures::mappedItems(v, "catalog", entry),
+        grants: Fixtures::mappedItems(v, "grants", grant)
+    }
+}

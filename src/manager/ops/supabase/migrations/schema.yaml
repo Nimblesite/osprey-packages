@@ -1,0 +1,1240 @@
+# Implements [PACKAGE-OWNERSHIP-DATABASE] and [PACKAGE-OWNERSHIP-ADMIN].
+# DataProviderMigrate owns DDL. PostgreSQL only; no hand-authored SQL overlay.
+# Bootstrap forces RLS and grants no runtime privileges. Ownership writes stay closed.
+# Hosted write readiness must reject this state with ownership.not-ready.
+name: osprey_registry_ownership
+tables:
+  - name: principals
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: kind, type: Text, isNullable: false, checkConstraint: "kind IN ('human', 'workflow')" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('active', 'suspended')" }
+      - { name: credential_epoch, type: BigInt, isNullable: false, checkConstraint: "credential_epoch > 0" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_principals_id_kind, columns: [id, kind] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scanner_approved_principals, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "state = 'active' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.publisher_id = principals.id AND EXISTS (SELECT 1 FROM registry.release_approvals a WHERE a.submission_id = j.id))" }
+        - { name: collector_principals, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
+        - name: session_identity_principal
+          permissive: true
+          operations: [Select]
+          roles: [registry_session_issuer, registry_session_runtime]
+          using: >-
+            (current_setting('session_authorization') = 'registry_session_issuer'
+            OR current_setting('session_authorization') = 'registry_session_runtime')
+            AND kind = 'human' AND state = 'active'
+            AND EXISTS (SELECT 1 FROM registry.auth_bindings b WHERE b.principal_id = principals.id)
+        # [PACKAGE-HOSTED-AUTH] A first GitHub sign-in registers: the issuer creates one authority-free
+        # principal and, in the same statement, sees only that row to bind it.
+        - { name: issuer_registers_principal, permissive: true, operations: [Insert], roles: [registry_session_issuer], withCheck: &registered_principal "kind = 'human' AND state = 'active' AND credential_epoch = 1 AND created_at = statement_timestamp()" }
+        - { name: issuer_sees_registered_principal, permissive: true, operations: [Select], roles: [registry_session_issuer], using: *registered_principal }
+
+  - name: auth_bindings
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: principal_id, type: Uuid, isNullable: false }
+      - { name: issuer, type: Text, isNullable: false }
+      - { name: provider, type: Text, isNullable: false }
+      - { name: provider_subject, type: Text, isNullable: false }
+      - { name: auth_subject, type: Uuid, isNullable: false }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('active', 'revoked')" }
+      - { name: verified_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_auth_binding_identity, columns: [issuer, provider, provider_subject] }
+    indexes:
+      - { name: uq_auth_binding_active_subject, columns: [issuer, auth_subject], isUnique: true, filter: "state = 'active'" }
+    foreignKeys:
+      - { columns: [principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: session_identity_binding
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: >-
+            (current_setting('session_authorization') = 'registry_session_issuer'
+            OR current_setting('session_authorization') = 'registry_session_runtime')
+            AND provider = 'github' AND state = 'active'
+            AND issuer = current_setting('registry.session_issuer')
+            AND auth_subject::text = current_setting('registry.session_subject')
+            AND provider_subject = current_setting('registry.session_provider')
+        - name: issuer_registers_binding
+          permissive: true
+          operations: [Insert]
+          roles: [registry_session_issuer]
+          withCheck: >-
+            provider = 'github' AND state = 'active' AND verified_at = statement_timestamp()
+            AND issuer = current_setting('registry.session_issuer')
+            AND auth_subject::text = current_setting('registry.session_subject')
+            AND provider_subject = current_setting('registry.session_provider')
+            AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = principal_id AND p.created_at = statement_timestamp())
+
+  - name: organizations
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: handle, type: Text, isNullable: false, checkConstraint: "length(handle) BETWEEN 1 AND 39 AND handle ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'" }
+      - { name: display_name, type: Text, isNullable: false }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('active', 'frozen', 'tombstoned')" }
+      - { name: governance_epoch, type: BigInt, isNullable: false, checkConstraint: "governance_epoch > 0" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_organizations_handle, columns: [handle] }
+    triggers:
+      - name: preserve_organization_identity
+        events: [Update]
+        raiseWhen: "old.id <> new.id or old.handle <> new.handle"
+        errorMessage: organization identity is immutable
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        # [PACKAGE-OWNERSHIP-RLS] A live session creates an organization and sees the ones it belongs to.
+        - { name: session_creates_organization, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "state = 'active' AND governance_epoch = 1 AND created_at = statement_timestamp() AND registry.review_session_principal() IS NOT NULL" }
+        - { name: session_member_organizations, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "created_at = statement_timestamp() OR EXISTS (SELECT 1 FROM registry.memberships m WHERE m.organization_id = organizations.id AND m.state = 'active' AND m.principal_id = registry.review_session_principal())" }
+        - { name: collector_organizations, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
+        - { name: scan_scope, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.organization_id = organizations.id)" }
+        - { name: catalog_writer_organizations, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
+
+  - name: memberships
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: principal_id, type: Uuid, isNullable: false }
+      - { name: role, type: Text, isNullable: false, checkConstraint: "role IN ('custodian', 'member')" }
+      - { name: principal_kind, type: Text, isNullable: false, checkConstraint: "principal_kind IN ('human', 'workflow')" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('active', 'revoked')" }
+      - { name: authority_epoch, type: BigInt, isNullable: false, checkConstraint: "authority_epoch > 0" }
+      - { name: accepted_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_memberships_org_id, columns: [organization_id, id] }
+      - { name: uq_memberships_org_id_state_kind, columns: [organization_id, id, state, principal_kind] }
+    checkConstraints:
+      - { name: ck_custodian_human, expression: "role <> 'custodian' OR principal_kind = 'human'" }
+    indexes:
+      - { name: uq_memberships_org_principal_active, columns: [organization_id, principal_id], isUnique: true, filter: "state = 'active'" }
+    foreignKeys:
+      - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [principal_id, principal_kind], referencedSchema: registry, referencedTable: principals, referencedColumns: [id, kind], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: session_founds_organization, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "role = 'custodian' AND principal_kind = 'human' AND state = 'active' AND authority_epoch = 1 AND accepted_at = statement_timestamp() AND principal_id = registry.review_session_principal() AND EXISTS (SELECT 1 FROM registry.organizations o WHERE o.id = organization_id AND o.created_at = statement_timestamp())" }
+        - { name: own_review_membership, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "state = 'active' AND principal_id = registry.review_session_principal()" }
+        - { name: scanner_approved_memberships, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "state = 'active' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.publisher_id = memberships.principal_id AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = j.package_id AND p.organization_id = memberships.organization_id) AND EXISTS (SELECT 1 FROM registry.release_approvals a WHERE a.submission_id = j.id))" }
+        - { name: collector_memberships, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
+
+  - name: recovery_authorities
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: principal_id, type: Uuid, isNullable: false }
+      - { name: principal_kind, type: Text, isNullable: false, checkConstraint: "principal_kind = 'human'" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('active', 'revoked')" }
+      - { name: governance_epoch, type: BigInt, isNullable: false, checkConstraint: "governance_epoch > 0" }
+      - { name: enrollment_digest, type: Text, isNullable: false, checkConstraint: "enrollment_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: enrolled_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    indexes:
+      - { name: uq_recovery_authorities_active, columns: [organization_id, principal_id], isUnique: true, filter: "state = 'active'" }
+    foreignKeys:
+      - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [principal_id, principal_kind], referencedSchema: registry, referencedTable: principals, referencedColumns: [id, kind], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+
+  - name: packages
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: name, type: Text, isNullable: false, checkConstraint: "length(name) BETWEEN 1 AND 63 AND name ~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'" }
+      - { name: admin_membership_id, type: Uuid, isNullable: false }
+      - { name: admin_membership_state, type: Text, isNullable: false, checkConstraint: "admin_membership_state = 'active'" }
+      - { name: admin_principal_kind, type: Text, isNullable: false, checkConstraint: "admin_principal_kind = 'human'" }
+      - { name: authority_epoch, type: BigInt, isNullable: false, checkConstraint: "authority_epoch > 0" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('draft', 'active', 'write-frozen', 'deprecated', 'tombstoned')" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_packages_org_name, columns: [organization_id, name] }
+      - { name: uq_packages_org_id, columns: [organization_id, id] }
+    foreignKeys:
+      - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, admin_membership_id, admin_membership_state, admin_principal_kind], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id, state, principal_kind], onDelete: Restrict, onUpdate: Restrict }
+    triggers:
+      - name: preserve_package_identity
+        events: [Update]
+        raiseWhen: "old.id <> new.id or old.name <> new.name or old.organization_id <> new.organization_id"
+        errorMessage: package identity is immutable
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: custodian_creates_package, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "state = 'active' AND authority_epoch = 1 AND created_at = statement_timestamp() AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = admin_membership_id AND m.organization_id = packages.organization_id AND m.role = 'custodian' AND m.state = 'active' AND m.principal_id = registry.review_session_principal())" }
+        - { name: review_org_packages, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.organization_id = packages.organization_id AND m.principal_id = registry.review_session_principal())" }
+        - { name: collector_packages, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active' OR state = 'draft'" }
+        - { name: scan_package, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
+        - { name: catalog_writer_packages, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
+
+  # [PACKAGE-HOSTED-PUBLISH-FLOW] step 1: the one GitHub repository a package releases from, by its stable
+  # numeric ID, bound once by the package admin after the forge proves their admin authority over it.
+  - name: package_repositories
+    schema: registry
+    columns:
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: repository_id, type: BigInt, isNullable: false, checkConstraint: "repository_id > 0" }
+      - { name: branch, type: Text, isNullable: false, checkConstraint: "length(branch) BETWEEN 1 AND 255 AND branch <> 'HEAD' AND branch ~ '^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$' AND branch !~ '(^-|[.]$|[.][.]|[.]lock(/|$))'" }
+      - { name: subdirectory, type: Text, isNullable: false, checkConstraint: "length(subdirectory) <= 255 AND subdirectory ~ '^([a-z0-9._-]+(/[a-z0-9._-]+)*)?$' AND subdirectory !~ '(^|/)[.][.]?(/|$)'" }
+      - { name: bound_by, type: Uuid, isNullable: false }
+      - { name: bound_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [package_id] }
+    foreignKeys:
+      - { columns: [package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [bound_by], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: admin_binds_repository
+          permissive: true
+          operations: [Insert]
+          roles: [registry_session_runtime]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_session_runtime' AND bound_at = statement_timestamp()
+            AND bound_by = registry.review_session_principal()
+            AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = package_repositories.package_id AND p.state = 'active'
+            AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = p.admin_membership_id AND m.state = 'active' AND m.principal_id = package_repositories.bound_by))
+        - { name: member_sees_repository, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = package_repositories.package_id)" }
+        - { name: collector_repositories, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "current_setting('session_authorization') = 'registry_publication_collector'" }
+
+  # [PACKAGE-HOSTED-PUBLISH-FLOW] step 3: a publisher names one commit of the bound repository for one version.
+  # The collector fetches it; the frozen submission reuses the intent's id.
+  - name: release_intents
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: publisher_id, type: Uuid, isNullable: false }
+      - { name: repository_id, type: BigInt, isNullable: false }
+      - { name: commit_sha, type: Text, isNullable: false, checkConstraint: "commit_sha ~ '^[0-9a-f]{40}$'" }
+      - { name: epoch, type: BigInt, isNullable: false, checkConstraint: "epoch > 0" }
+      - { name: ordinal, type: BigInt, isNullable: false, checkConstraint: "ordinal > 0" }
+      - { name: requested_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_release_intent_version, columns: [package_id, epoch, ordinal] }
+    foreignKeys:
+      - { columns: [package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [publisher_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: publisher_requests_release
+          permissive: true
+          operations: [Insert]
+          roles: [registry_session_runtime]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_session_runtime' AND requested_at = statement_timestamp()
+            AND publisher_id = registry.review_session_principal()
+            AND registry.can_submit_version(publisher_id,package_id)
+            AND EXISTS (SELECT 1 FROM registry.package_repositories r WHERE r.package_id = release_intents.package_id AND r.repository_id = release_intents.repository_id)
+        - { name: member_sees_intent, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = release_intents.package_id)" }
+        - { name: collector_intents, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "current_setting('session_authorization') = 'registry_publication_collector'" }
+
+  - name: package_permissions
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: membership_id, type: Uuid, isNullable: false }
+      - { name: permission, type: Text, isNullable: false, checkConstraint: "permission IN ('publish-release', 'yank-release', 'edit-metadata', 'manage-maintenance', 'manage-security')" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('active', 'revoked')" }
+      - { name: granted_by_membership_id, type: Uuid, isNullable: false }
+      - { name: authority_epoch, type: BigInt, isNullable: false, checkConstraint: "authority_epoch > 0" }
+      - { name: membership_authority_epoch, type: BigInt, isNullable: false, checkConstraint: "membership_authority_epoch > 0" }
+      - { name: granted_at, type: DateTimeOffset, isNullable: false }
+      - { name: expires_at, type: DateTimeOffset, isNullable: true }
+    primaryKey: { columns: [id] }
+    indexes:
+      - { name: uq_package_permissions_subject_active, columns: [organization_id, package_id, membership_id, permission], isUnique: true, filter: "state = 'active'" }
+    checkConstraints:
+      - { name: ck_permission_expiry, expression: "expires_at IS NULL OR expires_at > granted_at" }
+    foreignKeys:
+      - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, granted_by_membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: admin_grants_own_publication, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "permission = 'publish-release' AND state = 'active' AND expires_at IS NULL AND membership_id = granted_by_membership_id AND authority_epoch = 1 AND membership_authority_epoch = 1 AND granted_at = statement_timestamp() AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = package_id AND p.created_at = statement_timestamp() AND p.admin_membership_id = membership_id) AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = membership_id AND m.principal_id = registry.review_session_principal())" }
+        - name: publisher_sees_own_publish_grant
+          permissive: true
+          operations: [Select]
+          roles: [registry_session_runtime]
+          using: >-
+            permission = 'publish-release' AND state = 'active' AND (expires_at IS NULL OR expires_at > statement_timestamp())
+            AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = package_permissions.membership_id
+            AND m.principal_id = registry.review_session_principal() AND m.state = 'active')
+        - { name: scanner_approved_package_permissions, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "permission = 'publish-release' AND state = 'active' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = package_permissions.package_id AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = package_permissions.membership_id AND m.principal_id = j.publisher_id) AND EXISTS (SELECT 1 FROM registry.release_approvals a WHERE a.submission_id = j.id))" }
+        - { name: collector_package_permissions, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "permission = 'publish-release' AND state = 'active' AND (expires_at IS NULL OR expires_at > statement_timestamp())" }
+
+  - name: admin_transfers
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: from_membership_id, type: Uuid, isNullable: false }
+      - { name: to_membership_id, type: Uuid, isNullable: false }
+      - { name: to_membership_state, type: Text, isNullable: false, checkConstraint: "to_membership_state = 'active'" }
+      - { name: to_principal_kind, type: Text, isNullable: false, checkConstraint: "to_principal_kind = 'human'" }
+      - { name: expected_authority_epoch, type: BigInt, isNullable: false, checkConstraint: "expected_authority_epoch > 0" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('pending', 'completed', 'cancelled', 'declined', 'expired')" }
+      - { name: proposal_digest, type: Text, isNullable: false, checkConstraint: "proposal_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: acceptance_digest, type: Text, isNullable: true, checkConstraint: "acceptance_digest IS NULL OR acceptance_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+      - { name: not_before, type: DateTimeOffset, isNullable: false }
+      - { name: expires_at, type: DateTimeOffset, isNullable: false }
+      - { name: decided_at, type: DateTimeOffset, isNullable: true }
+    primaryKey: { columns: [id] }
+    checkConstraints:
+      - { name: ck_admin_transfer_distinct, expression: "from_membership_id <> to_membership_id" }
+      - { name: ck_admin_transfer_time, expression: "not_before >= created_at + INTERVAL '24 hours' AND expires_at > not_before" }
+      - { name: ck_admin_transfer_acceptance, expression: "state <> 'completed' OR acceptance_digest IS NOT NULL" }
+      - { name: ck_admin_transfer_decision, expression: "(state = 'pending' AND decided_at IS NULL) OR (state <> 'pending' AND decided_at IS NOT NULL AND decided_at >= created_at)" }
+      - { name: ck_admin_transfer_completed_hold, expression: "state <> 'completed' OR (decided_at >= not_before AND decided_at < expires_at)" }
+    indexes:
+      - { name: uq_admin_transfer_pending, columns: [organization_id, package_id], isUnique: true, filter: "state = 'pending'" }
+    foreignKeys:
+      - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, from_membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, to_membership_id, to_membership_state, to_principal_kind], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id, state, principal_kind], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+
+  - name: invitations
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: target_principal_id, type: Uuid, isNullable: false }
+      - { name: issuer_membership_id, type: Uuid, isNullable: false }
+      - { name: role, type: Text, isNullable: false, checkConstraint: "role IN ('custodian', 'member')" }
+      - { name: token_digest, type: Text, isNullable: false, checkConstraint: "token_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('pending', 'accepted', 'revoked', 'expired')" }
+      - { name: expected_governance_epoch, type: BigInt, isNullable: false, checkConstraint: "expected_governance_epoch > 0" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+      - { name: expires_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_invitation_token, columns: [token_digest] }
+    indexes:
+      - { name: uq_invitation_pending_subject, columns: [organization_id, target_principal_id], isUnique: true, filter: "state = 'pending'" }
+    checkConstraints:
+      - { name: ck_invitation_expiry, expression: "expires_at > created_at" }
+    foreignKeys:
+      - { columns: [organization_id, issuer_membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [target_principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+
+  - name: maintenance_reports
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: reporter_membership_id, type: Uuid, isNullable: false }
+      - { name: summary, type: Text, isNullable: false, checkConstraint: "length(summary) BETWEEN 1 AND 4096" }
+      - { name: evidence_digest, type: Text, isNullable: false, checkConstraint: "evidence_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('open', 'acknowledged', 'resolved', 'withdrawn')" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    foreignKeys:
+      - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, reporter_membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+
+  - name: governance_events
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: true }
+      - { name: actor_principal_id, type: Uuid, isNullable: false }
+      - { name: kind, type: Text, isNullable: false, checkConstraint: "kind IN ('organization-created', 'membership-changed', 'package-created', 'permission-changed', 'admin-proposed', 'admin-replaced', 'maintenance-changed', 'recovery', 'organization-transfer')" }
+      - { name: authority_epoch, type: BigInt, isNullable: false, checkConstraint: "authority_epoch > 0" }
+      - { name: proof_digest, type: Text, isNullable: false, checkConstraint: "proof_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: previous_event_digest, type: Text, isNullable: true, checkConstraint: "previous_event_digest IS NULL OR previous_event_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    foreignKeys:
+      - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [actor_principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+
+  - name: pending_logins
+    schema: registry
+    columns:
+      - { name: state_digest, type: Text, isNullable: false, checkConstraint: "state_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: browser_digest, type: Text, isNullable: false, checkConstraint: "browser_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: verifier_envelope, type: Text, isNullable: false, checkConstraint: "octet_length(verifier_envelope) BETWEEN 1 AND 4096" }
+      - { name: created_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [state_digest] }
+    indexes:
+      - { name: ix_pending_logins_created_at, columns: [created_at] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: login_select
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: &login_scope "current_setting('session_authorization') = 'registry_login_runtime' AND state_digest = current_setting('registry.login_state') AND browser_digest = current_setting('registry.login_browser') AND created_at <= statement_timestamp() AND created_at > statement_timestamp() - interval '10 minutes'"
+        - name: login_claim
+          permissive: true
+          operations: [Delete]
+          roles: []
+          using: *login_scope
+        - name: login_store
+          permissive: true
+          operations: [Insert]
+          roles: []
+          withCheck: *login_scope
+
+  # Materialized only by the trusted publication pipeline after evidence verification.
+  - name: public_catalog
+    schema: registry
+    columns:
+      - { name: id, type: Int, isNullable: false, checkConstraint: "id = 1" }
+      - { name: verified_at, type: DateTimeOffset, isNullable: false }
+      - { name: expires_at, type: DateTimeOffset, isNullable: false }
+      - { name: body, type: Text, isNullable: false, checkConstraint: "octet_length(body) BETWEEN 1 AND 262144" }
+    primaryKey: { columns: [id] }
+    checkConstraints:
+      - { name: ck_public_catalog_lifetime, expression: "expires_at > verified_at AND expires_at <= verified_at + interval '24 hours'" }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: catalog_reader
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: "current_setting('session_authorization') = 'registry_catalog_reader' AND verified_at <= statement_timestamp() AND expires_at > statement_timestamp()"
+        # The one writer, registry.refresh_public_catalog() (src/manager/ops/supabase/catalog.sql), runs as
+        # its NOLOGIN owner: an upsert of the single row needs all three.
+        - name: catalog_writer_select
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: &catalog_writer "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND id = 1"
+        - name: catalog_writer_insert
+          permissive: true
+          operations: [Insert]
+          roles: []
+          withCheck: &catalog_write_check >-
+            pg_catalog."current_user"() = 'registry_catalog_writer' AND id = 1
+            AND verified_at = statement_timestamp() AND expires_at = verified_at + interval '1 hour'
+            AND body = registry.approved_catalog_body()
+        - name: catalog_writer_update
+          permissive: true
+          operations: [Update]
+          roles: []
+          using: *catalog_writer
+          withCheck: *catalog_write_check
+
+  - name: browser_sessions
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: cookie_digest, type: Text, isNullable: false, checkConstraint: "cookie_digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: binding_id, type: Uuid, isNullable: false }
+      - { name: principal_id, type: Uuid, isNullable: false }
+      - { name: credential_epoch, type: BigInt, isNullable: false, checkConstraint: "credential_epoch > 0" }
+      - { name: token_envelope, type: Text, isNullable: true, checkConstraint: "octet_length(token_envelope) BETWEEN 1 AND 65536" }
+      - { name: started_at, type: DateTimeOffset, isNullable: false }
+      - { name: last_used_at, type: DateTimeOffset, isNullable: false }
+      - { name: revoked_at, type: DateTimeOffset, isNullable: true }
+      - { name: refresh_id, type: Uuid, isNullable: true }
+      - { name: refresh_started_at, type: DateTimeOffset, isNullable: true }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_browser_sessions_cookie, columns: [cookie_digest] }
+    checkConstraints:
+      - { name: ck_browser_sessions_timing, expression: "last_used_at >= started_at AND (revoked_at IS NULL OR revoked_at >= last_used_at)" }
+      - { name: ck_browser_sessions_envelope, expression: "(revoked_at IS NULL AND token_envelope IS NOT NULL) OR (revoked_at IS NOT NULL AND token_envelope IS NULL)" }
+      - { name: ck_browser_sessions_refresh_pair, expression: "(refresh_id IS NULL AND refresh_started_at IS NULL) OR (refresh_id IS NOT NULL AND refresh_started_at IS NOT NULL)" }
+    indexes:
+      - { name: ix_browser_sessions_started_at, columns: [started_at] }
+    foreignKeys:
+      - { columns: [binding_id], referencedSchema: registry, referencedTable: auth_bindings, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    triggers:
+      - name: preserve_browser_session_identity
+        events: [Update]
+        raiseWhen: >-
+          old.id <> new.id or old.cookie_digest <> new.cookie_digest or old.binding_id <> new.binding_id
+          or old.principal_id <> new.principal_id or old.credential_epoch <> new.credential_epoch
+          or old.started_at <> new.started_at or new.last_used_at < old.last_used_at
+        errorMessage: browser session identity and start time are immutable
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: session_issuer_insert
+          permissive: true
+          operations: [Insert]
+          roles: [registry_session_issuer]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_session_issuer'
+            AND cookie_digest = current_setting('registry.session_digest')
+            AND EXISTS (SELECT 1 FROM registry.auth_bindings b
+            WHERE b.id = browser_sessions.binding_id AND b.principal_id = browser_sessions.principal_id)
+            AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = browser_sessions.principal_id
+            AND p.credential_epoch = browser_sessions.credential_epoch)
+        - name: session_issuer_new_session
+          permissive: false
+          operations: [Insert]
+          roles: []
+          withCheck: "started_at = statement_timestamp() AND last_used_at = started_at AND revoked_at IS NULL"
+        - name: session_runtime_read
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: >-
+            current_setting('session_authorization') = 'registry_session_runtime'
+            AND cookie_digest = current_setting('registry.session_digest') AND revoked_at IS NULL
+            AND started_at <= statement_timestamp() AND started_at > statement_timestamp() - interval '12 hours'
+            AND last_used_at <= clock_timestamp() AND last_used_at > statement_timestamp() - interval '30 minutes'
+        - name: session_runtime_touch
+          permissive: true
+          operations: [Update]
+          roles: []
+          using: &session_runtime_identity >-
+            current_setting('session_authorization') = 'registry_session_runtime'
+            AND cookie_digest = current_setting('registry.session_digest') AND revoked_at IS NULL
+            AND started_at <= statement_timestamp() AND started_at > statement_timestamp() - interval '12 hours'
+            AND last_used_at <= clock_timestamp() AND last_used_at > statement_timestamp() - interval '30 minutes'
+            AND EXISTS (SELECT 1 FROM registry.auth_bindings b
+            WHERE b.id = browser_sessions.binding_id AND b.principal_id = browser_sessions.principal_id)
+            AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = browser_sessions.principal_id
+            AND p.credential_epoch = browser_sessions.credential_epoch)
+          withCheck: *session_runtime_identity
+        - name: session_revoker_update
+          permissive: true
+          operations: [Update]
+          roles: []
+          using: >-
+            current_setting('session_authorization') = 'registry_session_revoker'
+            AND cookie_digest = current_setting('registry.session_digest') AND revoked_at IS NULL
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_session_revoker'
+            AND cookie_digest = current_setting('registry.session_digest') AND revoked_at IS NOT NULL AND token_envelope IS NULL
+
+  # [PACKAGE-SECURITY-SCAN-APPROVAL] The collector inserts a durable scan job.
+  # All decisions reference this immutable identity. Absence of a receipt is pending.
+  - name: review_submissions
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: epoch, type: BigInt, isNullable: false, checkConstraint: "epoch > 0" }
+      - { name: ordinal, type: BigInt, isNullable: false, checkConstraint: "ordinal > 0" }
+      - { name: digest, type: Text, isNullable: false, checkConstraint: "digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: publisher_id, type: Uuid, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_exact_frozen_job, columns: [id, package_id, epoch, ordinal, digest, publisher_id] }
+      - { name: uq_review_candidate, columns: [package_id, epoch, ordinal, digest] }
+      - { name: uq_review_publisher, columns: [id, publisher_id] }
+      - { name: uq_review_binding, columns: [id, package_id, epoch, ordinal, digest] }
+    foreignKeys:
+      - { columns: [package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [id] }
+      - { columns: [publisher_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: member_submission, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = review_submissions.package_id)" }
+        - name: collector_exact_retry
+          permissive: true
+          operations: [Select]
+          roles: [registry_publication_collector]
+          using: >-
+            current_setting('session_authorization') = 'registry_publication_collector'
+            AND id::text = current_setting('registry.frozen_job')
+            AND publisher_id::text = current_setting('registry.frozen_publisher')
+            AND registry.can_submit_version(publisher_id,package_id)
+        - name: collector_submit
+          permissive: true
+          operations: [Insert]
+          roles: [registry_publication_collector]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_publication_collector'
+            AND registry.can_submit_version(publisher_id,package_id)
+            AND EXISTS (SELECT 1 FROM registry.release_intents i WHERE
+            (i.id,i.package_id,i.publisher_id,i.epoch,i.ordinal) =
+            (review_submissions.id,review_submissions.package_id,review_submissions.publisher_id,review_submissions.epoch,review_submissions.ordinal))
+        - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
+        - { name: scanner_queue, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+
+  - name: release_reviewers
+    schema: registry
+    columns:
+      - { name: principal_id, type: Uuid, isNullable: false }
+    primaryKey: { columns: [principal_id] }
+    foreignKeys:
+      - { columns: [principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - name: current_reviewer
+          permissive: true
+          operations: [Select]
+          roles: [registry_session_runtime]
+          using: "current_setting('session_authorization') = 'registry_session_runtime' AND principal_id = registry.review_session_principal()"
+
+  - name: scan_claims
+    schema: registry
+    columns:
+      - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: ticket, type: Uuid, isNullable: false }
+      - { name: expires_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [submission_id] }
+    uniqueConstraints:
+      - { name: uq_scan_claim_ticket, columns: [submission_id, ticket] }
+    triggers:
+      - name: preserve_scan_claim_binding
+        events: [Update]
+        raiseWhen: "old.submission_id <> new.submission_id or old.ticket = new.ticket"
+        errorMessage: scan retry must retain submission and rotate ticket
+    foreignKeys:
+      - { columns: [submission_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scan_claim_read, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "submission_id IS NOT NULL" }
+        - { name: scan_claim_insert, permissive: true, operations: [Insert], roles: [registry_scan_worker], withCheck: &lease_deadline "expires_at = statement_timestamp() + interval '5 minutes'" }
+        - { name: scan_claim_retry, permissive: true, operations: [Update], roles: [registry_scan_worker], using: "expires_at <= statement_timestamp()", withCheck: *lease_deadline }
+
+  # [PACKAGE-SECURITY-SCAN-VERDICT] Only the migration operator may select the active scanner revision.
+  - name: scan_configuration
+    schema: registry
+    columns:
+      - { name: id, type: Int, isNullable: false, checkConstraint: "id = 1" }
+      - { name: agent_revision, type: Text, isNullable: false, checkConstraint: "agent_revision ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}@sha256:[0-9a-f]{64}$'" }
+    primaryKey: { columns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scanner_active_config, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+
+  - name: review_scans
+    schema: registry
+    columns:
+      - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: claim_ticket, type: Uuid, isNullable: false }
+      - { name: agent_revision, type: Text, isNullable: false, checkConstraint: "length(agent_revision) BETWEEN 1 AND 256 AND agent_revision ~ '[^[:space:]]'" }
+      - { name: verdict, type: Text, isNullable: false, checkConstraint: "octet_length(verdict) BETWEEN 1 AND 65536" }
+      - { name: decided_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [submission_id] }
+    foreignKeys:
+      - { columns: [submission_id, claim_ticket], referencedSchema: registry, referencedTable: scan_claims, referencedColumns: [submission_id, ticket], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: member_scan_receipt, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.id = review_scans.submission_id)" }
+        - name: scanner_decision
+          permissive: true
+          operations: [Insert]
+          roles: [registry_scan_worker]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_scan_worker' AND decided_at = statement_timestamp()
+            AND EXISTS (SELECT 1 FROM registry.scan_configuration c WHERE c.agent_revision = review_scans.agent_revision)
+            AND EXISTS (SELECT 1 FROM registry.scan_claims c WHERE c.submission_id = review_scans.submission_id AND c.ticket = review_scans.claim_ticket AND c.expires_at > statement_timestamp())
+            AND CASE WHEN verdict = 'accepted' THEN true
+            ELSE jsonb_path_match(verdict::jsonb,
+            '$.type() == "array" && $[0].type() == "string" && !(exists($[*] ? (@.type() != "string" || @ like_regex "^\\s*$")))') END
+        - { name: scanner_decided, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        - { name: reviewer_accepted, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND verdict = 'accepted' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
+
+  - name: release_approvals
+    schema: registry
+    columns:
+      - { name: submission_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: epoch, type: BigInt, isNullable: false }
+      - { name: ordinal, type: BigInt, isNullable: false }
+      - { name: digest, type: Text, isNullable: false }
+      - { name: reviewer_id, type: Uuid, isNullable: false }
+      - { name: approved_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [submission_id] }
+    uniqueConstraints:
+      - { name: uq_approved_version, columns: [package_id, epoch, ordinal] }
+    foreignKeys:
+      - { columns: [submission_id, package_id, epoch, ordinal, digest], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id, package_id, epoch, ordinal, digest] }
+      - { columns: [submission_id], referencedSchema: registry, referencedTable: review_scans, referencedColumns: [submission_id] }
+      - { columns: [reviewer_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: member_review_decision, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.id = release_approvals.submission_id)" }
+        - { name: reviewer_own_approval, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = release_approvals.reviewer_id)" }
+        - name: approve_scanned_version
+          permissive: true
+          operations: [Insert]
+          roles: [registry_session_runtime]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_session_runtime' AND approved_at = statement_timestamp()
+            AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = reviewer_id)
+            AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id = release_approvals.submission_id AND s.verdict = 'accepted')
+        - { name: scanner_approved, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+
+  # Published releases, the public catalog's only source [PACKAGE-HOSTED-ROUTES-CATALOG]
+  # [PACKAGE-OWNERSHIP-DATABASE]. One row per release digest, immutable but for its activation state;
+  # summary, keywords, warnings and notices are the release manifest's canonical JSON text.
+  - name: releases
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: epoch, type: BigInt, isNullable: false, checkConstraint: "epoch > 0" }
+      - { name: ordinal, type: BigInt, isNullable: false, checkConstraint: "ordinal > 0" }
+      - { name: digest, type: Text, isNullable: false, checkConstraint: "digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: publisher_principal_id, type: Uuid, isNullable: false }
+      - { name: publisher_name, type: Text, isNullable: false, checkConstraint: "length(btrim(publisher_name)) BETWEEN 1 AND 128" }
+      - { name: license_expression, type: Text, isNullable: false, checkConstraint: "length(license_expression) BETWEEN 1 AND 256" }
+      - { name: summary, type: Text, isNullable: false, checkConstraint: "length(btrim(summary)) BETWEEN 1 AND 512" }
+      - { name: keywords, type: Text, isNullable: false, checkConstraint: "jsonb_typeof(keywords::jsonb) = 'array' AND jsonb_array_length(keywords::jsonb) <= 12" }
+      - { name: warnings, type: Text, isNullable: false, checkConstraint: "jsonb_typeof(warnings::jsonb) = 'array'" }
+      - { name: notices, type: Text, isNullable: false, checkConstraint: "jsonb_typeof(notices::jsonb) = 'array' AND jsonb_array_length(notices::jsonb) <= 9" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('eligible', 'yanked', 'revoked')" }
+      - { name: published_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_releases_version, columns: [package_id, epoch, ordinal] }
+      - { name: uq_releases_digest, columns: [digest] }
+    foreignKeys:
+      - { columns: [id], referencedSchema: registry, referencedTable: release_approvals, referencedColumns: [submission_id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [id, package_id, epoch, ordinal, digest], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id, package_id, epoch, ordinal, digest], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [id, publisher_principal_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id, publisher_id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [publisher_principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: catalog_writer_releases, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'eligible'" }
+        - { name: scanner_released, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+        # [PACKAGE-HOSTED-PUBLISH-FLOW] The scanner publishes exactly the approved version, digest and publisher
+        # of an active package, credited to its organization, at the moment of publication.
+        - name: scanner_publishes_approved
+          permissive: true
+          operations: [Insert]
+          roles: [registry_scan_worker]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_scan_worker' AND state = 'eligible' AND published_at = statement_timestamp()
+            AND registry.can_submit_version(publisher_principal_id,package_id)
+            AND EXISTS (SELECT 1 FROM registry.release_approvals a WHERE a.submission_id = releases.id AND a.package_id = releases.package_id
+            AND a.epoch = releases.epoch AND a.ordinal = releases.ordinal AND a.digest = releases.digest)
+            AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = releases.package_id AND p.organization_id = releases.organization_id AND p.state = 'active')
+            AND EXISTS (SELECT 1 FROM registry.organizations o WHERE o.id = releases.organization_id AND o.display_name = releases.publisher_name AND o.state = 'active')
+
+# Implements [PACKAGE-OWNERSHIP-RLS]: one restricted login per workload, none with BYPASSRLS or a role
+# membership. Deploy sets each password; the migration owns existence and every privilege, and revokes
+# any grant not declared here. registry_catalog_writer is the API's one catalog writer, admitted to row 1 alone.
+roles:
+  - { name: registry_catalog_reader, login: true }
+  - { name: registry_login_runtime, login: true }
+  - { name: registry_session_issuer, login: true }
+  - { name: registry_session_runtime, login: true }
+  - { name: registry_session_revoker, login: true }
+  - { name: registry_publication_collector, login: true }
+  - { name: registry_scan_worker, login: true }
+  - { name: registry_catalog_writer, login: true }
+grants:
+  - { schema: registry, target: Schema, privileges: [USAGE], roles: [registry_catalog_reader, registry_login_runtime, registry_session_issuer, registry_session_runtime, registry_session_revoker, registry_publication_collector, registry_scan_worker, registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: public_catalog, privileges: [SELECT], roles: [registry_catalog_reader] }
+  - { schema: registry, target: Table, objectName: public_catalog, privileges: [SELECT, INSERT, UPDATE], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: pending_logins, privileges: [INSERT, SELECT, DELETE], roles: [registry_login_runtime] }
+  - { schema: registry, target: Table, objectName: auth_bindings, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: principals, privileges: [INSERT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: auth_bindings, privileges: [INSERT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: memberships, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: package_permissions, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: package_repositories, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_intents, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: package_repositories, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: release_intents, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [UPDATE], roles: [registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: memberships, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT, INSERT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_scan_worker, registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: scan_configuration, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: scan_claims, privileges: [SELECT, INSERT, UPDATE], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: review_scans, privileges: [INSERT, SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: review_scans, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_reviewers, privileges: [SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: release_approvals, privileges: [INSERT, SELECT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: releases, privileges: [SELECT], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: releases, privileges: [SELECT, INSERT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: release_approvals, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_catalog_writer] }
+# Stored functions are the only data access [PACKAGE-OWNERSHIP-RLS]: SECURITY INVOKER, so RLS decides
+# every row, and EXECUTE for exactly the role that calls each.
+  - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_publication_collector, registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: memberships, privileges: [SELECT], roles: [registry_publication_collector, registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: package_permissions, privileges: [SELECT], roles: [registry_publication_collector, registry_scan_worker] }
+functions:
+  # The live catalog row as `<expires_at unix seconds> <body>`, or NULL [PACKAGE-HOSTED-ROUTES-CATALOG].
+  # Register an unseen GitHub identity, then mint its session [PACKAGE-HOSTED-AUTH]. Only the identity the
+  # issuer scope verified registers; a known, revoked or conflicting one rolls the savepoint back, and a
+  # session is issued only for an active binding.
+  - schema: registry
+    name: issue_browser_session
+    arguments: [{name: cookie, type: text}, {name: verified_issuer, type: text}, {name: subject, type: uuid}, {name: github, type: text}, {name: envelope, type: text}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_issuer]
+    body: >-
+      DECLARE fresh uuid := gen_random_uuid(); issued uuid;
+      BEGIN
+        IF verified_issuer = current_setting('registry.session_issuer',true) AND subject::text = current_setting('registry.session_subject',true)
+        AND github = current_setting('registry.session_provider',true) THEN
+          BEGIN
+            INSERT INTO registry.principals(id,kind,state,credential_epoch,created_at) VALUES (fresh,'human','active',1,statement_timestamp());
+            INSERT INTO registry.auth_bindings(id,principal_id,issuer,provider,provider_subject,auth_subject,state,verified_at)
+            VALUES (gen_random_uuid(),fresh,verified_issuer,'github',github,subject,'active',statement_timestamp());
+          EXCEPTION WHEN unique_violation THEN NULL;
+          END;
+        END IF;
+        WITH candidate AS MATERIALIZED (
+          SELECT gen_random_uuid() AS id,b.id AS binding,p.id AS principal,p.credential_epoch
+          FROM registry.auth_bindings b JOIN registry.principals p ON p.id=b.principal_id
+          WHERE b.issuer=verified_issuer AND b.auth_subject=subject AND b.provider_subject=github
+          AND b.provider='github' AND b.state='active' AND p.kind='human' AND p.state='active'),
+        made AS (
+          INSERT INTO registry.browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at)
+          SELECT id,cookie,binding,principal,credential_epoch,envelope,statement_timestamp(),statement_timestamp() FROM candidate
+          RETURNING 1)
+        SELECT candidate.id INTO issued FROM candidate CROSS JOIN made;
+        RETURN issued;
+      END
+
+  # [PACKAGE-OWNERSHIP-RLS] The live session's principal founds an organization as its custodian; NULL
+  # without a live session, an error for a taken handle.
+  - schema: registry
+    name: create_organization
+    arguments: [{name: org_handle, type: text}, {name: org_name, type: text}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      DECLARE me uuid := registry.review_session_principal(); org uuid := gen_random_uuid();
+      BEGIN
+        IF me IS NULL THEN RETURN NULL; END IF;
+        INSERT INTO registry.organizations(id,handle,display_name,state,governance_epoch,created_at)
+        VALUES (org,org_handle,org_name,'active',1,statement_timestamp()) ON CONFLICT ON CONSTRAINT uq_organizations_handle DO NOTHING;
+        IF NOT FOUND THEN RETURN NULL; END IF;
+        INSERT INTO registry.memberships(id,organization_id,principal_id,role,principal_kind,state,authority_epoch,accepted_at)
+        VALUES (gen_random_uuid(),org,me,'custodian','human','active',1,statement_timestamp());
+        RETURN org;
+      END
+
+  # A custodian creates a package with themself as its sole admin and publisher; NULL for anyone else.
+  - schema: registry
+    name: create_package
+    arguments: [{name: org, type: uuid}, {name: pkg_name, type: text}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      DECLARE mine uuid; pkg uuid := gen_random_uuid();
+      BEGIN
+        SELECT m.id INTO mine FROM registry.memberships m WHERE m.organization_id=org AND m.role='custodian'
+        AND m.state='active' AND m.principal_id=registry.review_session_principal();
+        IF mine IS NULL THEN RETURN NULL; END IF;
+        INSERT INTO registry.packages(id,organization_id,name,admin_membership_id,admin_membership_state,admin_principal_kind,authority_epoch,state,created_at)
+        VALUES (pkg,org,pkg_name,mine,'active','human',1,'active',statement_timestamp()) ON CONFLICT ON CONSTRAINT uq_packages_org_name DO NOTHING;
+        IF NOT FOUND THEN RETURN NULL; END IF;
+        INSERT INTO registry.package_permissions(id,organization_id,package_id,membership_id,permission,state,granted_by_membership_id,authority_epoch,membership_authority_epoch,granted_at)
+        VALUES (gen_random_uuid(),org,pkg,mine,'publish-release','active',mine,1,1,statement_timestamp());
+        RETURN pkg;
+      END
+
+  - schema: registry
+    name: revoke_browser_session
+    arguments: [{name: cookie, type: text}]
+    returns: integer
+    volatility: volatile
+    executeRoles: [registry_session_revoker]
+    body: >-
+      UPDATE registry.browser_sessions SET revoked_at=statement_timestamp(),token_envelope=NULL
+      WHERE current_user='registry_session_revoker' AND cookie=current_setting('registry.session_digest',true)
+      RETURNING 1
+
+  - schema: registry
+    name: public_catalog_timed
+    returns: text
+    language: sql
+    volatility: stable
+    executeRoles: [registry_catalog_reader]
+    body: >-
+      SELECT floor(extract(epoch FROM expires_at))::bigint || ' ' || body FROM registry.public_catalog
+      WHERE id = 1 AND verified_at <= statement_timestamp() AND expires_at > statement_timestamp()
+  # Re-attest row 1 from the eligible releases of active packages in active organizations, newest
+  # release first, package metadata from its newest eligible release, one-hour lifetime.
+  - schema: registry
+    name: approved_catalog_body
+    returns: text
+    language: sql
+    volatility: stable
+    executeRoles: [registry_catalog_writer]
+    body: >-
+      SELECT jsonb_build_object('packages', COALESCE(jsonb_agg(e.entry ORDER BY e.key), '[]'::jsonb))::text
+      FROM (SELECT '@' || o.handle || '/' || p.name AS key, jsonb_build_object('key', '@' || o.handle || '/' || p.name,
+      'summary', n.summary, 'keywords', n.keywords::jsonb, 'warnings', n.warnings::jsonb,
+      'releases', (SELECT jsonb_agg(jsonb_build_object('digest', r.digest, 'epoch', r.epoch, 'ordinal', r.ordinal,
+      'publisherId', r.publisher_principal_id::text, 'publisherName', r.publisher_name,
+      'licenseExpression', r.license_expression, 'notices', r.notices::jsonb) ORDER BY r.epoch DESC, r.ordinal DESC)
+      FROM registry.releases r WHERE r.package_id = p.id AND r.state = 'eligible')) AS entry
+      FROM registry.packages p JOIN registry.organizations o ON o.id = p.organization_id
+      JOIN LATERAL (SELECT r.summary, r.keywords, r.warnings FROM registry.releases r
+      WHERE r.package_id = p.id AND r.state = 'eligible' ORDER BY r.epoch DESC, r.ordinal DESC LIMIT 1) n ON true
+      WHERE p.state = 'active' AND o.state = 'active') e
+  - schema: registry
+    name: refresh_public_catalog
+    returns: void
+    language: sql
+    volatility: volatile
+    executeRoles: [registry_catalog_writer]
+    body: >-
+      INSERT INTO registry.public_catalog (id, verified_at, expires_at, body)
+      VALUES (1,statement_timestamp(),statement_timestamp()+interval '1 hour',registry.approved_catalog_body())
+      ON CONFLICT (id) DO UPDATE SET verified_at = excluded.verified_at, expires_at = excluded.expires_at, body = excluded.body
+
+# [PACKAGE-SECURITY-SCAN-APPROVAL] Invoker rights preserve the caller's grants
+# and row policies throughout admission, scanning and approval.
+  # The owner names a reviewer by GitHub account; the registry account is looked up, never typed.
+  - schema: registry
+    name: release_reviewer_candidate
+    arguments: [{ name: verified_issuer, type: text }, { name: github_account, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: []
+    body: >-
+      SELECT p.id FROM registry.principals p JOIN registry.auth_bindings b ON b.principal_id=p.id
+      WHERE p.kind='human' AND p.state='active' AND b.issuer=verified_issuer AND b.state='active'
+      AND b.provider='github' AND b.provider_subject=github_account AND github_account ~ '^[1-9][0-9]*$'
+      FOR SHARE OF p,b
+
+  - schema: registry
+    name: appoint_release_reviewer
+    arguments: [{ name: person, type: uuid }, { name: verified_issuer, type: text }, { name: github_account, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: []
+    body: >-
+      WITH candidate AS MATERIALIZED (
+      SELECT person AS id WHERE registry.release_reviewer_candidate(verified_issuer,github_account)=person),
+      enrolled AS (INSERT INTO registry.release_reviewers(principal_id) SELECT id FROM candidate
+      ON CONFLICT(principal_id) DO NOTHING)
+      SELECT id FROM candidate
+
+  - schema: registry
+    name: remove_release_reviewer
+    arguments: [{ name: person, type: uuid }]
+    returns: void
+    volatility: volatile
+    executeRoles: []
+    body: DELETE FROM registry.release_reviewers WHERE principal_id=person
+
+  - schema: registry
+    name: review_session_principal
+    returns: uuid
+    executeRoles: [registry_session_runtime]
+    body: >-
+      SELECT s.principal_id FROM registry.browser_sessions s JOIN registry.principals p
+      ON p.id=s.principal_id AND p.credential_epoch=s.credential_epoch JOIN registry.auth_bindings b
+      ON b.id=s.binding_id AND b.principal_id=p.id WHERE s.cookie_digest=current_setting('registry.session_digest')
+      AND p.kind='human' AND p.state='active' AND b.state='active'
+
+  - schema: registry
+    name: publication_receipt
+    arguments: [{ name: job_id, type: uuid }]
+    returns: text
+    executeRoles: [registry_session_runtime]
+    body: >-
+      SELECT json_build_object('submissionId',j.id,'packageId',j.package_id,'digest',j.digest,'epoch',j.epoch,'ordinal',j.ordinal,
+      'status',CASE WHEN a.submission_id IS NOT NULL THEN 'approved' WHEN s.verdict='accepted' THEN 'awaiting-admin'
+      WHEN s.submission_id IS NOT NULL THEN 'rejected' ELSE 'pending-scan' END,
+      'canApprove',COALESCE(s.verdict='accepted' AND a.submission_id IS NULL AND EXISTS (SELECT FROM registry.release_reviewers),false),
+      'messages',CASE WHEN s.verdict IS NOT NULL AND s.verdict<>'accepted' THEN s.verdict::jsonb ELSE '[]'::jsonb END)::text
+      FROM registry.review_submissions j LEFT JOIN registry.review_scans s ON s.submission_id=j.id
+      LEFT JOIN registry.release_approvals a ON a.submission_id=j.id WHERE j.id=job_id
+
+  - schema: registry
+    name: can_submit_version
+    arguments: [{ name: publisher, type: uuid }, { name: pkg, type: uuid }]
+    returns: boolean
+    executeRoles: [registry_session_runtime, registry_publication_collector, registry_scan_worker]
+    body: >-
+      SELECT EXISTS (SELECT FROM registry.packages p JOIN registry.organizations o ON o.id=p.organization_id
+      JOIN registry.package_permissions g ON g.organization_id=o.id AND g.package_id=p.id AND g.authority_epoch=p.authority_epoch
+      JOIN registry.memberships m ON m.id=g.membership_id AND m.organization_id=o.id AND m.authority_epoch=g.membership_authority_epoch
+      JOIN registry.principals a ON a.id=m.principal_id AND a.kind=m.principal_kind
+      WHERE p.id=pkg AND a.id=publisher AND g.permission='publish-release' AND g.state='active'
+      AND (g.expires_at IS NULL OR g.expires_at>statement_timestamp()) AND a.state='active' AND m.state='active'
+      AND p.state IN ('active','draft') AND o.state='active')
+
+  - schema: registry
+    name: submit_frozen_version
+    arguments: [{ name: job_id, type: uuid }, { name: pkg, type: uuid }, { name: release_epoch, type: bigint }, { name: release_ordinal, type: bigint }, { name: source_digest, type: text }, { name: publisher, type: uuid }]
+    returns: void
+    volatility: volatile
+    executeRoles: [registry_publication_collector]
+    body: >-
+      WITH scope AS MATERIALIZED (
+        SELECT set_config('registry.frozen_job',job_id::text,true),set_config('registry.frozen_publisher',publisher::text,true))
+      INSERT INTO registry.review_submissions(id,package_id,epoch,ordinal,digest,publisher_id)
+      SELECT job_id,pkg,release_epoch,release_ordinal,source_digest,publisher FROM scope
+      ON CONFLICT ON CONSTRAINT uq_exact_frozen_job DO NOTHING
+
+  - schema: registry
+    name: frozen_scan_job
+    arguments: [{ name: job_id, type: uuid }]
+    returns: text
+    executeRoles: [registry_scan_worker]
+    body: >-
+      SELECT json_build_object('dir','@'||o.handle||'/'||p.name||'/'||j.epoch||'.'||j.ordinal,'digest',j.digest,
+      'agentRevision',(SELECT agent_revision FROM registry.scan_configuration WHERE id=1))::text
+      FROM registry.review_submissions j JOIN registry.packages p ON p.id=j.package_id
+      JOIN registry.organizations o ON o.id=p.organization_id WHERE j.id=job_id
+
+  - schema: registry
+    name: completed_scan
+    arguments: [{ name: job_id, type: uuid }]
+    returns: uuid
+    executeRoles: [registry_scan_worker]
+    body: SELECT submission_id FROM registry.review_scans WHERE submission_id=job_id
+
+  - schema: registry
+    name: claim_pending_scan
+    arguments: [{ name: requested, type: uuid }]
+    returns: text
+    volatility: volatile
+    executeRoles: [registry_scan_worker]
+    body: >-
+      WITH candidate AS (
+      SELECT j.id FROM registry.review_submissions j LEFT JOIN registry.scan_claims prior ON prior.submission_id=j.id
+      WHERE (requested IS NULL OR j.id=requested)
+      AND NOT EXISTS (SELECT FROM registry.review_scans s WHERE s.submission_id=j.id)
+      AND (prior.expires_at IS NULL OR prior.expires_at<=statement_timestamp())
+      ORDER BY prior.expires_at NULLS FIRST,j.epoch,j.ordinal,j.id LIMIT 1),
+      claimed AS (
+      INSERT INTO registry.scan_claims AS c (submission_id,ticket,expires_at)
+      SELECT id,gen_random_uuid(),statement_timestamp()+interval '5 minutes' FROM candidate
+      ON CONFLICT (submission_id) DO UPDATE SET ticket=excluded.ticket,expires_at=excluded.expires_at
+      WHERE c.expires_at<=statement_timestamp() RETURNING submission_id,ticket)
+      SELECT json_build_object('id',submission_id,'ticket',ticket)::text FROM claimed
+
+  - schema: registry
+    name: configure_scan_revision
+    arguments: [{ name: revision, type: text }]
+    returns: void
+    volatility: volatile
+    executeRoles: []
+    body: >-
+      WITH disabled AS (DELETE FROM registry.scan_configuration WHERE revision IS NULL)
+      INSERT INTO registry.scan_configuration(id,agent_revision) SELECT 1,revision WHERE revision IS NOT NULL
+      ON CONFLICT(id) DO UPDATE SET agent_revision=excluded.agent_revision
+
+  - schema: registry
+    name: record_scan
+    arguments: [{ name: job_id, type: uuid }, { name: lease, type: uuid }, { name: revision, type: text }, { name: decision, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_scan_worker]
+    body: >-
+      INSERT INTO registry.review_scans(submission_id,claim_ticket,agent_revision,verdict,decided_at)
+      SELECT job_id,lease,revision,decision,statement_timestamp() FROM registry.scan_claims c
+      WHERE c.submission_id=job_id AND c.ticket=lease AND c.expires_at>statement_timestamp()
+      RETURNING submission_id
+
+  - schema: registry
+    name: approve_submission
+    arguments: [{ name: job_id, type: uuid }, { name: reviewed_digest, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      WITH approved AS (
+      INSERT INTO registry.release_approvals(submission_id,package_id,epoch,ordinal,digest,reviewer_id,approved_at)
+      SELECT j.id,j.package_id,j.epoch,j.ordinal,j.digest,r.principal_id,statement_timestamp()
+      FROM registry.review_submissions j CROSS JOIN registry.release_reviewers r
+      WHERE j.id=job_id AND j.digest=reviewed_digest
+      AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id=j.id AND s.verdict='accepted')
+      ON CONFLICT DO NOTHING RETURNING 1)
+      SELECT job_id FROM approved UNION ALL SELECT a.submission_id FROM registry.release_approvals a
+      WHERE a.submission_id=job_id AND a.digest=reviewed_digest AND EXISTS (SELECT FROM registry.release_reviewers r WHERE r.principal_id=a.reviewer_id)
+      LIMIT 1
+
+  # [PACKAGE-HOSTED-PUBLISH-FLOW] One approved version not yet published, as `{"id","dir","digest"}`, or NULL.
+  - schema: registry
+    name: approved_release_job
+    returns: text
+    executeRoles: [registry_scan_worker]
+    body: >-
+      SELECT json_build_object('id',a.submission_id,'dir','@'||o.handle||'/'||p.name||'/'||a.epoch||'.'||a.ordinal,'digest',a.digest)::text
+      FROM registry.release_approvals a JOIN registry.review_submissions j ON j.id=a.submission_id
+      JOIN registry.packages p ON p.id=a.package_id JOIN registry.organizations o ON o.id=p.organization_id
+      WHERE registry.can_submit_version(j.publisher_id,a.package_id) AND p.state='active' AND o.state='active' AND NOT EXISTS (SELECT FROM registry.releases r WHERE r.id=a.submission_id)
+      ORDER BY a.approved_at,a.submission_id LIMIT 1
+
+  # Publish the approved version with the discovery text its frozen manifest declares; a replay answers the same id.
+  - schema: registry
+    name: publish_approved_release
+    arguments: [{ name: job_id, type: uuid }, { name: license, type: text }, { name: about, type: text }, { name: tags, type: text }, { name: attributions, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_scan_worker]
+    body: >-
+      WITH published AS (
+      INSERT INTO registry.releases(id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,
+      license_expression,summary,keywords,warnings,notices,state,published_at)
+      SELECT a.submission_id,p.organization_id,a.package_id,a.epoch,a.ordinal,a.digest,j.publisher_id,o.display_name,
+      license,about,tags,'[]',attributions,'eligible',statement_timestamp()
+      FROM registry.release_approvals a JOIN registry.review_submissions j ON j.id=a.submission_id
+      JOIN registry.packages p ON p.id=a.package_id JOIN registry.organizations o ON o.id=p.organization_id
+      WHERE a.submission_id=job_id ON CONFLICT DO NOTHING RETURNING id)
+      SELECT id FROM published UNION ALL SELECT r.id FROM registry.releases r WHERE r.id=job_id
+      AND r.state='eligible' AND (r.license_expression,r.summary,r.keywords,r.notices)=(license,about,tags,attributions) LIMIT 1
+
+  # [PACKAGE-HOSTED-PUBLISH-FLOW] The package admin binds its one repository; NULL for anyone else or a second binding.
+  - schema: registry
+    name: bind_repository
+    arguments: [{name: pkg, type: uuid}, {name: repo, type: bigint}, {name: repo_branch, type: text}, {name: repo_subdirectory, type: text}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      DECLARE me uuid := registry.review_session_principal();
+      BEGIN
+        IF me IS NULL OR NOT EXISTS (SELECT FROM registry.packages p JOIN registry.memberships m ON m.id=p.admin_membership_id
+        WHERE p.id=pkg AND p.state='active' AND m.state='active' AND m.principal_id=me) THEN RETURN NULL; END IF;
+        INSERT INTO registry.package_repositories(package_id,repository_id,branch,subdirectory,bound_by,bound_at)
+        VALUES (pkg,repo,repo_branch,repo_subdirectory,me,statement_timestamp());
+        RETURN pkg;
+      EXCEPTION WHEN unique_violation THEN RETURN NULL;
+      END
+
+  # A signed-in publisher names a commit of the package's bound repository for one version; NULL when unbound or taken.
+  - schema: registry
+    name: request_release
+    arguments: [{name: pkg, type: uuid}, {name: sha, type: text}, {name: release_epoch, type: bigint}, {name: release_ordinal, type: bigint}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      DECLARE me uuid := registry.review_session_principal(); made uuid;
+      BEGIN
+        IF me IS NULL THEN RETURN NULL; END IF;
+        INSERT INTO registry.release_intents(id,package_id,publisher_id,repository_id,commit_sha,epoch,ordinal,requested_at)
+        SELECT gen_random_uuid(),r.package_id,me,r.repository_id,sha,release_epoch,release_ordinal,statement_timestamp()
+        FROM registry.package_repositories r WHERE r.package_id=pkg RETURNING id INTO made;
+        RETURN made;
+      EXCEPTION WHEN unique_violation THEN RETURN NULL;
+      END
+
+  # Queue discovery checks one job with the same scoped collector visibility as an exact retry.
+  - schema: registry
+    name: intent_is_frozen
+    arguments: [{name: job_id, type: uuid}, {name: publisher, type: uuid}]
+    returns: boolean
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_publication_collector]
+    body: >-
+      DECLARE previous_job text := current_setting('registry.frozen_job',true);
+      previous_publisher text := current_setting('registry.frozen_publisher',true); frozen boolean;
+      BEGIN
+        PERFORM set_config('registry.frozen_job',job_id::text,true),set_config('registry.frozen_publisher',publisher::text,true);
+        SELECT EXISTS (SELECT FROM registry.review_submissions j WHERE j.id=job_id AND j.publisher_id=publisher) INTO frozen;
+        PERFORM set_config('registry.frozen_job',coalesce(previous_job,''),true),set_config('registry.frozen_publisher',coalesce(previous_publisher,''),true);
+        RETURN frozen;
+      END
+
+  # The oldest release intent not yet frozen whose publisher still holds the grant, with its bound repository and release directory, or NULL.
+  - schema: registry
+    name: pending_release_intent
+    volatility: volatile
+    returns: text
+    executeRoles: [registry_publication_collector]
+    body: >-
+      SELECT json_build_object('id',i.id,'packageId',i.package_id,'publisherId',i.publisher_id,'repositoryId',i.repository_id::text,
+      'branch',r.branch,'subdirectory',r.subdirectory,'commit',i.commit_sha,'epoch',i.epoch::text,'ordinal',i.ordinal::text,
+      'dir','@'||o.handle||'/'||p.name||'/'||i.epoch||'.'||i.ordinal)::text
+      FROM registry.release_intents i JOIN registry.package_repositories r ON r.package_id=i.package_id AND r.repository_id=i.repository_id
+      JOIN registry.packages p ON p.id=i.package_id JOIN registry.organizations o ON o.id=p.organization_id
+      WHERE registry.can_submit_version(i.publisher_id,i.package_id) AND NOT registry.intent_is_frozen(i.id,i.publisher_id)
+      ORDER BY i.requested_at,i.id LIMIT 1
+
+  # [PACKAGE-OWNERSHIP-RLS] The live session's organizations and their packages, each with its bound repository
+  # and the next version to request, as `{"organizations":[...],"packages":[...]}`; RLS limits every row.
+  - schema: registry
+    name: account_listing
+    returns: text
+    executeRoles: [registry_session_runtime]
+    body: >-
+      SELECT json_build_object(
+      'organizations',COALESCE((SELECT json_agg(json_build_object('id',o.id,'handle',o.handle,'name',o.display_name) ORDER BY o.handle)
+      FROM registry.organizations o WHERE o.state='active'),'[]'::json),
+      'packages',COALESCE((SELECT json_agg(json_build_object('id',p.id,'key','@'||o.handle||'/'||p.name,'organizationId',o.id,
+      'epoch',v.epoch,'nextOrdinal',COALESCE((SELECT max(i.ordinal) FROM registry.release_intents i WHERE i.package_id=p.id AND i.epoch=v.epoch),0)+1,
+      'bound',r.package_id IS NOT NULL,'repositoryId',r.repository_id::text,'branch',r.branch,'subdirectory',r.subdirectory) ORDER BY o.handle,p.name)
+      FROM registry.packages p JOIN registry.organizations o ON o.id=p.organization_id
+      LEFT JOIN registry.package_repositories r ON r.package_id=p.id
+      CROSS JOIN LATERAL (SELECT COALESCE(max(i.epoch),1) AS epoch FROM registry.release_intents i WHERE i.package_id=p.id) v
+      WHERE p.state='active' AND o.state='active'),'[]'::json))::text
+      WHERE registry.review_session_principal() IS NOT NULL

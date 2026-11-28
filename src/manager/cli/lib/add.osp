@@ -8,7 +8,7 @@ import registry::Names
 /// `add @scope/name` chooses the key's newest epoch (or the lineage `--epoch N`
 /// names) and the newest ordinal in it as the floor, writes the dependency
 /// line under `[dependencies]`, and relocks; exact digests go only
-/// to the lock ([PACKAGE-API], plan 0020 Phase 4). `add <path>` takes the key
+/// to the lock ([PACKAGE-API], [PLAN-ENGINE-COMMANDS]). `add <path>` takes the key
 /// from the checkout's `[package]`, writes the dependency with the published
 /// baseline's ordinal as the floor (zero and epoch 1 when nothing is
 /// published, so the dependency is development-only), relocks the release
@@ -78,20 +78,17 @@ module Add {
         fn(id) => Success { value: Identity::epochOf(id) })
     fn floorFor(baseline) = Maybe::fold(baseline, 0, Identity::ordinalOf)
 
-    fn withRestoreNote(report, result) = Reports::restored(result, report, restoreCode)
-
     /// Write back the manifest and the release lock after a failed development relock.
     fn restored(req, previousText, previousLock, report) = {
         let s = settingsIn(req)
         let manifest = perform Host::Files.write(Project::manifestPathAt(Transaction::projectOf(s)), previousText)
-        let lock = Host::restore(Project::lockPathAt(Transaction::projectOf(s)), previousLock)
-        withRestoreNote(withRestoreNote(report, manifest), lock)
+        Transaction::restoredRelease(s, previousLock, Reports::restored(manifest, report, restoreCode), restoreCode)
     }
 
-    /// Map the checkout and relock the development lock; a failure undoes the manifest and release lock.
     /// The overlay mapping and development relock of `add <path>`.
-    fn mappedTo(req, path) = Use::mapLocal(Transaction::baseOf(settingsIn(req)), Transaction::projectOf(settingsIn(req)), keyOf(req), path, epochWordOf(req))
+    fn mappedTo(req, path) = Use::mapLocal(settingsIn(req), keyOf(req), path, epochWordOf(req))
 
+    /// Map the checkout and relock the development lock; a failure undoes the manifest and release lock.
     fn mappedLocal(req, path, previousText, previousLock, released) = {
         let local = mappedTo(req, path)
         if Reports::statusOf(local) == 0 { Reports::success(listConcat(Reports::linesOf(released), Reports::linesOf(local))) } else { restored(req, previousText, previousLock, local) }
@@ -133,16 +130,10 @@ module Add {
 
     fn withPath(parsed, path) = Reports::checked(Use::localKey(Flags::project(parsed), path), fn(value) => withLocalKey(parsed, path, value))
 
-    fn withWord(parsed, word) = if startsWith(word, "@") {
-        match Names::parse(word) {
-            Error => Reports::usageFor(usageCode, usageText)
-            Success { value } => withKey(value, parsed)
-        }
-    } else { withPath(parsed, word) }
+    fn withWord(parsed, word) = if startsWith(word, "@") { Flags::parsedKey(word, usageCode, usageText, fn(value) => withKey(value, parsed)) } else { withPath(parsed, word) }
 
-    fn routed(parsed, word) = if word == "" || startsWith(word, "--") { Reports::usageFor(usageCode, usageText) } else { withWord(parsed, word) }
+    fn routed(word, parsed) = if word == "" { Reports::usageFor(usageCode, usageText) } else { withWord(parsed, word) }
 
     /// The whole command: the key or path word first, then the flags.
-    export fn run(args) = Flags::dispatch(Flags::tail(args), [epochFlag, Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText,
-        fn(parsed) => routed(parsed, listGet(args, 0) ?: ""))
+    export fn run(args) = Flags::dispatchPositional(args, [epochFlag, Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText, routed)
 }

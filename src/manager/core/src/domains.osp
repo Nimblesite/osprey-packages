@@ -1,6 +1,6 @@
 namespace registry;
 
-/// The domain-separation strings of every `H(d, x)` in spec 0031, in one
+/// The domain-separation strings of every `H(d, x)` in the Package Domain Model spec, in one
 /// place so no digest can be computed under a misspelled domain. Each name
 /// is the field or object it hashes. Implements [PACKAGE-TYPE-INVARIANTS].
 module Domains {

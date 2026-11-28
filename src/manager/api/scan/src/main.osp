@@ -1,0 +1,27 @@
+namespace registry_api;
+import registry_scan::ScanJob
+import registry::Bundle
+import registry::Digests
+import registry::Policy
+import registry_host::Database
+import registry_host::Native
+
+fn frozen(id, digest) = {
+    let path = "/run/registry-quarantine/" + id + "/" + Digests::hexOf(digest) + ".json"
+    andThen(fileSize(path), fn(size) => if Bundle::sizeCode(size) == "" { readFile(path) } else { Error { message: "bundle.too-large" } })
+}
+
+fn mounted() = handler ScanJob::Inputs {
+    query script => Database::scan(script)
+    bundle id digest => frozen(id, digest)
+    settings => readFile("/run/registry-scan/agent.json")
+    store digest bytes => CloudObjects::mounted("/run/registry-source", "", digest, bytes)
+}
+
+/// Scan one waiting version, then publish one approved version [PACKAGE-HOSTED-PUBLISH-FLOW].
+fn work() = match andThen(ScanJob::run(input()), fn(_) => ScanJob::publish()) {
+    Success => 0
+    Error => 1
+}
+
+fn main() = print("status: ${Policy::guarded(fn() => Native::session(fn() => ProviderNative::bounded(120000)(fn() => mounted()(work))))}")

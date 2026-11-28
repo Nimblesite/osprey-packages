@@ -1,9 +1,13 @@
 namespace registry_cli;
+import registry::Names
 
 /// Flag parsing shared by every lock-consuming command of [PACKAGE-API]: a
 /// valued flag takes the next word, a switch stands alone, and any other word
 /// is a usage error. One definition, so no command grows its own argument
-/// loop and `--project` means the same thing everywhere.
+/// loop and `--project` means the same thing everywhere. The same holds for
+/// the three command shapes that recur: a key word before the flags, an
+/// optional positional word before the flags, and a settings record built
+/// from the flags before the command proper.
 module Flags {
     /// One valued flag and the word that followed it.
     export type Given = { word: string, given: string }
@@ -58,10 +62,42 @@ module Flags {
     /// name, or a command's flags after its positional word.
     export fn tail(args) = range(1, length(args)) |> map(fn(i) => listGet(args, i) ?: "") |> toList
 
-    /// Parse `args`; a command line the frontend cannot act on answers the usage
-    /// report of the command owning `code`, else `body` runs over the parsed flags.
-    export fn dispatch(args, valued, switches, code, text, body) = match parse(args, valued, switches) {
+    /// The first argument when it is a positional word (a path, a key), ""
+    /// when the command starts with a flag or has no argument.
+    export fn positional(args) = {
+        let first = listGet(args, 0) ?: ""
+        if startsWith(first, "--") { "" } else { first }
+    }
+
+    /// `body` over a command-line value that parsed, else the usage report of
+    /// the command owning `code`: the one place a parse failure becomes a report.
+    fn orUsage(parsed, code, text, body) = match parsed {
         Error => Reports::usageFor(code, text)
         Success { value } => body(value)
     }
+
+    /// Parse `args`; a command line the frontend cannot act on answers the usage
+    /// report of the command owning `code`, else `body` runs over the parsed flags.
+    export fn dispatch(args, valued, switches, code, text, body) = orUsage(parse(args, valued, switches), code, text, body)
+
+    /// `dispatch` for a command with an optional positional word before its
+    /// flags: `body` runs over the word ("" when there is none) and the
+    /// parsed flags.
+    export fn dispatchPositional(args, valued, switches, code, text, body) = {
+        let word = positional(args)
+        dispatch(if word == "" { args } else { tail(args) }, valued, switches, code, text, fn(parsed) => body(word, parsed))
+    }
+
+    /// `dispatch` for a command with a settings record: the parsed flags go
+    /// through `commandLine` first, then `withCommand` runs over the record.
+    export fn dispatchWith(args, valued, switches, code, text, commandLine, withCommand) =
+    dispatch(args, valued, switches, code, text, fn(parsed) => withCommand(commandLine(parsed)))
+
+    /// `withKey(key)` when `word` names a package key, else the usage report
+    /// of the command owning `code`: the one spelling of a key word.
+    export fn parsedKey(word, code, text, withKey) = orUsage(Names::parse(word), code, text, withKey)
+
+    /// The whole command: the key word first, then `withKey` over the flags
+    /// after it.
+    export fn keyed(args, code, text, withKey) = parsedKey(listGet(args, 0) ?: "", code, text, fn(value) => withKey(value, tail(args)))
 }

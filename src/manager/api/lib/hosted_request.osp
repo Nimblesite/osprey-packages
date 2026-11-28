@@ -74,7 +74,11 @@ module HostedRequest {
         Error => stop(forbidden, "req.edge-secret")
     }
 
-    fn hostStage(headers, policy) = match HostedHeaders::find(headers, "host") {
+    /// The public hostname the Cloudflare Worker overwrote after rewriting `Host`
+    /// to the Cloud Run origin. Trusted only after the edge secret admits the request.
+    export fn publicHost(headers) = HostedHeaders::find(headers, "x-edge-host")
+
+    fn hostStage(headers, policy) = match publicHost(headers) {
         Success { value } => {
             if toLowerCase(value) == toLowerCase(policy.allowedHost) { Pass } else { stop(misdirected, "req.host") }
         }
@@ -87,8 +91,8 @@ module HostedRequest {
     fn uriBytesOk(uri) = Bytes::everyByte(uri, uriByte)
 
     fn uriStage(uri) = if byteLength(uri) > maxUri { stop(uriTooLong, "req.uri") }
-        else if !startsWith(uri, "/") || !uriBytesOk(uri) { stop(badRequest, "req.uri") }
-        else { Pass }
+    else if !startsWith(uri, "/") || !uriBytesOk(uri) { stop(badRequest, "req.uri") }
+    else { Pass }
 
     fn digits(s) = byteLength(s) > 0 && Bytes::everyByte(s, Bytes::isDigit)
 
@@ -98,8 +102,8 @@ module HostedRequest {
     }
 
     fn bodyStage(headers, incoming, policy) = if byteLength(incoming.body) > policy.maxBody { stop(bodyStatus, "req.body-size") }
-        else if !lengthHeaderOk(headers, incoming.body) { stop(badRequest, "req.content-length") }
-        else { Pass }
+    else if !lengthHeaderOk(headers, incoming.body) { stop(badRequest, "req.content-length") }
+    else { Pass }
 
     /// Credentialed requests: a present session cookie forces the exact
     /// website origin, and mutations additionally force the CSRF token.

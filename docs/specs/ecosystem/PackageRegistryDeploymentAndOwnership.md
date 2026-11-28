@@ -1,0 +1,313 @@
+# Package Registry Deployment and Ownership
+
+> **ONE WAY TO RELEASE.** A package version reaches the public registry one way only: a publisher signs an intent for a commit in the package's bound GitHub repository, and the registry fetches, freezes, scans and publishes that commit itself ([`[PACKAGE-HOSTED-PUBLISH-FLOW]`](#releasing-from-a-github-repository-package-hosted-publish-flow)). There is no upload, no second path, no operator shortcut and no test-only bypass. Anything else that puts a version in the catalog is a defect.
+
+**Status.** The hosted API implements public catalog reads and browser sign-in, session verification, refresh and logout. [The package-manager plan](../../plans/package-manager.md) tracks ownership enforcement, publication and production rollout evidence. The [publication and trust requirements](PackageRegistryTrustAndDiscovery.md) apply to every accepted release.
+
+## Security boundary `[PACKAGE-HOSTED-BOUNDARY]`
+
+The public website and API MUST enforce authorization in Osprey and independently constrain database access with Supabase PostgreSQL RLS. A valid login, organization membership, GitHub installation, or uploaded file MUST NOT by itself authorize publication. Every accepted release needs current scoped authority, the exact signed authorization, source verification and trust gates in the Registry Trust and Discovery spec.
+
+The threat model includes hostile authenticated users, forged tenant IDs, stale/revoked sessions, removed maintainers, malicious source and prose, stolen credentials, replay, concurrent ownership changes, cache leakage, direct-origin access and compromised online components. Database owners and superusers can bypass RLS; independent signatures, witnesses and client verification protect release acceptance against database compromise. RLS does not establish publisher signatures or source safety. Availability and compromised publisher devices remain operational risks; “100% secure” is not a measurable acceptance criterion. All requirements below require retained passing evidence and independent security review before public writes.
+
+The implementation language contract `[PACKAGE-IMPLEMENTATION-LANGUAGE]` applies: website application logic compiles from Osprey to WebAssembly; API, auth adapters, crypto, publication workers, tests and operational tooling are Osprey. PostgreSQL DDL, constraints, grants and RLS policies are declarative infrastructure. Package policy MUST NOT move into SQL procedures, JavaScript Workers or another package-specific host. Missing Osprey capabilities block rollout.
+
+## Deployment topology `[PACKAGE-HOSTED-TOPOLOGY]`
+
+```mermaid
+flowchart LR
+    subgraph Clients["Client devices"]
+        Browser["Browser<br/>registry website (WASM)"]
+        CLI["osprey-pkg CLI"]
+    end
+
+    subgraph CF["Cloudflare (DOMAIN zone)"]
+        Pages["Pages (Direct Upload)<br/>packages.DOMAIN"]
+        Worker["Transport Worker<br/>packages-api.DOMAIN<br/>packages-content.DOMAIN<br/>TLS ≥ 1.2 · per-IP rate limit<br/>sets X-Edge-Secret, X-Edge-Host"]
+    end
+
+    subgraph GCP["Google Cloud · us-central1"]
+        API["Cloud Run: Osprey registry API<br/>:8080 ingress (edge-secret gate)<br/>:8081 probes only"]
+        KMS["Cloud KMS<br/>sealing key"]
+        GCS["Cloud Storage<br/>published source by digest"]
+        SM["Secret Manager<br/>mounted config"]
+    end
+
+    subgraph SB["Supabase · us-east-2"]
+        PG[("PostgreSQL + RLS<br/>catalog, releases, grants")]
+        Auth["Supabase Auth<br/>GitHub OAuth"]
+    end
+
+    subgraph GH["GitHub"]
+        OAuth["OAuth app"]
+        App["GitHub App<br/>bound commits"]
+    end
+
+    Browser -- "HTTPS GET static assets" --> Pages
+    Browser -- "HTTPS JSON API (cookie session)" --> Worker
+    CLI -- "HTTPS JSON API + downloads (bearer)" --> Worker
+    Worker -- "HTTPS fetch to *.run.app<br/>(Host rewritten)" --> API
+    API -- "Postgres wire, TLS :5432" --> PG
+    API -- "HTTPS Auth REST" --> Auth
+    Auth -- "HTTPS OAuth redirect/token" --> OAuth
+    API -- "HTTPS Google API: encrypt/decrypt" --> KMS
+    API -- "HTTPS Google API: read/write objects" --> GCS
+    SM -. "mounted at start" .-> API
+    API -. "HTTPS REST (planned publication workers)" .-> App
+```
+
+Production is the only hosted environment. A test environment is an exact copy of production (Prod → Dev), never provisioned from scratch, and is paused for now. Use distinct local and production Supabase projects, GCP resources, storage, GitHub OAuth applications, GitHub Apps, signing identities and secrets. The runtime region is `us-central1`, the cheapest US GCP region (Tier 1), and Supabase runs in `us-east-2`, the nearest Supabase region to it (Supabase compute costs the same in every region). Account IDs, domains and capacity limits MUST be inventoried before provisioning; reference projects' IDs and secrets MUST NOT be reused.
+
+The website gets a dedicated hostname, separate from the existing language documentation site; the API gets a dedicated hostname. Exact hostnames are deployment inputs, not asserted existing DNS. Host the prebuilt WASM website in a dedicated Cloudflare Pages Direct Upload project, with immutable deployment IDs and prior-deployment rollback; no Pages Functions or automatic unaudited push deployments. The Osprey operations client publishes the prebuilt artifact through the platform API. Registry writes and all application data access go through the Osprey API. Hostile package documentation uses a third, cookieless origin per `[PACKAGE-PUBLISH]`. No service credentials enter a browser bundle. See [Pages prebuilt deployment](https://developers.cloudflare.com/pages/get-started/direct-upload/) and [rollback](https://developers.cloudflare.com/pages/configuration/rollbacks/).
+
+The registry runs Cloudflare → Cloud Run → Supabase with a host-rewrite Worker and shares no resource, rule or setting with any other deployment. Cloud Run routes by `Host`, and Cloudflare's Host override is not on the free plan, so the Worker fetches the service's `run.app` URL (the runtime sets `Host` to it). It overwrites `X-Edge-Secret` from a Worker secret binding and `X-Edge-Host` with the public hostname. The Worker is transport only: it makes no routing, authorization or package decision, so `[PACKAGE-IMPLEMENTATION-LANGUAGE]` still holds. All of that stays in the Osprey API. This replaces a GCP HTTPS load balancer, Cloud Armor and Certificate Manager (about US$20/month idle) with Cloudflare's free tier. The Worker's outbound fetch validates the Google-issued `run.app` certificate, redirects plain HTTP to HTTPS, refuses TLS below 1.2 (426) and rate-limits per client IP through a Workers rate-limit binding (429). The registry owns no zone-wide rule or setting, so it shares a zone without touching anything else in it. HSTS follows certificate and subdomain checks. Terraform (`src/manager/ops/terraform`) declares the Worker, routes, DNS, Pages project and every GCP resource; `make deploy` drives it ([DEPLOY.md](../../DEPLOY.md)). See [Cloudflare Workers fetch](https://developers.cloudflare.com/workers/runtime-apis/fetch/) and [Google's ingress contract](https://docs.cloud.google.com/run/docs/securing/ingress).
+
+## Spend cap `[PACKAGE-HOSTED-SPEND-CAP]`
+
+GCP spend cannot run past the monthly budget (A$50, in the billing account's currency). One project-wide budget emails at 50%, 90% and 100% and publishes every notification to Pub/Sub. A declarative Cloud Workflow (`src/manager/ops/spend-cap/workflow.yaml`) receives each notification through Eventarc and, once cost reaches the budget, unlinks billing from the project, which stops every paid resource in it. Its identity holds Project Billing Manager and nothing else of consequence. `make deploy` creates the cap before any other resource. Cloud Run is capped at one instance with request-based CPU billing, so normal traffic stays far below the budget; Cloudflare runs on the free plan. Supabase bills separately at fixed Micro compute per project, behind the organization's spend cap.
+
+## Origin and HTTP controls `[PACKAGE-HOSTED-EDGE]`
+
+- Cloud Run ingress is `all`, and its default `run.app` URL is the Worker's only origin; there are no domain mappings or revision-tag routes. Direct `run.app` requests reach the API process but are refused with 403 by the edge-secret gate before routing, auth parsing or database access. `max-instances` (default 2) caps what a direct flood can cost. Network-level refusal (load balancer and Cloud Armor) is a future upgrade, taken only when paying traffic justifies about US$20 a month.
+- Registrar, Cloudflare, GCP, Supabase and GitHub administration require individual accounts, phishing-resistant MFA, least privilege and audited recovery; no shared administrator credentials. Enable registrar transfer lock and zone DNSSEC, verify DS records and separately secure registrar recovery. Restrict rule readers/editors because the edge header value is sensitive configuration. Review changes without replacing unrelated zone rules.
+- The Worker MUST overwrite the client-supplied `X-Edge-Secret` and `X-Edge-Host` headers; both are on the duplicate-rejection list. The API checks a high-entropy (64-character, Terraform-generated) per-environment secret in constant time before routing, parsing auth or touching the database. Only then does it trust `X-Edge-Host` as the public host, ignoring the `run.app` `Host`. Missing production configuration prevents startup. The secret also blocks another Cloudflare tenant proxying the origin.
+- Configure Cloud Run startup/liveness probes on a dedicated management port and minimal health handler returning no tenant, version, configuration or dependency data; Cloud Run exposes only the ingress port 8080, so that port is unreachable from the edge. No public handler is exempt from the secret gate. The Worker injects the secret for OPTIONS too. A direct OPTIONS request must not enter any business handler; preflight can only return an exact allowlisted CORS response. Probe-port isolation requires a test against the deployed environment, not an assumed health-path exemption.
+- Reject unknown hosts, invalid methods, duplicate security headers, oversized headers/bodies and ambiguous encoding. Trust forwarded IP/protocol only through the validated ingress chain. Never use `CF-Ray`, `User-Agent`, `Origin`, CORS or a caller's user/scope header as authentication.
+- Allow credentialed browser requests only from the exact website origin, with explicit methods/headers, `Vary: Origin`, and no wildcard origin. Cookie mutations require CSRF tokens and Origin validation. CLI bearer requests remain supported without browser challenges.
+- Cache only anonymous public catalog responses and digest-addressed published objects. Session/auth endpoints, callbacks, mutations, private organization data and errors use `no-store`; bypass edge caching for Authorization and session cookies. No cache rule overrides these controls. Mutable security/status metadata obeys signed expiry and freshness in the Registry Trust and Discovery spec; revocation is never cached as an immutable release body.
+- Target online status publication within ten minutes of an accepted yank/revocation, alert on breach and purge mutable status/catalog caches immediately. This operational target is not a cryptographic guarantee of instant client discovery: a withholding server can present a previously valid status until its signed 24-hour expiry under the Registry Trust and Discovery spec. Test this maximum freeze window and monotonic known-revocation refusal explicitly; do not advertise immediate global revocation.
+- Enforce edge IP limits plus API limits keyed by verified principal, scope, package and operation. Bound login, invitation, enrollment and publication rates independently. Set worker queue, resource, spend and instance ceilings; reject excess work before collection/building. Record numeric limits and tested load in the release evidence.
+- Website CSP restricts scripts/assets/connections to explicit required origins, denies framing, plugins and base injection, and applies `nosniff` and a restrictive referrer policy. Package source/data downloads are attachments from the content origin, never executable website assets.
+
+## Authentication and GitHub `[PACKAGE-HOSTED-AUTH]`
+
+Sign-in hierarchy: passkey, then GitHub, then nothing else. When the browser exposes `PublicKeyCredential`, the login screen's first, primary and largest action is passkey sign-in through Supabase Auth passkeys (conditional mediation where the browser supports it), and GitHub is the second, smaller action; without WebAuthn the screen offers GitHub only. No third method is added; one that already exists renders last and smallest. Supabase registers a passkey only for an authenticated user, so a first sign-in is GitHub and the signed-in screen then puts passkey enrolment first; the passkey is never faked or simulated. Supabase passkeys are beta: every passkey failure (unsupported browser, cancelled ceremony, options or verify error, Supabase outage) fails closed to the GitHub action and never yields a session. The relying-party ID is the website's host and its one origin is the website's HTTPS origin. The API proxies the passkey options and verify ceremonies so the session stays in the same `__Host-` cookie flow as GitHub.
+
+The initial interactive login provider is GitHub OAuth through Supabase Auth. Publishing additionally requires an enrolled WebAuthn credential and the exact assertion in the Registry Trust and Discovery spec. Configure recovery and additional login providers only after their account-linking and recovery tests pass; neither email ownership nor a provider username creates package authority.
+
+Use Authorization Code + PKCE with one-use state, an API-held Supabase verifier and a ten-minute login transaction. GitHub's OAuth callback is the environment's exact Supabase Auth callback: Supabase validates its provider flow and exchanges GitHub's authorization code. Supabase then redirects its own authorization code only to the exact Osprey API callback allowlisted for that environment. Bind this callback to the initiating browser, verify state and reject replay, missing verifier, cross-environment callbacks and arbitrary `next` URLs. The API exchanges the Supabase code using its held verifier, then issues an opaque, host-only `Secure`, `HttpOnly`, `SameSite=Lax` session cookie, with server-side encrypted token storage. The WASM app uses API session endpoints; it does not require a browser Supabase SDK or token persistence in localStorage. The provider flow is documented in [Supabase's GitHub guide](https://supabase.com/docs/guides/auth/social-sign-in/auth-github).
+
+The session issuer has INSERT access to `browser_sessions` and receives the generated session ID. The revoker has UPDATE access and can erase the encrypted token for the transaction’s cookie digest. Both use invoker-rights routines with forced RLS. Session rows and encrypted tokens must stay unreadable to both roles even if either accidentally receives SELECT [PACKAGE-OWNERSHIP-RLS].
+
+Verify Supabase access tokens with pinned issuer/audience, an explicit RS256/ES256 algorithm allowlist, configured JWKS URL, signature, UUID subject, expiry and bounded clock skew. Never follow token-supplied key URLs or accept production HS256. Unknown keys get a bounded JWKS refresh; authentication fails if verification cannot complete. Default access-token life is ten minutes, browser inactivity limit thirty minutes, absolute session life twelve hours, and privileged reauthentication freshness five minutes. Check session revocation and principal suspension on every authenticated request, including private reads; logout invalidates the registry session immediately. Cached JWT signature validity alone does not prove a live session. See [Supabase session semantics](https://supabase.com/docs/guides/auth/sessions).
+
+Keep a stable registry principal ID separate from mutable usernames/emails and Supabase's authentication subject. Bind it through verified provider identity `(issuer, provider, immutable provider subject)`; GitHub bindings use numeric user/organization/repository/installation IDs. A newly linked OAuth identity, automatic email match or recovered Supabase account does not inherit signing credentials or organization authority without the existing principal's fresh credential proof or the recovery ceremony. Test Supabase's actual [automatic identity-linking behavior](https://supabase.com/docs/guides/auth/auth-identity-linking); disabling a UI button is insufficient. An unapproved identity change denies all affected authenticated access, including private reads, until revalidation; only the isolated revalidation/recovery flow remains available.
+
+The GitHub OAuth login application and GitHub App for repository collection are separate credentials. Login grants no repository publication authority. The App is installed only on selected repositories, with read-only contents/metadata and only permissions required to verify current administration and installation access. Repository enrollment proves both scope publication authority and current forge-admin authority over the same expiring nonce. Ownership of a GitHub org name or App installation alone cannot claim an existing registry scope. Explicit, separately approved registry membership is authoritative; never auto-import all GitHub org members as maintainers.
+
+Recheck installation status, stable repository owner/ID, configured branch reachability and current binding before every source collection and final publication. Suspension, uninstall, deletion or repository transfer freezes new writes pending revalidation; delayed webhooks cannot preserve authority. Verify webhook HMAC-SHA256 over the raw bounded body before parsing, deduplicate delivery IDs, reject replay and reconcile provider state. Webhooks can revoke/freeze, never grant publication authority. See [GitHub signature validation](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries).
+
+CLI login uses a one-use browser handoff bound to CLI PKCE, explicit confirmation and an exact loopback redirect; never send a bearer token through a URL. Store API-access credentials in the OS credential store; they cannot sign publications. Every human CLI publication invokes the browser's enrolled WebAuthn ceremony over the exact the Registry Trust and Discovery spec payload. CI authentication uses short-lived, audience-bound workflow identity mapped to an explicit package grant; its publication signature still follows the Registry Trust and Discovery spec. Delegated CI authority means a scoped workflow identity, never a third signature mechanism. Long-lived personal tokens and a generic service key are not publishing credentials.
+
+## Organization ownership and package authority
+
+[Organization Package Governance](OrganizationPackageGovernance.md) is the authoritative ownership/maintenance contract. Every package belongs to one organization and retains the canonical `@organization/package` key. Personal ownership and global leaf names do not exist. Each package has one non-null administrator drawn from that org's active memberships; only that administrator manages explicit per-package permissions. Multiple users may hold publishing and other permissions concurrently. Organization custodianship grants no implicit package authority.
+
+The canonical typeDiagram and DataProvider migration define organization/membership identities, the single administrator FK, same-org permission grants, handovers, invitations, maintenance reports and governance events. Package administrator handover preserves org ownership; cross-org succession uses a new key and the existing 30-day ownership notice/recovery rules. Organization ownership, administrator permissions and maintenance rules live in the Organization Package Governance spec.
+
+## Website and API surface `[PACKAGE-HOSTED-ROUTES]`
+
+### Public package catalog `[PACKAGE-HOSTED-ROUTES-CATALOG]`
+
+Osprey Packages is the public website for finding, evaluating and downloading Osprey packages. A visitor can complete this journey without an account, editor or CLI.
+
+The registry owns its navigation, search results, package descriptions, release pages, publisher profiles and package-management help on its own website. The download button may deliver bytes from the dedicated content origin. A link to the Osprey Language website is appropriate for optional language reference material; every registry journey must work when that website is unavailable.
+
+| Page or action | Required visitor experience |
+| --- | --- |
+| Browse at `/` | Open directly on a browsable catalog of published packages with a prominent search field. Each result links to the package and shows its scoped name, short description, latest release’s SPDX license badge and known security warnings. Visitors can browse further results without entering a query. Documentation is secondary navigation. |
+| Release at `/release/` | Expose **Release a package** in the catalog header, to a signed-in visitor only. Nothing is uploaded: the publisher names a commit in the package's bound GitHub repository. Start the authenticated publication flow here, preserve the destination through sign-in, show the selected package and bound commit, and return the status of the signed publication intent. |
+| Search | Search by package name, organization or descriptive terms under the discovery rules. Give results a shareable URL, retain the query when returning from a package, and distinguish no matches from an unavailable catalog. |
+| Read a package | Give every package a permanent page with its description, owning organization, available releases, dependencies, warnings and a link to the public profile of the publisher credited on each release. Show the latest release’s license and link directly to its notice documents when present. Make each release’s supplied license text readable from its badge. Serve hosted license text as plain text from the verified release bundle on the content origin. Each release retains its own license and attribution metadata under [PACKAGE-LICENSE-DISTRIBUTION]. Render notice text as plain text. |
+| Read API documentation | Link each release to its own compiler-generated API reference beside its download action. Generate from that release’s source with its verified dependencies. Serve production documentation on the isolated documentation origin. |
+| Download | Provide a browser download action on the package page for the selected eligible release. Show the release identifier and digest, and serve the matching source as an attachment through the existing digest-addressed source route. Enforce the release status and evidence rules on direct download requests too. |
+| View a publisher | Give each publisher with public releases a permanent, shareable profile keyed by stable public identity. Show the publisher's public display name and link back to the packages and releases they published. Derive attribution from verified release records, so removing a publishing grant preserves historical credit. Exclude private memberships, grants, contact details and unpublished work. |
+
+These are planned route contracts, not implemented endpoints. Preserve the existing folder-registry GET routes and their canonical `@organization/package` semantics. Control routes use immutable organization/package IDs; the API resolves and checks every ID relationship itself. In this table, `P` means `/v1/organizations/{organizationId}/packages/{packageId}`. It is notation for that exact scoped prefix, not an alternative unscoped route.
+
+The catalog, publisher profiles and generated release documentation share the Osprey Packages header, typography, stylesheet and approved tabbed-drawer icon. Fix the header at the top of the viewport and reserve its height in the page layout. On narrow screens its menu links to packages, publishers, tags and upload. Use shared width, height and offset constants for the catalog banner across routes. The width fits the viewport and the height and top offset stay fixed. Use the same SVG for the header and favicon. Every reference page identifies its package and release and links directly back to the package.
+
+| Website/CLI flow | API surface to implement | Required actor and boundary |
+| --- | --- | --- |
+| Browse by publisher or tag | The catalog links to publisher and tag directories. Publisher profiles link to their attributed releases. A tag gets a public browse page and package-page links when at least five distinct visible packages use it. | Use public release attribution and validated manifest keywords. Apply the same visibility and warning rules as catalog search. |
+| Browse/search, package page, verified download | Existing `GET /v1/packages`, `GET /v1/packages/{scope}/{name}`, `GET /v1/releases/{digest}` and `/source`; search extends the catalog surface | Anonymous public projection only; every result displays its organization and known security warnings; no quarantined/private source |
+| Publisher profile and published releases | `GET /v1/publishers/{publisherId}` and paginated `GET /v1/publishers/{publisherId}/releases` | Anonymous public attribution from verified releases. Package ownership and permission to publish remain governed by the Organization Package Governance spec. |
+| Check a package name | `GET /v1/organizations/{organizationId}/package-name-availability?name=...` | Active member; resolve only this org/name pair, including its tombstones; never report global leaf-name availability |
+| GitHub login and browser session | `GET /v1/auth/github/start`, `GET /v1/auth/github/callback`, `GET /v1/auth/session`, `POST /v1/auth/logout` | One-use PKCE/state for login; live identity for session reads; logout invalidates the registry session; API callback and return website are configuration-pinned |
+| CLI login `[PACKAGE-HOSTED-CLI-LOGIN]` | `GET /v1/auth/cli/start?code_challenge=…&code_challenge_method=S256&state=…&redirect_uri=http://127.0.0.1:{port}/callback` runs the browser login and an explicit confirmation, then answers 303 to that exact loopback URI with a one-use `code` and the `state` (60-second life); `POST /v1/auth/cli/token` with `{code, code_verifier, redirect_uri}` answers `{accessToken, expiresAt}` | The redirect URI is loopback-only and must equal the start request's; the code is single-use and bound to the PKCE challenge; the access credential is opaque, short-lived, kept in the OS credential store, authenticates API access only and never signs a publication; no bearer ever travels in a URL |
+| Enroll/use publication or governance credentials | `POST /v1/auth/webauthn/enrollment-challenges`, `/enrollments`, `/assertion-challenges` and `/assertions` | Verified principal, exact action/payload/origin, single-use challenge and existing credential/recovery proof where required; generic step-up never substitutes for a signed release payload |
+| Create an org and join it | `POST /v1/organizations`; `GET /v1/organizations/{organizationId}` | Credential-backed creator establishes the org/first custodian atomically; private views require live org membership; no package is owned by the creator personally |
+| Invite, accept or remove an org member | `POST /v1/organizations/{organizationId}/invitations`, `POST /v1/invitations/{invitationId}/accept`, `POST /v1/organizations/{organizationId}/memberships/{membershipId}/revoke` | Current custodian under role/quorum rules; acceptance is by the exact intended principal with fresh proof; admin membership removal requires handover/recovery first |
+| Create a package | `POST /v1/organizations/{organizationId}/packages` | Current org custodian and proposed active human admin's fresh acceptance bound to the exact org/key/new package ID; creation and its single admin are atomic; no zero-admin draft |
+| View/grant/revoke package permissions | `GET P/permissions`, `POST P/permissions`, `POST P/permissions/{grantId}/revoke` | Current sole package admin for control; a subject may read their own grants; exact permission/member/expiry/authority epoch is bound to the signed decision; org custodians/publishers cannot delegate |
+| Propose/accept/finalize admin handover | `POST P/admin-transfers`, `POST P/admin-transfers/{transferId}/accept`, `/finalize` and `/cancel` | Current admin's proposal, intended active human recipient's acceptance and guarded finalization after the hold; pending transfers grant no admin rights; exact expected admin and epoch must still match |
+| Bind source repository | `POST P/repository-bindings` | Current package admin initiates management; the independent scope-publisher and forge-admin proof set from the Registry Trust and Discovery spec is still required; an operational publishing grant alone cannot rebind source |
+| Publish and inspect progress | `POST P/publication-intents`, `GET P/publication-intents/{intentId}/challenge`, `POST P/publication-intents/{intentId}/authorizations`, `GET P/publication-intents/{intentId}` | Live `publish-release` permission and exact WebAuthn/CI proofs; caller cannot mutate the frozen digests or actor; scoped progress never leaks another principal's private evidence |
+| Yank, maintain or triage | `POST P/releases/{releaseDigest}/yank-requests`, `POST P/maintenance-reports`, `POST P/maintenance-decisions`, `GET/POST P/security-reports` | Yank requires `yank-release` plus independent status threshold; an active org member may report maintenance; decisions require `manage-maintenance`; an authenticated reporter may submit bounded security evidence, while private reads/triage require `manage-security` or the independent incident authority |
+| Recover or move responsibility | `POST P/recovery-requests`; `POST P/succession-requests` | Live org custodians or pre-enrolled recovery principals may request recovery; current organizational authorities initiate succession. Submission grants no authority and cannot itself freeze another party's package; the existing logged proofs, quarantine/notice, recipient acceptance and independent review are mandatory; succession creates a new full key |
+| Receive GitHub events | `POST /v1/webhooks/github` | Valid raw-body provider signature and deduplicated delivery; only configured events/IDs; can freeze/reconcile, never grant authority or publish |
+
+The website must expose the organization context and effective permissions before every mutation, distinguish a proposal from completed control, and display why publication is pending/rejected/quarantined. An admin control screen must not imply the admin can publish without a grant. Browser/CLI clients submit the same typed commands to the same core; UI hiding is not authorization.
+
+GET routes only observe state, including an already-issued publication challenge; they do not allocate an ordinal, create a challenge, change membership or consume authorization. Preserve the existing typed meaning of source/release digests instead of silently reinterpreting the folder-registry download contract.
+
+Mutation contracts require one-use action proofs where specified, expected authority epochs, bounded payloads and idempotency keys bound to the principal, exact route and canonical request digest. Repeating the same accepted command returns its existing operation; using a key for different bytes returns conflict. Reject mass-assigned identity/admin/status fields. List endpoints use scoped cursor pagination. Return `401` for an invalid session, non-enumerating `404` for an inaccessible opaque ID, `403` for an authenticated actor lacking an operation within a visible scope, `409` for stale state/epoch or idempotency conflict, `429` for limits and `503` for unavailable security prerequisites. Every denial has a stable `application/problem+json` code and audit correlation; a dependency outage never becomes successful empty data.
+
+## Rollout and incident control `[PACKAGE-HOSTED-CONTROL]`
+
+Implement and test the four server-side modes before any promotion: `read-only`, `allowlisted-publishers`, `public-publishers`, `write-frozen`. Check the current durable mode/version at every sensitive mutation and queued publication boundary; mode-store failure denies writes, and stale permissive caches cannot extend authority. The allowlist only restricts already authorized principals. User-provided headers, query parameters and package grants cannot change a mode. Ordinary package administrators and org custodians have no deployment/incident privilege.
+
+The deployment operator may advance a wave only with its recorded gate evidence. A separately credentialed incident operator may freeze writes or suspend a principal/org using an Osprey operations job independent of the public Cloudflare/API route. Its narrow database role can append incident/control decisions and apply the corresponding deny state, but cannot reassign package admins, grant permissions, change digests or mark releases eligible. Independent signed status revocation still requires the Registry Trust and Discovery spec's security threshold. Unfreezing after an incident needs deployment plus independent security approval and a new successful rehearsal; it cannot reactivate revoked grants/nonces or bypass audit gates. Test the incident path while the public edge/API is unavailable.
+
+Rollout wave progression and operational gates are delivery targets, not
+implemented yet. A rollout wave is one of `read-only`, internal publishers
+(explicit enrolled staff/org allowlist for at least 24 hours), invited
+organizations (fixed invited organizations for at least 48 hours), then public
+enrollment. For a new API revision within each wave, traffic progresses
+1% → 10% → 50% → 100%, holding each step at least thirty minutes and requiring
+at least one hundred successful synthetic/API checks plus completed
+publication/revocation probes. With sparse traffic, synthetic probes MUST be
+actively run; elapsed time alone never promotes.
+
+Initial operational gates: API 5xx below 1% over fifteen minutes, metadata p95
+below one second excluding explicit cold-start probes, no outbox item stalled
+beyond five minutes, zero unexplained proof/RLS/origin failures, and all signed
+metadata within its freshness window.
+
+Alert on denied cross-scope attempts, privilege/policy drift, identity/owner
+changes, secret/JWKS failures, GitHub suspension, queue/outbox age,
+signature/witness freshness, digest mismatches and unexpected storage writes.
+Log request/trace/principal/scope/package/operation IDs and policy versions,
+but never cookies, tokens, private source or secret values.
+
+## RLS enforcement `[PACKAGE-OWNERSHIP-RLS]`
+
+RLS is critical: it is the registry's authorization boundary, not a second opinion on the API's. The whole system MUST stay protected even if every endpoint let any authenticated user in: with all API authorization checks removed, a signed-in principal still reads and writes only the rows its own verified identity, memberships and package grants admit, because the database decides each row. No table is reachable by a runtime role without `ENABLE` and `FORCE ROW LEVEL SECURITY` and policies for every operation it is granted; a table, grant or route that relies on endpoint checks alone blocks rollout. The live suite proves this against real PostgreSQL by issuing each role's statements directly, bypassing the API.
+
+Roles, grants, policies and functions are declared only in the DataProvider migration YAML (`src/manager/ops/supabase/migrations/schema.yaml`); hand-written SQL or DDL is illegal in this repository, so the deployed boundary is exactly the reviewed declaration.
+
+DataProvider is used for one thing only: migrating the database. DataProvider Migrations apply that YAML and nothing else in DataProvider is used; the registry MUST NOT query data through DataProvider, its generated data-access code or LQL. The API reads and writes data only by calling stored procedures and functions that the migration YAML declares under `functions:`; each restricted role is granted `EXECUTE` on exactly the routines its workload needs, and RLS still decides every row those routines touch.
+
+Use private application schemas, not automatically exposed `public` tables. Disable unused Data/GraphQL/Realtime interfaces and exclude registry schemas from exposed schema lists. Revoke schema, table, sequence and function defaults from `PUBLIC`, `anon`, `authenticated` and generic service roles; explicitly grant only required operations to dedicated application roles. Direct Supabase REST/RPC/GraphQL/Realtime requests MUST NOT become an alternate publishing or administration API. See [Supabase API hardening](https://supabase.com/docs/guides/api/securing-your-api).
+
+The API connects through TLS-verified Supabase pooling as a dedicated restricted login, never `postgres`, a schema owner, superuser, `BYPASSRLS` or service-role key. It cannot SET ROLE to an elevated role, create objects/functions, change policies/grants or execute arbitrary definer routines. Runtime, migrator, collector, eligibility writer and audit roles are separate; the public API cannot obtain worker/admin database credentials. Each runtime role has both `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` on accessible tables and no TRUNCATE/DDL/owner privileges. `FORCE` does not constrain a superuser or `BYPASSRLS` role. See [PostgreSQL RLS semantics](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
+
+Authenticated request database work begins an explicit transaction, then parameterizes transaction-local identity settings from a cryptographically verified token and live registry session: principal, auth subject, session, selected scope, freshness and authority epoch. Private/mutation policies require a non-null active principal/session and look up current membership/package grants in the database. Anonymous reads use a separate restricted public-reader role with SELECT-only RLS policies limited to published projections/objects and signed public status; it has no private-table grants, no session-setting authority for authenticated work and no writes. A caller-provided scope may select a resource but cannot establish membership. JWT user metadata and cached org-role claims are never authorization truth. Commit/rollback clears identity; query cancellation, errors and connection reuse MUST preserve this isolation. Missing transaction/context on an authenticated operation returns an explicit internal error and performs no query. This custom trusted API context is not a claim that `auth.uid()` works without configuration; select one documented context source and test every policy against it.
+
+RLS predicates MUST cover SELECT, INSERT `WITH CHECK`, UPDATE `USING` and `WITH CHECK`, and DELETE separately. Rechecking both old and new ownership prevents reparenting. Use restrictive tenant/status predicates so another permissive policy cannot OR away the boundary. Column grants and immutable-key constraints protect ownership, roles, signer identity, status and digests; row visibility alone is insufficient. Application roles cannot supply arbitrary approval/quorum evidence or change a job's package/actor/digest to satisfy a policy.
+
+Keep authorization facts readable without recursive policies: ordinary roles can read their own active membership/grant rows, while dedicated administration operations use narrowly scoped role grants and predicates. Do not solve recursion with a general `SECURITY DEFINER` or `USING (true)` administration role. Any unavoidable definer helper needs a separate reviewed specification, pinned search path, restricted owner/EXECUTE and adversarial tests; until then it blocks rollout. Authorization transitions and proof verification remain in Osprey; database constraints/policies independently enforce which rows and columns those transitions may touch.
+
+Ownership/role/grant mutations and publication finalization use serializable transactions, a consistent scope → package lock order, expected authority epochs, unique reservations and bounded retries. All competing revocation, transfer and grant paths acquire the same authority locks. A finalization may commit before a removal, or fail after it; stale authority must never commit after removal. External builders/logs cannot share a DB transaction: use an idempotent outbox and durable frozen operation identity. Independent signers revalidate the exact authorization/epochs before signing. Only the eligibility writer can project a fully proved release; API users cannot INSERT/UPDATE it directly. A crash, timeout or log failure leaves a retryable pending operation, never premature eligibility.
+
+RLS protects a trusted API's verified identity context, not a fully compromised API holding database credentials and forging that context. Restrict credentials/network/SQL execution, parameterize all queries, and retain independent publication signatures. Test this boundary explicitly rather than claiming a GUC authenticates itself.
+
+## Source publication and storage `[PACKAGE-HOSTED-PUBLISH]`
+
+Accept repository IDs only as canonical decimal strings from 1 through 9223372036854775807, the range of the database column.
+
+Verify each supported release-path function against its compiled IR with Osprey IR-to-Lean. A proof gate must reject translation failures and exercise a deliberate mutation that contradicts its theorem. Record unsupported operations and cover their observable behavior at the request boundary until the translator can model them.
+
+**There is no uploading a package.** No interface, name, route or control offers one: no package-file upload, presigned upload URL or caller-writable source bucket, and no “upload” wording in the website, CLI or API. A publisher releases from GitHub: they submit a signed intent for a commit in the package's bound repository. Reject tar/multipart/arbitrary-byte publication at both HTTP and storage interfaces. Cloud Storage object creation for quarantined and published source must use the generation-zero precondition. A conflicting insert may acknowledge a retry only after exact byte verification. Publication retries must match the stored eligible release’s license, summary, keywords and notices before returning its ID. The registry fetches the exact revision using its scoped GitHub App, validates source and declared data, and freezes the canonical source digest before any build. Keep all source limits, forbidden payloads, credential thresholds and final-authorization rules from `[PACKAGE-PUBLISH]` unchanged.
+
+### Releasing from a GitHub repository `[PACKAGE-HOSTED-PUBLISH-FLOW]`
+
+This is the only way a package version enters the public registry: the website, the CLI, operators and tests all go through it. Every step fails closed: a failure publishes nothing.
+
+1. **Bind the repository, once.** An organization admin installs the registry's GitHub App on the one selected repository and enrolls it for the package. The API and repository table accept branch names of 1–255 ASCII bytes using letters, digits, hyphens, underscores, dots and slash separators. Reject `HEAD`, a leading hyphen, a trailing dot, consecutive dots, and any component that is empty, starts with a dot or ends in `.lock`. Enrollment records GitHub's stable numeric repository ID, the subdirectory and the branch, and proves registry publication authority and GitHub admin authority over the same expiring nonce `[PACKAGE-HOSTED-AUTH]`.
+2. **Sign in.** Passkey or GitHub. Signing in grants no publication authority.
+3. **Name the commit.** On `/release/` or in the CLI the publisher picks the package and gives the full 40-character commit hash. No file, archive or URL is accepted. The commit must be reachable from the bound branch of the bound repository. Before a version is reserved, the intent table’s insert policy requires a current `publish-release` grant for that package, the authenticated principal and the current package and membership authority epochs.
+4. **Sign the intent.** The publisher authorizes exactly that package, repository ID, commit and version with their enrolled WebAuthn credential over a one-use challenge. A session cookie or stored access token never signs a release `[PACKAGE-PUBLISH]`.
+5. **The registry fetches.** The collector reads that exact commit from the stable repository ID through the GitHub App's read-only access. Nothing comes from the publisher's machine, and no publisher-supplied location is followed.
+6. **Freeze.** The registry validates and canonicalizes the source, rejects every forbidden payload, computes the canonical source digest and stores the snapshot in the private content-addressed store. The digest never changes afterwards `[PACKAGE-SOURCE-CANONICAL]`.
+7. **Scan.** The frozen source goes to the security-scan agent. A rejection ends the job and records the findings `[PACKAGE-SECURITY-SCAN]`.
+8. **Approve.** A release reviewer approves that exact version and digest `[PACKAGE-SECURITY-SCAN-APPROVAL]`.
+9. **Publish.** Only the eligibility writer projects the proved release into the public catalog. Installers verify the same digest.
+
+The registry rechecks the App installation, the repository's stable owner and ID, branch reachability and the publisher's grant before the fetch and again before publishing. Uninstalling the App, transferring or deleting the repository, or revoking the grant stops the release.
+
+```mermaid
+sequenceDiagram
+    actor Publisher
+    participant Site as Website or CLI
+    participant API as Registry API
+    participant GitHub
+    participant Scan as Scan agent
+    actor Reviewer
+    Publisher->>Site: package + commit hash
+    Site->>API: release intent
+    API->>API: grant active? commit on bound branch?
+    API-->>Publisher: one-use challenge
+    Publisher->>API: WebAuthn-signed intent
+    API->>GitHub: fetch exact commit (GitHub App, read-only, repository ID)
+    GitHub-->>API: source
+    API->>API: validate, canonicalize, freeze digest in private store
+    API->>Scan: frozen source only
+    Scan-->>API: accepted or findings
+    Reviewer->>API: approve version + digest
+    API->>API: recheck binding and grant, publish to catalog
+```
+
+The Osprey collector accepts only configured forge API endpoints and stable repository IDs; no arbitrary clone URLs or client-controlled redirect destinations. Bound redirects, downloads, decompression, paths and Git objects; reject symlinks/submodules/LFS substitution per the existing source contract and deny internal/metadata-network access. Builders receive no Supabase credentials, GitHub tokens, edge secrets or signing keys; network-denied disposable execution reads only assigned CAS inputs. No publisher code runs in the API.
+
+All CAS and quarantine buckets are private. Browser/user roles have no INSERT/UPDATE/DELETE, list or signed-upload privileges. A dedicated storage writer can only create the exact job/digest object with overwrite/upsert denied; existing objects are verified and reused, never replaced. Public reads are an explicit published-object projection through the API/CDN; private intents, quarantined source, raw provider responses and credentials never share that projection. Digest verification and retained independent replicas protect against storage administrators or corruption; Storage RLS alone cannot make objects immutable to an administrator.
+
+Once the canonical source digest is frozen, the publication worker submits that frozen source to the NAP security-scan agent [PACKAGE-SECURITY-SCAN]. The agent receives the source only: no Supabase credentials, GitHub tokens, signing keys or mutation authority. A rejection ends the publication job without activating a release and appends the rejection record; a malformed, failed or timed-out scan leaves the job unpublished and retryable without recording a rejection.
+
+The approval endpoint is `POST /v1/reviews/{submissionId}/{digest}/approve`.
+It accepts an empty body, the same-origin session cookie and the session's CSRF
+token. The service revalidates the provider identity and asks PostgreSQL to
+record the decision. Success returns 204 only after the insert commits.
+
+An accepted scan allows a registry release reviewer to approve the exact pending version under [PACKAGE-SECURITY-SCAN-APPROVAL]. The catalog and every digest-addressed read require that approval and signed eligibility.
+
+## Release and recovery gates `[PACKAGE-HOSTED-RELEASE]`
+
+Pin external actions referenced in repository workflows and composite actions to full upstream commit SHAs. Pin supplemental Osprey native host sources and the browser WASI shim to the release commit and verify their SHA-256 digests before accepting a fresh or cached installation. Verify the installed Osprey compiler, runtime archives and package source paths and bytes against a platform-specific digest before reusing a toolchain cache. Reject unexpected files and links. Verify downloaded WASI sysroot and Wasmtime archive bytes against reviewed SHA-256 pins before extraction.
+
+Build a native Osprey API container and static WASM artifact from one reviewed commit, with immutable image/artifact digests and a manifest binding compiler, policy, schema, frontend, API and tests. Deploy the identical artifacts to production, the only environment, with pinned secret versions; a test environment, if one is ever needed, is an exact paused copy of production. Runtime secrets are in Secret Manager and Supabase's provider configuration; deployment uses short-lived federated CI identity with separate deploy/migration/runtime permissions. No secrets enter an image, build argument, log or frontend.
+
+Both operator and workflow image rollouts must update a provisioned scanner job to the same immutable image digest before updating the API. A missing scanner configuration or failed job update stops the rollout.
+
+The release dispatch must bind the workflow to the same main commit used for migration. Watch only the run returned by that dispatch and fail if its identity is unavailable.
+
+Both Pages release paths must install the publisher and its transitive dependencies from the reviewed integrity lockfile with install scripts disabled. The operator must build with a freshly verified release compiler.
+
+Both operator and workflow Pages uploads must verify the singular hostname preserves the release path and query in its permanent redirect. Fetch the canonical homepage, upload page, JavaScript, CSS and WASM over HTTPS and compare their bytes with the uploaded archive before reporting success.
+
+Standalone production smoke checks use read-only requests and existing service metadata. They must fail when the public catalog returns an error. They must never provision resources, change IAM, link billing or run migrations.
+
+Run the database migration under a dedicated Cloud Build service account with read access to the private migration source bucket and the owner secret. Remove the legacy direct owner-secret grant from the default Compute account before submitting a migration. Failure to inspect or remove that grant stops the deployment.
+
+Inject the migration owner password only into the schema application process and the operator’s restricted-login provisioning connections. Compile the migration tool before injecting the password. Treat an absent or unreadable credential map as a deployment failure.
+
+After applying a migration, compare the live registry table names against the reviewed schema and require RLS to be enabled and forced on each table. Missing tables, unexpected tables or disabled protections fail deployment.
+
+Migrations are reviewed explicit operations before traffic, never image build or app startup. Apply additive schema/policy changes, run positive and negative RLS tests as actual runtime roles, verify policy/grant/default-privilege drift, then deploy a compatible no-traffic revision. The candidate smoke-test route MUST retain the edge Worker, WAF/edge authentication and an operator-only restriction; prove the selected revision is reached without reopening a public run.app/tag URL. Missing safe candidate routing blocks promotion. Promotion uses a saved previous image/revision and frontend digest. Rollback changes traffic/artifacts only; do not roll back nonce consumption, revocations, signed status, audit history or ownership epochs. Incompatible migrations freeze writes and require forward repair.
+
+Every deployment/publishing job, including frontend-only and manual redeploy, MUST depend on an unconditional fresh `audit` job for its exact source SHA and `make audit`. Network/scanner failure fails deployment. Preserve existing required checks, coverage floors and Dependabot staging; add release gates without weakening them. The temporary local-only registry-test arrangement in the package-manager plan ends before hosted deployment, not after public launch.
+
+Keep off-provider encrypted database backups/PITR and separately backed-up CAS, ownership/proof history, configuration and trust metadata. Define and measure an initial RPO of at most five minutes for acknowledged ownership/nonce/audit state and RTO of at most four hours. Recovery cannot reopen writes until restored state is reconciled with the independent signed log and all acknowledged security events; when reconciliation is impossible, keep writes frozen. Existing immutable public reads can continue only within the client's trust/freshness rules. Restore stable principal IDs using logged verified binding/recovery proofs, never email matching. Exercise project loss, leaked credentials, compromised origin and interrupted publication before launch.
+
+Operate authenticated notification delivery for invitations, owner/credential changes and recovery holds, with SPF/DKIM/DMARC for email, delivery-failure alerts and a separate credential-authenticated account inbox. Delivery is not ownership proof. Define retention/access/deletion handling for private profile/session/notification data before enrollment; public audit history contains stable opaque IDs and commitments, never emails/provider subjects/IPs or raw private evidence, consistent with the Registry Trust and Discovery spec. Delete or minimize private PII without deleting security history or recycling ownership IDs.
+
+## Conformance `[PACKAGE-HOSTED-CONFORMANCE]`
+
+Every row below requires a named Osprey test, positive control, retained result at the exact deployment SHA and unchanged-state assertions for rejected writes. Database tests MUST connect as the production runtime roles and also probe direct Supabase endpoints with public keys/user tokens; running everything as a migrator is invalid evidence.
+
+| Area | Required adversarial evidence |
+| --- | --- |
+| Origin | Edge succeeds; run.app, revision URL, Host/X-Edge-Host spoof, another CF zone, missing/duplicate/wrong secret and direct OPTIONS cannot access application routes; production missing-secret startup fails |
+| Authentication | GitHub login/refresh/logout succeeds; state/PKCE replay, wrong issuer/audience/key/algorithm, expired JWT, revoked session, cross-environment callback, CSRF and open redirect fail |
+| Identity | GitHub rename/email collision/recycled handle and Supabase auto-link do not inherit authority or private reads; unapproved link/recovery cannot use existing signing credentials |
+| Tenant isolation | A/B orgs plus outsider: enumerate every read/write/join/view/function/storage path; guessed IDs, new-row tenant substitution, cross-scope foreign keys and role mass assignment fail |
+| Grants | Unscoped/personal ownership, reserved-name claim and GitHub-org impersonation fail; org custodians and the single package admin need explicit publishing grants; publishers cannot delegate/administer or publish a sibling; invitation role ceilings enforced |
+| Lifecycle | Removed member retains a valid JWT and queued job but loses private access/writes; a second package admin, revoked-admin membership, custodian takeover, simultaneous handovers, pre-signed yanks, expired invitations and credential revocation races fail atomically; recovery quorum/notifications/holds proven |
+| Pooling/RLS | Alternate A/B/anonymous requests on the same pool connection after success/error/cancel/rollback; no identity leak; missing context/transaction errors; role cannot elevate, alter policies or exploit definer/default grants |
+| Security scan | `accepted` still runs every other gate; a rejection publishes nothing and records exactly one rejection against the publisher; malformed, timed-out or unavailable scans publish nothing and record no rejection; a rejection applies no strike or warning [PACKAGE-SECURITY-SCAN] |
+| Publication | Happy path produces exactly one verified release; replay, stale epochs, forged workflow, missing WebAuthn quorum, changed commit/challenge, upload bypass, forged job/result and concurrent finalizations fail |
+| Forge/storage | Bad webhook signature/replay, uninstall/transfer with delayed webhook, SSRF/redirects, archive bombs/path escape, overwrite/upsert/list/sign-upload and quarantined-source reads fail |
+| Browser/cache | Hostile prose cannot execute or read cookies; user A's authenticated response never reaches B/anonymous through CDN; public download verifies digest; status freshness/revocation survives cache |
+| Operations | Exact-SHA audit failure blocks every deploy; failed migration/canary cannot promote; rollback preserves security history; measured project-loss restore meets RPO/RTO and prevents nonce reuse |
+
+Public writes remain disabled until all of this specification and the applicable Registry Trust and Discovery conformance suite pass, the rollout rehearsal succeeds and an independent review closes every critical/high finding. No authenticated “temporary upload” path may bypass these gates.

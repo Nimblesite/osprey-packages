@@ -1,0 +1,36 @@
+namespace registry_live_tests;
+import registry_api::HostedLogin
+import registry_api::HostedOwnership
+import registry_api::HostedReview
+import registry_host::Database
+import registry::Bytes
+
+/// The ownership routes of the live listener [PLAN-ROLLOUT-PUBLICATION-JOURNEY]: each request first
+/// verifies the browser's real session cookie, then runs the registry function as
+/// `registry_session_runtime` in that session's scope, so forced RLS decides every write.
+/// Only the forge's admin answer is a fixture: GitHub account 421 administers repository 4242.
+module Journey {
+    let issuer = "https://project.supabase.co/auth/v1"
+    let subject = "11111111-1111-4111-8111-111111111111"
+    let github = "421"
+
+    fn arguments(casts) = join(mapList(range(0, length(casts)) |> toList, fn(i) => Database::decoded(i + 1) + (listGet(casts, i) ?: "")), ",")
+
+    fn call(verify, run, token, routine, casts, values) = andThen(verify(token), fn(_session) =>
+        andThen(run(Success { value: Database::sessionRuntimeScript([HostedLogin::sessionDigest(token), issuer, subject, github],
+                        "SELECT registry." + routine + "(" + arguments(casts) + ")", values) }), fn(row) =>
+            if Bytes::canonicalUuid(row) { Success { value: row } } else { Error { message: HostedOwnership::refused } }))
+
+    /// Review operations stay closed; ownership operations reach PostgreSQL through `verify` and `run`.
+    export fn operations(verify, run) = HostedReview::Operations {
+        approve: fn(_token, _id, _digest) => HostedLogin::unavailable(),
+        receipt: fn(_token, _id) => Error { message: HostedReview::missing },
+        organize: fn(token, slug, name) => call(verify, run, token, "create_organization", ["", ""], [slug, name]),
+        createPackage: fn(token, org, name) => call(verify, run, token, "create_package", ["::uuid", ""], [org, name]),
+        bind: fn(token, pkg, repository, branch, dir) => if repository == "4242" {
+            call(verify, run, token, "bind_repository", ["::uuid", "::bigint", "", ""], [pkg, repository, branch, dir])
+        } else { Error { message: HostedOwnership::refused } },
+        release: fn(token, pkg, commit, epoch, ordinal) => call(verify, run, token, "request_release", ["::uuid", "", "::bigint", "::bigint"], [pkg, commit, epoch, ordinal]),
+        account: fn(_token) => HostedLogin::unavailable()
+    }
+}

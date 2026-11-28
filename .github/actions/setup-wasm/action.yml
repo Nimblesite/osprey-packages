@@ -6,6 +6,7 @@ runs:
     - shell: bash
       env:
         WASI_SDK_VERSION: "25"
+        WASI_SYSROOT_SHA256: "d09c62c18efcddffe4b2fdd8c5830109cc8e36130cdbc9acdc0bd1b204c942bb"
         WASMTIME_VERSION: "27.0.0"
         WASMTIME_SHA256: "74678f6ec49d8b858ca5181d5492b967245f6c072b5763ea14a75eee1ad3c2d7"
       run: |
@@ -13,6 +14,7 @@ runs:
         sudo apt-get install -y lld
         curl -fsSL --retry 3 -o /tmp/wasi-sysroot.tar.gz \
           "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK_VERSION}/wasi-sysroot-${WASI_SDK_VERSION}.0.tar.gz"
+        echo "${WASI_SYSROOT_SHA256}  /tmp/wasi-sysroot.tar.gz" | sha256sum --check
         sudo mkdir -p /opt/wasi-sdk/share/wasi-sysroot
         sudo tar -xzf /tmp/wasi-sysroot.tar.gz -C /opt/wasi-sdk/share/wasi-sysroot --strip-components=1
         echo "OSPREY_WASI_SYSROOT=/opt/wasi-sdk/share/wasi-sysroot" >> "$GITHUB_ENV"

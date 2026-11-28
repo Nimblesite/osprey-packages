@@ -18,11 +18,8 @@ module Install {
     let surfaceCode = "capability.surface"
 
     type Tally = { lines: List<string>, failed: bool }
-    type CommandLine = { base: string, project: string }
 
     let usageText = ["usage: osprey-pkg fetch [--registry <base-url>] [--project <dir>]"]
-
-    fn commandLine(parsed) = CommandLine { base: Flags::given(parsed, Fetch::registryFlag, Fetch::defaultRegistry), project: Flags::project(parsed) }
 
     /// The files a walk of `dir` found, read in walk order; a non-regular
     /// entry or an unreadable file is its stable code.
@@ -32,8 +29,11 @@ module Install {
     /// computed the release digest ([PACKAGE-SOURCE-CANONICAL]).
     export fn digestOfFiles(fileList) = Fetch::digestOfFiles(fileList)
 
+    /// The content of the file named `name` among a tree's files, "" when the tree has none.
+    export fn fileNamed(fileList, name) = foldList(fileList, "", fn(found, f: Release::File) => if f.relPath == name { f.content } else { found })
+
     /// The manifest text among a tree's files, "" when the tree has none.
-    export fn manifestTextIn(fileList) = foldList(fileList, "", fn(found, f: Release::File) => if f.relPath == "osprey.toml" { f.content } else { found })
+    export fn manifestTextIn(fileList) = fileNamed(fileList, "osprey.toml")
 
     /// The canonical manifest digest of a tree's manifest, or its rejection.
     export fn manifestDigestOf(fileList) = andThen(Manifest::accepted(Manifest::parse(manifestTextIn(fileList))), fn(value) => ManifestJson::digest(value))
@@ -64,7 +64,7 @@ module Install {
     fn checkedSurface(tally, pkg, fileList, mark) = if surfaceMatches(pkg, fileList) {
         line(tally, "${mark} ${Lockfile::compact(pkg.release)}")
     } else {
-        failedLine(tally, "${surfaceCode} ${Names::display(pkg.release.key)}")
+        failedLine(tally, "${surfaceCode} ${Names::display(Lockfile::keyOf(pkg))}")
     }
 
     fn present(base, project, tally, pkg, fileList) = if digestMatches(pkg, fileList) { checkedSurface(tally, pkg, fileList, "=") } else { fetched(base, project, tally, pkg) }
@@ -81,20 +81,18 @@ module Install {
         Error { message } => failedLine(tally, message)
     }
 
-
     /// An overridden key lives in its checkout: nothing to install.
     fn localLine(tally, pkg: Lockfile::Package, o: Lockfile::Override) = line(tally, "local ${Lockfile::compact(pkg.release)} (${o.path})")
 
-    fn installPackage(base, project, lock, tally, pkg) = match Lockfile::overrideFor(Lockfile::overridesOf(lock), pkg.release.key) {
+    fn installPackage(base, project, lock, tally, pkg) = match Lockfile::overrideOf(lock, Lockfile::keyOf(pkg)) {
         Success { value } => localLine(tally, pkg, value)
         Error => installOne(base, project, tally, pkg)
     }
 
-
     /// With the uv plane pinned, `uv sync --frozen` creates the environment ([PACKAGE-PYTHON-UV]).
     fn synced(project, lock, tally) = Maybe::fold(Lockfile::pinsOf(lock), tally, fn(pins) => match PythonPlane::synced(project, pins) {
-        Success { value } => line(tally, value)
-        Error { message } => failedLine(tally, message)
+            Success { value } => line(tally, value)
+            Error { message } => failedLine(tally, message)
     })
 
     fn installLock(base, project, lock) = {
@@ -107,9 +105,8 @@ module Install {
     /// The whole command: parse `[--registry <base-url>] [--project <dir>]`,
     /// read the lock the overlay selects, and install each locked release in
     /// lock order ([PACKAGE-LOCAL-OVERRIDE]: overridden keys are skipped).
-    export fn run(args) = Flags::dispatch(args, [Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText,
-        fn(parsed) => withArgs(commandLine(parsed)))
+    export fn run(args) = Flags::dispatchWith(args, Transaction::flags, [], usageCode, usageText, Transaction::releaseSettings, withArgs)
 
-    fn withArgs(cmd: CommandLine) = Reports::checkedWith(Overlay::activeLockAt(cmd.project), noLockCode,
-        fn(value) => installLock(cmd.base, cmd.project, value))
+    fn withArgs(s) = Reports::checkedWith(Overlay::activeLockAt(Transaction::projectOf(s)), noLockCode,
+        fn(value) => installLock(Transaction::baseOf(s), Transaction::projectOf(s), value))
 }

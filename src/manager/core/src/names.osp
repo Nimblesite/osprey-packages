@@ -85,6 +85,6 @@ module Names {
     /// The keys in canonical order.
     export fn sorted(keys) = {
         let at = fn(i) => listGet(keys, i) ?: blank()
-        mapList(Order::permutation(length(keys), fn(i, j) => keyOrder(at(i), at(j))), fn(i) => at(i))
+        mapList(Order::permutation(length(keys), fn(i, j) => keyOrder(at(i), at(j))), at)
     }
 }

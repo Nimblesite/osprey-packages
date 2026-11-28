@@ -20,14 +20,14 @@ module TypeDiagram {
     export type Model = { decls: List<Decl> }
 
     type RefStep = { ref: TypeRef, next: int }
-    type FieldsStep = { parsed: List<Field>, next: int }
-    type VariantsStep = { variants: List<Variant>, next: int }
+    /// The members scanned up to the closing `}`, and the position after it.
+    type Members<a> = { parsed: List<a>, next: int }
     type TokenState = { tokens: List<string>, wordStart: int }
 
     let unknownType = "schema.unknown-type"
 
     fn isWordByte(b) = Bytes::isAlnum(b) || b == 95
-    fn isPunct(b) = b == 123 || b == 125 || b == 58 || b == 61 || b == 60 || b == 62
+    fn isPunct(b) = listContains([123, 125, 58, 61, 60, 62], b)
 
     fn finishWord(text, i, acc) = if acc.wordStart < 0 { acc.tokens } else {
         listAppend(acc.tokens, substring(text, acc.wordStart, i) ?: "")
@@ -62,14 +62,10 @@ module TypeDiagram {
         RefStep { ref: wrap(inner.ref), next: inner.next + 1 }
     }
 
-    fn listStep(tokens, i) = wrapStep(tokens, i, fn(element) => ListOf { element: element })
-
-    fn optionStep(tokens, i) = wrapStep(tokens, i, fn(element) => OptionOf { element: element })
-
     fn parseTypeRef(tokens, i) = {
         let name = peek(tokens, i)
-        if name == "List" { listStep(tokens, i) }
-        else if name == "Option" { optionStep(tokens, i) }
+        if name == "List" { wrapStep(tokens, i, fn(element) => ListOf { element: element }) }
+        else if name == "Option" { wrapStep(tokens, i, fn(element) => OptionOf { element: element }) }
         else { RefStep { ref: Named { name: name }, next: i + 1 } }
     }
 
@@ -84,29 +80,33 @@ module TypeDiagram {
         if tok == "}" || tok == "" { done(out, i + 1) } else { step(tokens, i, tok, out) }
     }
 
-    fn parseFields(tokens, i, out) = scanMembers(tokens, i, out, fieldStep, fn(parsed, next) => FieldsStep { parsed: parsed, next: next })
+    /// The scan of a member list as it stands at its closing brace.
+    fn members(parsed, next) = Members { parsed: parsed, next: next }
+
+    fn parseFields(tokens, i, out) = scanMembers(tokens, i, out, fieldStep, members)
 
     fn variantStep(tokens, i, tok, out) = {
         let fs = parseFields(tokens, i + 2, [])
         parseVariants(tokens, fs.next, listAppend(out, Variant { name: tok, payload: fs.parsed }))
     }
 
-    fn parseVariants(tokens, i, out) = scanMembers(tokens, i, out, variantStep, fn(variants, next) => VariantsStep { variants: variants, next: next })
+    fn parseVariants(tokens, i, out) = scanMembers(tokens, i, out, variantStep, members)
 
     fn aliasStep(tokens, i, out) = {
         let t = parseTypeRef(tokens, i + 3)
         parseDecls(tokens, t.next, listAppend(out, Alias { name: peek(tokens, i + 1), target: t.ref }))
     }
 
-    fn structStep(tokens, i, out) = {
-        let fs = parseFields(tokens, i + 3, [])
-        parseDecls(tokens, fs.next, listAppend(out, Struct { name: peek(tokens, i + 1), fields: fs.parsed }))
+    fn declStep(tokens, i, out, parse, make) = {
+        let parsed = parse(tokens, i + 3, [])
+        parseDecls(tokens, parsed.next, listAppend(out, make(peek(tokens, i + 1), parsed)))
     }
 
-    fn unionStep(tokens, i, out) = {
-        let vs = parseVariants(tokens, i + 3, [])
-        parseDecls(tokens, vs.next, listAppend(out, Union { name: peek(tokens, i + 1), variants: vs.variants }))
-    }
+    fn structStep(tokens, i, out) = declStep(tokens, i, out, parseFields,
+        fn(name, parsed) => Struct { name: name, fields: parsed.parsed })
+
+    fn unionStep(tokens, i, out) = declStep(tokens, i, out, parseVariants,
+        fn(name, parsed) => Union { name: name, variants: parsed.parsed })
 
     fn parseDecls(tokens, i, out) = {
         let tok = peek(tokens, i)
@@ -121,7 +121,11 @@ module TypeDiagram {
         Alias { name } | Struct { name } | Union { name } => name
     }
 
-    fn isBuiltin(name) = name == "String" || name == "Int" || name == "Bool" || name == "DateTime" || name == "Uuid"
+    /// The scalar types every model may reference without declaring them.
+    let scalars = ["String", "Int", "Bool", "DateTime", "Uuid"]
+
+    /// Whether `name` is one of the builtin scalars.
+    export fn isBuiltin(name) = listContains(scalars, name)
 
     fn refKnown(names, ref) = match ref {
         Named { name } => isBuiltin(name) || listContains(names, name)
@@ -153,8 +157,5 @@ module TypeDiagram {
     }
 
     /// The declaration named `name`, or `schema.unknown-type`.
-    export fn lookup(model, name) = foldList(model.decls, Error { message: unknownType }, fn(acc, d) => match acc {
-        Success => acc
-        Error => if declName(d) == name { Success { value: d } } else { acc }
-    })
+    export fn lookup(model, name) = Checked::firstMatch(model.decls, fn(d) => declName(d) == name, unknownType)
 }

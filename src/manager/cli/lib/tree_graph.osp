@@ -25,7 +25,6 @@ module TreeGraph {
     fn bool(flag) = Json::Bool { flag: flag }
     fn textList(texts) = Json::arr(mapList(texts, Json::str))
 
-    fn versionOf(id: Identity::ReleaseId) = "e${id.epoch}.r${id.ordinal}"
     fn directKeys(manifest) = Names::distinct(mapList(ManifestModel::edgesOf(manifest), ManifestModel::requirementKey))
     fn edgeKeys(edges) = Names::distinct(mapList(edges, ManifestModel::requirementKey))
 
@@ -44,30 +43,26 @@ module TreeGraph {
     fn packageLines(lines, keyText) = filterList(lines, fn(line) => detailIn(line) == keyText)
     fn packageFindings(lines, keyText) = codesOf(packageLines(lines, keyText))
 
-    fn presentOf(lines, keyText) = !foldList(lines, false, fn(found, line) =>
-        found || (codeIn(line) == missingCode && detailIn(line) == keyText))
+    fn presentOf(lines, keyText) = !Folds::any(lines, fn(line) => codeIn(line) == missingCode && detailIn(line) == keyText)
 
-    fn isPackageKey(packages, text) = foldList(packages, false, fn(found, p) =>
-        found || Names::display(Identity::keyOf(Lockfile::releaseOf(p))) == text)
+    fn isPackageKey(packages, text) = Folds::any(packages, fn(p) => Names::display(Lockfile::keyOf(p)) == text)
 
     fn globalLines(lines, packages) = filterList(lines, fn(line) => !isPackageKey(packages, detailIn(line)))
 
     fn dependentsOf(packages, key) = Names::distinct(foldList(packages, [], fn(acc, p) =>
-        if !Names::same(Identity::keyOf(Lockfile::releaseOf(p)), key) && Names::includes(edgeKeys(Lockfile::edgesOf(p)), key) {
-            listAppend(acc, Identity::keyOf(Lockfile::releaseOf(p)))
-        } else { acc }))
+            if !Names::same(Lockfile::keyOf(p), key) && Names::includes(edgeKeys(Lockfile::edgesOf(p)), key) {
+                listAppend(acc, Lockfile::keyOf(p))
+            } else { acc }))
 
     // A local checkout replaces the release's bytes ([PACKAGE-LOCAL-OVERRIDE]), so
     // the editor must be able to tell them apart. Absent for a release, keeping a
     // graph with no overrides byte-identical to one from before local checkouts.
     fn overrideMembers(overrides, key) = match Lockfile::overrideFor(overrides, key) {
-        Success { value } => [Json::member("override", Json::str(overridePath(value)))]
+        Success { value } => [Json::member("override", Json::str(Lockfile::overridePathOf(value)))]
         Error => []
     }
 
-    fn overridePath(o: Lockfile::Override) = o.path
-
-    fn localLock(project) = andThen(Project::readLocalLockAt(project), fn(value) => Success { value: Lockfile::overridesOf(value) })
+    fn localLock(project) = Folds::mapped(Project::readLocalLockAt(project), Lockfile::overridesOf)
 
     /// The development lock's overrides; a missing one has none, and an unreadable
     /// one is a finding rather than a graph that looks free of overrides.
@@ -77,36 +72,37 @@ module TreeGraph {
         let id = Lockfile::releaseOf(pkg)
         let keyText = Names::display(Identity::keyOf(id))
         Json::obj(listConcat(overrideMembers(overrides, Identity::keyOf(id)), [
-            Json::member("key", Json::str(keyText)),
-            Json::member("version", Json::str(versionOf(id))),
-            Json::member("digest", Json::str(id.digest)),
-            Json::member("direct", bool(Names::includes(direct, Identity::keyOf(id)))),
-            Json::member("dependencies", textList(mapList(edgeKeys(Lockfile::edgesOf(pkg)), Names::display))),
-            Json::member("dependents", textList(mapList(dependentsOf(packages, Identity::keyOf(id)), Names::display))),
-            Json::member("findings", textList(packageFindings(lines, keyText))),
-            Json::member("present", bool(presentOf(lines, keyText)))
+                    Json::member("key", Json::str(keyText)),
+                    Json::member("version", Json::str(Lockfile::versionOf(id))),
+                    Json::member("digest", Json::str(id.digest)),
+                    Json::member("direct", bool(Names::includes(direct, Identity::keyOf(id)))),
+                    Json::member("dependencies", textList(mapList(edgeKeys(Lockfile::edgesOf(pkg)), Names::display))),
+                    Json::member("dependents", textList(mapList(dependentsOf(packages, Identity::keyOf(id)), Names::display))),
+                    Json::member("findings", textList(packageFindings(lines, keyText))),
+                    Json::member("present", bool(presentOf(lines, keyText)))
         ]))
     }
 
     fn packagesValue(lines, direct, packages, overrides) = Json::arr(mapList(packages, fn(p) => packageValue(lines, direct, packages, overrides, p)))
 
+    fn manifestMembers(manifest) = [
+        Json::member("project", Json::str(ManifestModel::nameOf(manifest))),
+        Json::member("direct", textList(mapList(directKeys(manifest), Names::display)))
+    ]
+
     fn graphValue(manifest, lock, lines, overrides, localFindings) = {
         let direct = directKeys(manifest)
         let packages = Lockfile::packagesOf(lock)
-        Json::obj([
-            Json::member("project", Json::str(ManifestModel::nameOf(manifest))),
-            Json::member("direct", textList(mapList(direct, Names::display))),
-            Json::member("packages", packagesValue(lines, direct, packages, overrides)),
-            Json::member("findings", textList(listConcat(codesOf(globalLines(lines, packages)), localFindings)))
-        ])
+        Json::obj(listConcat(manifestMembers(manifest), [
+                    Json::member("packages", packagesValue(lines, direct, packages, overrides)),
+                    Json::member("findings", textList(listConcat(codesOf(globalLines(lines, packages)), localFindings)))
+        ]))
     }
 
-    fn notLockedValue(manifest) = Json::obj([
-        Json::member("project", Json::str(ManifestModel::nameOf(manifest))),
-        Json::member("direct", textList(mapList(directKeys(manifest), Names::display))),
-        Json::member("packages", Json::arr([])),
-        Json::member("findings", textList([notLockedCode]))
-    ])
+    fn notLockedValue(manifest) = Json::obj(listConcat(manifestMembers(manifest), [
+                Json::member("packages", Json::arr([])),
+                Json::member("findings", textList([notLockedCode]))
+    ]))
 
     fn serialized(value) = match Canonical::serialize(value) {
         Success { value } => Reports::success([value])
@@ -129,5 +125,5 @@ module TreeGraph {
     }
 
     /// The graph of the project at `project` as one canonical JSON report line.
-    export fn reportAt(project) = Reports::checked(Project::readAt(project), fn(value) => withManifest(project, value))
+    export fn reportAt(project) = Project::withManifestAt(project, fn(value) => withManifest(project, value))
 }

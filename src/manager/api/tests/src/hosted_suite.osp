@@ -1,0 +1,19 @@
+namespace registry_api_tests;
+import registry_host::Native
+
+module HostedSuite {
+    /// Request admission and native listener isolation [PACKAGE-HOSTED-EDGE].
+    fn suites() = {
+        HeaderTests::run()
+        CookieTests::run()
+        OriginTests::run()
+        RequestTests::run()
+        ListenerTests::run()
+        MemoTests::run()
+        ScanTests::run()
+        ObjectTests::run()
+        0
+    }
+
+    export fn run() = Native::process()(suites)
+}

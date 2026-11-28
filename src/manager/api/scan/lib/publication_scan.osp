@@ -1,0 +1,117 @@
+namespace registry_scan;
+import registry_api::Supabase
+import registry::Bundle
+import registry::Bytes
+import registry::Canonical
+import registry::Digests
+import registry::Sha256
+import registry::Json
+import registry::JsonRead
+import registry::Manifest
+import registry::ManifestModel
+import registry::Maybe
+import registry::Names
+import registry::Release
+import registry::ReleasePath
+
+/// Mandatory scan of the immutable job [PACKAGE-SECURITY-SCAN-VERDICT].
+/// The worker alone records decisions. Provider errors leave the job pending.
+module PublicationScan {
+    let unavailable = "publication.scan-unavailable"
+
+    fn refused() = Error { message: unavailable }
+
+    fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
+
+    fn parsed(text) = match Json::parse(text) {
+        Success { value } => Success { value: value }
+        Error => refused()
+    }
+
+    fn verdict(text) = if text == "accepted" { Success { value: text } }
+    else if byteLength(text) > 65536 { refused() }
+    else { andThen(parsed(text), fn(doc) => match doc {
+                Json::Arr { items } => if !isEmpty(items) && foldList(items, true,
+                    fn(ok, item) => ok && trim(JsonRead::text(item)) != "") { Canonical::serialize(doc) } else { refused() }
+                _ => refused()
+        }) }
+
+    fn response(doc, session) = {
+        let updates = JsonRead::items(JsonRead::field(doc, "updates"))
+        let update = listGet(updates, 0) ?: Json::Null
+        let content = JsonRead::field(update, "content")
+        if field(doc, "stopReason") == "end_turn" && length(updates) == 1
+        && JsonRead::text(JsonRead::at(doc, "_meta/nap/sessionId")) == session
+        && field(update, "sessionUpdate") == "agent_message_chunk" && field(content, "type") == "text" {
+            Success { value: field(content, "text") }
+        } else { refused() }
+    }
+
+    fn post(configId, apiKey, action, payload) = andThen(perform Supabase::Provider.request("POST", "https://api.nimblesite.ai",
+            "/api/v1/acp/" + configId + "/session/" + action, "Content-Type: application/json\r\nX-API-Key: " + apiKey, payload),
+        fn(reply) => if reply.status == 200 { parsed(reply.body) } else { refused() })
+
+    fn prompt(session, source) = {
+        let content = Json::obj([Json::member("type", Json::str("text")), Json::member("text", Json::str(source))])
+        // NAP compares the pinned empty tool manifest before executing the turn [PACKAGE-SECURITY-SCAN-VERDICT].
+        let contract = Json::obj([Json::member("toolManifestSha256", Json::str("4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"))])
+        let meta = Json::obj([Json::member("nap", contract)])
+        Canonical::serialize(Json::obj([Json::member("sessionId", Json::str(session)), Json::member("prompt", Json::arr([content])), Json::member("_meta", meta)]))
+    }
+
+    fn submit(configId, apiKey, session, source) = if !Bytes::canonicalUuid(session) { refused() }
+    else { andThen(prompt(session, source), fn(payload) => andThen(post(configId, apiKey, "prompt", payload), fn(doc) => response(doc, session))) }
+
+    fn toolFree(doc, configId) = field(doc, "id") == configId && field(doc, "agent_type") == "disembodied"
+    && match JsonRead::field(doc, "tools_config") {
+        Json::Arr { items } => isEmpty(items)
+        _ => false
+    }
+
+    fn checkRevision(configId, apiKey, revision) = andThen(perform Supabase::Provider.request("GET", "https://api.nimblesite.ai",
+            "/api/v1/configs/" + configId, "X-API-Key: " + apiKey, ""), fn(reply) =>
+        if reply.status == 200 && Digests::format(Sha256::digest(Bytes::ofString(reply.body))) == revision {
+            andThen(parsed(reply.body), fn(doc) => if toolFree(doc, configId) { Success { value: true } } else { refused() })
+        } else { refused() })
+
+    fn turn(configId, apiKey, source) = andThen(post(configId, apiKey, "new", "{\"cwd\":\"/\",\"mcpServers\":[]}"),
+        fn(doc) => submit(configId, apiKey, field(doc, "sessionId"), source))
+
+    export fn nap(configId, revision, apiKey, source) = if !Bytes::canonicalUuid(configId) || byteLength(apiKey) < 1 || byteLength(apiKey) > 512
+    || !Bytes::everyByte(apiKey, fn(b) => b > 32 && b < 127) { refused() }
+    else { andThen(Digests::parse(revision), fn(pin) => andThen(checkRevision(configId, apiKey, pin), fn(_) =>
+                andThen(turn(configId, apiKey, source), fn(result) => andThen(checkRevision(configId, apiKey, pin), fn(_) => Success { value: result })))) }
+
+    fn publicationOf(release: Release::Served) = match listGet(filterList(release.files, fn(file) => file.relPath == "osprey.toml"), 0) {
+        Error => refused()
+        Success { value } => match Manifest::parse(value.content) {
+            Manifest::Accepted { manifest } => Maybe::fold(manifest.publication, refused(),
+                fn(publication) => if Names::same(publication.package, release.id.key) { Success { value: publication } } else { refused() })
+            _ => refused()
+        }
+    }
+
+    /// The frozen bundle's declared publication, once its bytes, digest, directory and package key all agree.
+    fn frozen(dir, digest, bytes) = andThen(Bundle::verify(bytes, digest), fn(release) =>
+        if ReleasePath::format(release.id) != dir { refused() }
+        else { andThen(Bundle::encode(release), fn(source) => if source != bytes { refused() }
+                else { andThen(publicationOf(release), fn(publication) => Success { value: Frozen { release: release, publication: publication } }) }) })
+
+    type Frozen = { release: Release::Served, publication: ManifestModel::Publication }
+
+    export fn run(dir, digest, bytes, scan, record) = andThen(frozen(dir, digest, bytes), fn(_) =>
+        andThen(scan(bytes), fn(result) => andThen(verdict(result), record)))
+
+    /// What the public catalog lists for a release, as its frozen manifest and notice files declare it [PACKAGE-HOSTED-PUBLISH-FLOW].
+    export type Listing = { license: string, summary: string, keywords: string, notices: string }
+
+
+    fn listing(found: Frozen) = {
+        let notices = filterList(found.release.files, fn(file) => startsWith(file.relPath, "NOTICE"))
+        andThen(Canonical::serialize(Json::arr(mapList(found.publication.discovery.keywords, Json::str))), fn(keywords) =>
+            andThen(Canonical::serialize(Json::arr(mapList(notices, Bundle::fileValue))), fn(attributions) => Success { value: Listing {
+                        license: found.publication.licenseExpression, summary: found.publication.discovery.summary, keywords: keywords, notices: attributions } }))
+    }
+
+    export fn listed(dir, digest, bytes) = andThen(frozen(dir, digest, bytes), listing)
+}

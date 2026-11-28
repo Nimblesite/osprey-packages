@@ -1,6 +1,7 @@
 namespace registry_api;
 import registry::Bytes
 import registry::Canonical
+import registry::Checked
 import registry::Json
 import registry::JsonRead
 
@@ -16,6 +17,13 @@ module Supabase {
     /// Provider session material kept on the API side of the browser boundary.
     export type Session = { accessToken: string, refreshToken: string, expiresIn: int, identity: Identity }
 
+    /// A one-use WebAuthn sign-in challenge: its id, and the `{"publicKey"}` reply the browser signs.
+    export type Challenge = { id: string, body: string }
+    export let passkeyUnavailable = "auth.passkey-unavailable"
+    export let passkeyRejected = "auth.passkey-rejected"
+    let providerUnavailable = "auth.provider-unavailable"
+    let passkeys = "/auth/v1/passkeys/authentication/"
+
     /// Handler inputs originate in trusted application code, not route JSON.
     export effect Provider {
         request: fn(string, string, string, string, string) -> Result<Reply, string>
@@ -24,25 +32,20 @@ module Supabase {
     fn bearerCode(text) = if text == "" || byteLength(text) > 16384 || contains(text, "\n")
     || contains(text, "\r") || contains(text, " ") { "auth.provider-token" } else { "" }
 
-    fn field(document, key) = JsonRead::text(JsonRead::field(document, key))
-
     fn identity(document) = {
         let identities = JsonRead::items(JsonRead::field(document, "identities"))
-        let subject = field(document, "id")
+        let subject = AuthText::field(document, "id")
         let identity = listGet(identities, 0) ?: Json::Null
-        let providerId = field(identity, "id")
-        if length(identities) != 1 || field(identity, "provider") != "github" || !Bytes::canonicalUuid(subject)
-            || field(identity, "user_id") != subject || providerId == "" || startsWith(providerId, "0")
-            || !Bytes::everyByte(providerId, Bytes::isDigit) { Error { message: "auth.github-identity" } }
+        let providerId = AuthText::field(identity, "id")
+        if length(identities) != 1 || AuthText::field(identity, "provider") != "github" || !Bytes::canonicalUuid(subject)
+        || AuthText::field(identity, "user_id") != subject || providerId == "" || startsWith(providerId, "0")
+        || !Bytes::everyByte(providerId, Bytes::isDigit) { Error { message: "auth.github-identity" } }
         else { Success { value: Identity { authSubject: subject, githubId: providerId } } }
     }
 
     fn parseReply(reply: Reply) = if reply.status != 200 { Error { message: "auth.provider-rejected" } }
     else if byteLength(reply.body) > 131072 { Error { message: "auth.provider-size" } }
-    else { match Json::parse(reply.body) {
-            Success { value } => Success { value: value }
-            Error => Error { message: "auth.provider-json" }
-        } }
+    else { Checked::mapError(Json::parse(reply.body), fn(_reason) => "auth.provider-json") }
 
     fn verifiedReply(reply) = match parseReply(reply) {
         Error { message } => Error { message: message }
@@ -55,7 +58,7 @@ module Supabase {
         "" => match bearerCode(token) {
             "" => match perform Provider.request("GET", config.supabaseOrigin, "/auth/v1/user", "apikey: ${config.publishableKey}\r\nAuthorization: Bearer ${token}", "") {
                 Success { value } => verifiedReply(value)
-                Error => Error { message: "auth.provider-unavailable" }
+                Error => Error { message: providerUnavailable }
             }
             code => Error { message: code }
         }
@@ -63,8 +66,8 @@ module Supabase {
     }
 
     fn sessionOf(config, document) = {
-        let access = field(document, "access_token")
-        let refresh = field(document, refreshGrant)
+        let access = AuthText::field(document, "access_token")
+        let refresh = AuthText::field(document, refreshGrant)
         let expires = JsonRead::number(JsonRead::field(document, "expires_in"))
         if bearerCode(access) != "" || bearerCode(refresh) != "" || expires < 1 || expires > 86400 { Error { message: "auth.provider-session" } }
         else { match verify(config, access) {
@@ -83,9 +86,8 @@ module Supabase {
                 Json::Member { key: "code_verifier", value: Json::Str { text: verifier } }
             ] })
 
-    fn exchangeBody(config, grant, body) = match perform Provider.request("POST", config.supabaseOrigin,
-        "/auth/v1/token?grant_type=${grant}", "apikey: ${config.publishableKey}\r\nContent-Type: application/json", body) {
-        Error => Error { message: "auth.provider-unavailable" }
+    fn exchangeBody(config, grant, body) = match jsonRequest(config, "/auth/v1/token?grant_type=${grant}", body) {
+        Error => Error { message: providerUnavailable }
         Success { value } => if grant == refreshGrant && listContains([400, 401, 403], value.status) {
             Error { message: "auth.refresh-rejected" }
         } else { exchangeReply(config, value) }
@@ -102,9 +104,50 @@ module Supabase {
         problem => Error { message: problem }
     }
 
+    fn jsonRequest(config, path, body) = perform Provider.request("POST", config.supabaseOrigin, path,
+        "apikey: ${config.publishableKey}\r\nContent-Type: application/json", body)
+
+    fn challengeOf(document) = {
+        let id = AuthText::field(document, "challenge_id")
+        let options = JsonRead::field(document, "options")
+        if !Bytes::canonicalUuid(id) || AuthText::field(options, "challenge") == "" { Error { message: passkeyUnavailable } }
+        else { match Canonical::serialize(Json::obj([Json::member("publicKey", options)])) {
+                Error => Error { message: passkeyUnavailable }
+                Success { value } => Success { value: Challenge { id: id, body: value } }
+            } }
+    }
+
+    fn challengeReply(reply) = match parseReply(reply) {
+        Error => Error { message: passkeyUnavailable }
+        Success { value } => challengeOf(value)
+    }
+
+    /// Ask Supabase Auth passkeys for a sign-in challenge [PACKAGE-HOSTED-AUTH]. Supabase keeps the
+    /// challenge and consumes it once; the API relays only its id and the request options.
+    export fn passkeyChallenge(config) = if OAuth::configCode(config) != "" { Error { message: passkeyUnavailable } }
+    else { match jsonRequest(config, passkeys + "options", "{}") {
+            Error => Error { message: passkeyUnavailable }
+            Success { value } => challengeReply(value)
+        } }
+
+    fn assertionReply(config, reply) = if reply.status >= 400 && reply.status < 500 { Error { message: passkeyRejected } }
+    else { exchangeReply(config, reply) }
+
+    /// Supabase verifies the assertion against the challenge; only its signed session for a
+    /// GitHub-bound account returns, exactly as after the OAuth exchange.
+    export fn passkeySession(config, challenge, credential) = if OAuth::configCode(config) != "" || !Bytes::canonicalUuid(challenge) {
+        Error { message: passkeyRejected }
+    } else { match Canonical::serialize(Json::obj([Json::member("challenge_id", Json::str(challenge)), Json::member("credential", credential)])) {
+            Error => Error { message: passkeyRejected }
+            Success { value } => match jsonRequest(config, passkeys + "verify", value) {
+                Error => Error { message: providerUnavailable }
+                Success { value } => assertionReply(config, value)
+            }
+        } }
+
     /// The caller must hold the database refresh claim for the stored credential pair.
     export fn refresh(config, token) = if OAuth::configCode(config) != "" || bearerCode(token) != "" {
         Error { message: "auth.refresh-rejected" }
     } else { andThen(Canonical::serialize(Json::obj([Json::member(refreshGrant, Json::str(token))])), fn(body) =>
-        exchangeBody(config, refreshGrant, body)) }
+            exchangeBody(config, refreshGrant, body)) }
 }

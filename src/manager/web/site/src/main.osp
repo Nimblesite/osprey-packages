@@ -1,16 +1,19 @@
 namespace registry_web;
 
 // Implements [PACKAGE-HOSTED-ROUTES-CATALOG]. Hosted pages require verified evidence.
-fn catalog(local, entries, origin) = {
+
+/// The home page over the hosted `origin`, or the unavailable catalog when no origin is configured.
+fn catalog(origin) = {
     let hosted = origin != ""
-    let notice = if local { "<p>Local folder registry · Audit unverified</p>" } else if hosted { "<p id=\"catalog-status\" role=\"status\" data-error=\"The public catalog is unavailable.\">Loading packages…</p>" } else { "<p role=\"status\">The public catalog is unavailable.</p>" }
-    let disabled = if local || hosted { "" } else { " disabled" }
+    let notice = if hosted { "<p id=\"catalog-status\" role=\"status\" data-error=\"The public catalog is unavailable.\">Loading packages…</p>" } else { "<p role=\"status\">The public catalog is unavailable.</p>" }
+    let disabled = if hosted { "" } else { " disabled" }
     let form = "<form role=\"search\" method=\"get\" action=\"/\"><label for=\"q\">Search packages</label><div class=\"prose-search\"><input id=\"q\" name=\"q\" type=\"search\" placeholder=\"Package name or description\"${disabled}><button${disabled}>Search</button></div></form>"
-    let navigation = if local || hosted { browseNav() } else { "" }
-    let behavior = if local { localFilter() } else if hosted { catalogAdapter(origin) } else { "" }
-    Shell::withEscapedTitle("Osprey Packages", "<main><header class=\"prose-intro\"><h1>Osprey Packages</h1><p>The package registry for the Osprey language. Find libraries for your next project, see who published them, and download the source for a specific release.</p></header>${form}<section><h2>Browse packages</h2>${navigation}${notice}<div id=\"results\">${entries}</div>${behavior}</section></main>")
+    let navigation = if hosted { browseNav() } else { "" }
+    let behavior = if hosted { catalogAdapter(origin) } else { "" }
+    Shell::withEscapedTitle("Osprey Packages", "<main><header class=\"prose-intro\"><h1>Osprey Packages</h1><p>The package registry for the Osprey language. Find libraries for your next project, see who published them, and download the source for a specific release.</p></header>${form}<section><h2>Browse packages</h2>${navigation}${notice}<div id=\"results\"></div>${behavior}</section></main>")
 }
 
+/// The catalog adapter script tag: reads the adapter, WASI host, guest and content origin names the Makefile hashed.
 fn catalogAdapter(origin) = {
     let adapter = trim(input())
     let host = trim(input())
@@ -22,128 +25,132 @@ fn catalogAdapter(origin) = {
 fn hostedPackage() = {
     let origin = trim(input())
     let adapter = catalogAdapter(origin)
-    Shell::withEscapedTitle("Package · Osprey Packages", "<main><p id=\"catalog-status\" class=\"prose-cover\" role=\"status\" data-missing=\"Page not found.\" data-error=\"The registry could not load this page.\">Loading packages…</p><div id=\"package-details\"></div>${adapter}</main>")
-}
-
-fn localFilter() = {
-    let adapter = trim(input())
-    let host = trim(input())
-    let guest = trim(input())
-    "<p id=\"filter-status\" role=\"status\" data-empty=\"No matching packages.\" data-error=\"Search is unavailable.\"></p><script type=\"module\" src=\"/${adapter}\" data-list-filter=\"results\" data-status=\"filter-status\" data-host=\"/${host}\" data-guest=\"/${guest}\"></script>"
-}
-
-fn visibility(terms, text) = if foldList(terms, true, fn(matches, term) => matches && contains(text, term)) { "1" } else { "0" }
-
-fn filtered() = {
-    let terms = split(toLowerCase(trim(input())), " ") ?: []
-    let count = parseInt(trim(input())) ?: 0
-    join(mapList(range(0, count) |> toList, fn(_i) => visibility(terms, toLowerCase(input()))), "")
+    Shell::withEscapedTitle("Package · Osprey Packages", "<main><p id=\"catalog-status\" class=\"prose-cover\" role=\"status\" data-error=\"The registry could not load this page.\">Loading packages…</p><div id=\"package-details\"></div>${adapter}</main>")
 }
 
 fn publisherAccount(origin) = if origin == "" {
-    "<p role=\"status\">Public uploads are unavailable.</p><a href=\"/publishing/\">Publish to a folder registry</a>"
+    "<p role=\"status\">Hosted releases are unavailable.</p><a href=\"/publishing/\">Publish to a folder registry</a>"
 } else { join([
-    "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\">",
-    "<p role=\"status\">Checking your registry session…</p><a hidden class=\"prose-download\" href=\"${origin}/v1/auth/github/start\">Sign in with GitHub</a>",
-    "<button hidden type=\"button\" class=\"prose-download\">Sign out</button></div>"
-], "") }
+            "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\" data-passkey-options=\"${origin}/v1/auth/passkey/options\" data-passkey-verify=\"${origin}/v1/auth/passkey/verify\" data-passkey-error=\"Passkey sign-in did not complete. Sign in with GitHub instead.\">",
+            "<p role=\"status\">Checking your registry session…</p><button hidden type=\"button\" class=\"prose-download prose-passkey\" data-passkey>Sign in with a passkey</button><a hidden class=\"prose-secondary\" href=\"${origin}/v1/auth/github/start\">Sign in with GitHub</a>",
+            "<button hidden type=\"button\" class=\"prose-download\" data-sign-out>Sign out</button></div>"
+        ], "") }
 
-fn upload(local) = {
+let keyIcon = "<svg aria-hidden=\"true\" width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"8\" cy=\"15\" r=\"4.5\"/><path d=\"M11.2 11.8 20 3m-3.5 3.5 3 3M14 9l2.5 2.5\"/></svg>"
+let githubIcon = "<svg aria-hidden=\"true\" width=\"20\" height=\"20\" viewBox=\"0 0 16 16\" fill=\"currentColor\"><path d=\"M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.93-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.87.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.19c0 .21.15.46.55.38A8 8 0 0 0 8 0Z\"/></svg>"
+
+/// The account panel of an auth screen [PACKAGE-HOSTED-AUTH]: passkey first and largest, GitHub second.
+fn authPanel(origin) = if origin == "" { "<p role=\"status\">Sign-in is unavailable on this registry.</p>" } else { join([
+            "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\" data-passkey-options=\"${origin}/v1/auth/passkey/options\" data-passkey-verify=\"${origin}/v1/auth/passkey/verify\" data-passkey-error=\"Passkey sign-in did not complete. Sign in with GitHub instead.\">",
+            "<p role=\"status\">Checking your registry session…</p><button hidden type=\"button\" class=\"prose-auth-action prose-auth-primary\" data-passkey>${keyIcon}Sign in with a passkey</button><a hidden class=\"prose-auth-action\" href=\"${origin}/v1/auth/github/start\">${githubIcon}Sign in with GitHub</a>",
+            "<button hidden type=\"button\" class=\"prose-auth-action\" data-sign-out>Sign out</button></div>"
+        ], "") }
+
+fn githubAction(origin, label) = if origin == "" { "<p role=\"status\">Sign-in is unavailable on this registry.</p>" }
+else { "<a class=\"prose-auth-action prose-auth-primary\" href=\"${origin}/v1/auth/github/start\">${githubIcon}${label}</a>" }
+
+/// One auth screen: the brand panel beside the action panel, then the links to the other two screens.
+fn authScreen(title, welcome, promise, lead, actions, links) = Shell::withEscapedTitle("${title} · Osprey Packages", join([
+            "<main><div class=\"prose-auth\"><aside class=\"prose-auth-art\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"72\" height=\"72\" alt=\"\"><h2>${welcome}</h2><p>${promise}</p></aside>",
+            "<section class=\"prose-auth-form\"><h1>${title}</h1><p>${lead}</p>${actions}<nav class=\"prose-auth-links\" aria-label=\"Account\">${links}</nav></section></div></main>"], ""))
+
+let signInLink = "<a href=\"/signin/\">Sign in</a>"
+let registerLink = "<a href=\"/register/\">Create an account</a>"
+let recoverLink = "<a href=\"/recover/\">Lost your passkey?</a>"
+
+/// Sign in, register and recover [PACKAGE-HOSTED-AUTH]. The registry keeps no passwords: a passkey
+/// signs in, GitHub creates the account and is the way back in when a passkey is lost.
+fn signIn() = {
     let origin = trim(input())
-    let adapter = trim(input())
-    let form = if origin != "" || local { releaseForm(origin, adapter) } else { "" }
-    let cover = "<header class=\"prose-cover\"><a href=\"/\">Browse packages</a><h1>Upload a package</h1><p>Publish a release from a commit in your package’s linked repository.</p></header>"
-    let steps = "<section class=\"prose-releases\"><h2>Publisher account</h2><p>Use the account with publishing permission for this package.</p>${publisherAccount(origin)}</section><aside class=\"prose-facts\"><h2>What you’ll need</h2><ol><li>A package with a linked repository</li><li>The commit you want to release</li><li>Your signing credential to approve the release</li></ol></aside>"
-    Shell::withEscapedTitle("Upload a package · Osprey Packages", "<main>${cover}${form}<div class=\"prose-columns\">${steps}</div></main>")
+    let script = if origin == "" { "" } else { "<script type=\"module\" src=\"/${trim(input())}\"></script>" }
+    authScreen("Sign in", "Welcome back.", "Your packages and publishers, behind one secure sign-in.", "Use your passkey, or sign in with GitHub.", authPanel(origin) + script, registerLink + recoverLink)
 }
 
-fn releaseForm(origin, adapter) = join([
-    "<section><h2>Prepare a release</h2><form data-collection-form data-review=\"review\" data-collection=\"${origin}/v1/packages\" data-empty=\"The registry has no packages.\" data-error=\"Could not load packages from the registry. Reload to retry.\">",
-    "<fieldset disabled><label for=\"package\">Package</label><select id=\"package\" name=\"package\" data-collection-key=\"packages\" data-value-key=\"key\" required><option value=\"\">Choose a package</option></select>",
-    "<label for=\"commit\">Git commit</label><input id=\"commit\" name=\"commit\" required pattern=\"[a-fA-F0-9]{40}\" maxlength=\"40\" title=\"Enter the full 40-character Git commit hash\"><button class=\"prose-download\">Review release</button></fieldset><p role=\"status\">Loading packages…</p></form>",
-    "<article id=\"review\" tabindex=\"-1\" hidden><h3>Review release</h3><p>Package <strong data-field=\"package\"></strong><br>Commit <code data-field=\"commit\"></code></p><p>Publication requires an authorized account and a signature.</p></article></section><script type=\"module\" src=\"/${adapter}\"></script>"
-], "")
+fn register() = authScreen("Create your account", "Publish with Osprey.", "Share your libraries with every Osprey project.", "Your GitHub account creates your registry account. No password to choose, nothing new to remember.",
+    "<ol class=\"prose-auth-steps\"><li>Continue with GitHub</li><li>Sign in here from then on</li><li>Release your first package</li></ol>" + githubAction(trim(input()), "Continue with GitHub"), signInLink + recoverLink)
 
+fn recover() = authScreen("Lost your passkey?", "No passwords here.", "Nothing to forget, nothing to leak.", "The registry never stores a password, so there is none to reset. Sign in with GitHub to get back into your account.",
+    githubAction(trim(input()), "Sign in with GitHub"), signInLink + registerLink)
 
-let publisherName = "Osprey repository publisher"
+fn receiptForm() = join([
+        "<section data-receipt-panel hidden><h2>Publication review</h2>",
+        "<form data-receipt-form><label>Submission ID <input name=\"submission\" required maxlength=\"36\" autocomplete=\"off\"></label><button>Check status</button></form>",
+        "<p role=\"status\"></p><ul data-findings></ul><button type=\"button\" data-approve hidden>Approve this version</button></section>"
+    ], "")
 
-fn publisherLink(receipt) = if receipt == "recorded" {
-    "<a href=\"/publishers/osprey-repository/\">${publisherName}</a>"
-} else { "Unrecorded" }
+fn releasePage() = {
+    let origin = trim(input())
+    let adapter = trim(input())
+    let host = trim(input())
+    let guest = trim(input())
+    let form = if origin != "" { releaseForm(origin, adapter, host, guest) } else { "" }
+    let cover = "<header class=\"prose-cover\"><a href=\"/\">Browse packages</a><h1>Release a package</h1><p>Publish a release from a commit in your package’s linked repository.</p></header>"
+    let steps = "<section class=\"prose-releases\"><h2>Publisher account</h2><p>Use the account with publishing permission for this package.</p>${publisherAccount(origin)}</section><aside class=\"prose-facts\"><h2>What you’ll need</h2><ol><li>A package with a linked repository</li><li>The commit you want to release</li><li>Your signing credential to authorize the submission</li></ol></aside>"
+    let receipt = if origin == "" { "" } else { receiptForm() }
+    Shell::withEscapedTitle("Release a package · Osprey Packages", "<main>${cover}${form}<div class=\"prose-columns\">${steps}</div>${receipt}</main>")
+}
+
+let organization = "organization"
+let package = "package"
+
+fn textField(name, label, rules) = "<label>${label} <input name=\"${name}\" ${rules} autocomplete=\"off\"></label>"
+
+/// One publisher step: `needs` names the id an earlier step created, `creates` the id this one does.
+fn step(name, needs, creates, title, fields, action) = "<form data-release-step=\"${name}\" data-needs=\"${needs}\" data-creates=\"${creates}\"><h3>${title}</h3>${fields}<button>${action}</button><p role=\"status\"></p></form>"
+
+/// The four steps of [PACKAGE-HOSTED-PUBLISH-FLOW], shown once the account panel verifies a session.
+fn releaseForm(origin, adapter, host, guest) = join([
+        "<section data-release-steps data-api=\"${origin}\" hidden><h2>Release from GitHub</h2>",
+        "<form data-release-pick><label>Continue with <select name=\"existing\"><option value=\"\">A new organization</option></select></label><p role=\"status\"></p></form>",
+        step(organization, "", organization, "1. Found an organization", textField("handle", "Handle", "required maxlength=\"39\"") + textField("name", "Name", "required maxlength=\"128\""), "Create organization"),
+        step(package, organization, package, "2. Create its package", textField("name", "Package name", "required maxlength=\"64\""), "Create package"),
+        step("repository", package, "", "3. Link its GitHub repository", textField("repositoryId", "GitHub repository ID", "required inputmode=\"numeric\" maxlength=\"19\"") + textField("branch", "Branch", "required maxlength=\"255\" value=\"main\"") + textField("subdirectory", "Subdirectory (blank for the repository root)", "maxlength=\"255\""), "Link repository"),
+        step("release", package, "submission", "4. Release a commit", textField("commit", "Git commit", "required maxlength=\"40\"") + textField("version", "Version", "required maxlength=\"21\" placeholder=\"e1.r1\""), "Request release"),
+        "</section><script type=\"module\" src=\"/${adapter}\" data-host=\"/${host}\" data-guest=\"/${guest}\"></script>"
+    ], "")
 
 fn browseNav() = "<nav class=\"prose-browse\" aria-label=\"Browse packages\"><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a></nav>"
 
-fn directory() = {
-    let title = Shell::escape(trim(input()))
-    let entries = trim(input())
-    Shell::withEscapedTitle("${title} · Osprey Packages", "<main><header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${title}</h1></header><section>${browseNav()}<p>Local folder registry · Audit unverified</p><div id=\"results\">${entries}</div></section></main>")
+/// The page for one mode, under the guest's integer-fault policy (`GuestFaults`).
+fn page() = {
+    print(match trim(input()) {
+            "missing" => Shell::withEscapedTitle("Page not found · Osprey Packages", "<main><h1>Page not found</h1><a href=\"/\">Browse packages</a></main>")
+            "guide" => Guides::packages()
+            "publishing" => Guides::publishers()
+            "release" => releasePage()
+            "signin" => signIn()
+            "register" => register()
+            "recover" => recover()
+            "hosted-package" => hostedPackage()
+            "catalog-endpoint" => {
+                let path = input()
+                CatalogReply::endpoint(path, trim(input()) == "detail")
+            }
+            "catalog-reply" => {
+                let path = input()
+                let query = input()
+                let content = input()
+                let detail = trim(input()) == "detail"
+                let code = parseInt(trim(input())) ?: 0
+                let retryAfter = input()
+                CatalogReply::reply(path, query, content, detail, code, retryAfter, input())
+            }
+            "release-request" => {
+                let name = trim(input())
+                ReleaseSteps::request(name, split(input(), "\t") ?: [])
+            }
+            "release-account" => {
+                let code = parseInt(trim(input())) ?: 0
+                ReleaseAccount::choices(code, input())
+            }
+            "release-reply" => {
+                let name = trim(input())
+                let code = parseInt(trim(input())) ?: 0
+                ReleaseSteps::reply(name, code, input())
+            }
+            _ => catalog(trim(input()))
+    })
+    0
 }
 
-fn localPackage() = {
-    let key = trim(input())
-    let summary = Shell::escape(trim(input()))
-    let publisher = publisherLink(trim(input()))
-    let license = Shell::licenseBadge(trim(input()))
-    let dependencies = Shell::escape(trim(input()))
-    let noticeVersion = trim(input())
-    let attribution = if noticeVersion == "" { "" } else { Shell::metadataField("Attribution", Shell::noticeLink(noticeVersion)) }
-    let releases = trim(input())
-    let tags = Shell::keywordChips(filterList(split(trim(input()), ", ") ?: [], fn(tag) => tag != ""))
-    let metadata = join([Shell::metadataField("Publisher", publisher), Shell::metadataField("License", license), attribution, Shell::metadataField("Tags", tags), Shell::metadataField("Dependencies", dependencies)], "")
-    let cover = "<header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${key}</h1><p>${summary}</p></header>"
-    let versions = "<section class=\"prose-releases\"><h2>Releases</h2><p>Local folder registry · Audit unverified</p>${releases}</section>"
-    let facts = "<aside class=\"prose-facts\"><h2>Package details</h2><dl>${metadata}</dl></aside>"
-    Shell::withEscapedTitle("${key} · Osprey Packages", "<main class=\"prose-detail\">${cover}<div class=\"prose-columns\">${versions}${facts}</div></main>")
-}
-
-fn row() = {
-    let key = trim(input())
-    let summary = Shell::escape(trim(input()))
-    let license = Shell::licenseBadge(trim(input()))
-    "<article class=\"prose-package\"><h3><a href=\"/packages/${key}/\">${key}</a></h3><p>${summary}</p>${license}</article>"
-}
-
-fn publisherPage() = {
-    let releases = trim(input())
-    Shell::withEscapedTitle(publisherName, "<main><header class=\"prose-publisher\"><a href=\"/\">← Packages</a><h1>${publisherName}</h1><p>Libraries published from the Osprey repository to the local registry.</p></header><section><h2>Published releases</h2><ul class=\"prose-credits\">${releases}</ul></section></main>")
-}
-
-fn main() = print(match trim(input()) {
-    "filter" => filtered()
-    "missing" => Shell::withEscapedTitle("Page not found · Osprey Packages", "<main><h1>Page not found</h1><a href=\"/\">Browse packages</a></main>")
-    "guide" => Guides::packages()
-    "publishing" => Guides::publishers()
-    "upload" => upload(false)
-    "local-upload" => upload(true)
-    "local" => catalog(true, input(), "")
-    "directory" => directory()
-    "row" => row()
-    "package" => localPackage()
-    "minimum-tag-packages" => toString(Shell::minimumTagPackages)
-    "publisher" => publisherPage()
-    "credit" => {
-        let key = trim(input())
-        let version = trim(input())
-        let summary = Shell::escape(trim(input()))
-        "<li><a href=\"/packages/${key}/#${version}\">${key}</a><code>${version}</code><p>${summary}</p></li>"
-    }
-    "release" => {
-        let version = trim(input())
-        let digest = trim(input())
-        let publisher = publisherLink(trim(input()))
-        let docs = if trim(input()) == "generated" { "<a href=\"${version}/docs/api/index.html\">API documentation</a>" } else { "API documentation unavailable for this release" }
-        let expression = trim(input())
-        let notices = match jsonDecode(input()) { Success { value: JsonArray(items) } => Shell::notices(version, items) _ => "" }
-        let licenses = match jsonDecode(input()) { Success { value: JsonArray(items) } => items _ => [] }
-        let license = Shell::releaseLicense(expression, licenses)
-        "<article id=\"${version}\" class=\"prose-release\"><h3>${version}</h3><a class=\"prose-download\" download href=\"/sources/${digest}.json\">Download ${version}</a>${license}<p>${docs}</p><p>Published by ${publisher}</p><code>${digest}</code>${notices}</article>"
-    }
-    "hosted-package" => hostedPackage()
-    "hosted-results" => {
-        let path = input()
-        let query = input()
-        let content = input()
-        HostedCatalog::render(path, query, input(), content)
-    }
-    _ => catalog(false, "", trim(input()))
-})
+fn main() = GuestFaults::guarded(page)

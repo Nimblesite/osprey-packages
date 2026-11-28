@@ -6,18 +6,21 @@ import registry_cli::Reports
 module ReportsTests {
     fn cp(n) = fromCodePoint(n) ?: ""
 
+    /// Whether `text` passes the sanitizer byte for byte.
+    fn passes(text) = Reports::printable(text) == text
+
     fn escapes() = checkAll("reports: control bytes become ?", [
-        structuralEquals([Reports::printable("plain line"), Reports::printable("")], ["plain line", ""]),
-        structuralEquals([Reports::printable("a\e[2Jb"), Reports::printable("tab\there")], ["a?[2Jb", "tab?here"]),
-        Reports::printable("cr\rlf\n") == "cr?lf?",
-        Reports::printable(cp(127) + "x" + cp(1)) == "?x?",
-        Reports::printable("caf" + cp(233) + " " + cp(128512)) == "caf" + cp(233) + " " + cp(128512)
+            structuralEquals([Reports::printable("plain line"), Reports::printable("")], ["plain line", ""]),
+            structuralEquals([Reports::printable("a\e[2Jb"), Reports::printable("tab\there")], ["a?[2Jb", "tab?here"]),
+            Reports::printable("cr\rlf\n") == "cr?lf?",
+            Reports::printable(cp(127) + "x" + cp(1)) == "?x?",
+            passes("caf" + cp(233) + " " + cp(128512))
     ])
 
     fn successIsNotFinding() = {
         checkAll("reports: success output is not a finding", [
-            isEmpty(Reports::findings(Reports::success(["verified 3 packages"]))),
-            structuralEquals(Reports::findings(Reports::Report { status: 1, lines: ["verify.digest @demo/report"] }), ["verify.digest @demo/report"])
+                isEmpty(Reports::findings(Reports::success(["verified 3 packages"]))),
+                structuralEquals(Reports::findings(Reports::Report { status: 1, lines: ["verify.digest @demo/report"] }), ["verify.digest @demo/report"])
         ])
     }
 

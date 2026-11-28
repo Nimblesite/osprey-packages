@@ -23,7 +23,6 @@ module Build {
     let manifestCode = "build.manifest"
     let overridesCode = "build.overrides-active"
     let noLocalLockCode = "build.no-local-lock"
-    let remediation = "run `lock --local` to write osprey.local.lock"
     let defaultCompiler = "osprey"
     let runFlag = "--run"
     let releaseFlag = "--release"
@@ -31,19 +30,22 @@ module Build {
     let buildDir = ".osprey/build"
     let buildManifest = ".osprey/build/osprey.toml"
 
-    type CommandLine = { run: bool, release: bool, compiler: string, project: string, docsDir: string }
+    type CommandLine = { run: bool, test: bool, release: bool, compiler: string, project: string, docsDir: string }
     /// One locked package's tree and its accepted manifest.
     type PackageManifest = { dir: string, manifest: ManifestModel::Manifest }
 
     let usageText = ["usage: osprey-pkg build [--run] [--release] [--compiler <path>] [--project <dir>]"]
 
-    fn commandLine(parsed) = CommandLine {
+    fn commandLineFor(parsed, run, isTest) = CommandLine {
         docsDir: Flags::given(parsed, "--docs-dir", ""),
-        run: Flags::has(parsed, runFlag),
+        run: run,
+        test: isTest,
         release: Flags::has(parsed, releaseFlag),
         compiler: Flags::given(parsed, compilerFlag, defaultCompiler),
         project: Flags::project(parsed)
     }
+
+    fn commandLine(parsed) = commandLineFor(parsed, Flags::has(parsed, runFlag), false)
 
     fn escaped(text) = replace(text, "\\", "\\\\") ?: text
 
@@ -58,7 +60,7 @@ module Build {
     // Shared field names need typed receivers (issue #273).
     fn dirOf(pm: PackageManifest) = pm.dir
     fn manifestOf(pm: PackageManifest) = pm.manifest
-    fn keyText(p: Lockfile::Package) = Names::display(p.release.key)
+    fn keyText(p) = Names::display(Lockfile::keyOf(p))
 
     /// `build.manifest @scope/name <code at line:column>`: the one failure
     /// spelling of a package tree whose manifest cannot be used.
@@ -81,39 +83,43 @@ module Build {
     /// Every locked package's manifest in lock order; the first rejection stops the build.
     fn packageManifests(project, lock) = Checked::collectAll(Lockfile::packagesOf(lock), fn(p) => packageManifestIn(project, lock, p))
 
-    fn packageRootsOf(pm) = mapList(manifestOf(pm).sourceRoots, fn(r) => rootPath("${dirOf(pm)}/${r}"))
+    /// Each package's own `listed` entries, in lock order, each entry of a
+    /// package tree rebased like the roots.
+    fn packageSources(pms, listed) = Folds::flatMap(pms, fn(pm) => mapList(listed(manifestOf(pm)), fn(p) => rootPath("${dirOf(pm)}/${p}")))
 
-    fn packageRoots(pms) = foldList(pms, [], fn(acc, pm) => listConcat(acc, packageRootsOf(pm)))
-
-    fn derivedRoots(manifest, pms) = listConcat(mapList(manifest.sourceRoots, rootPath), packageRoots(pms))
-
-    // A flavor's sources: the root's own, then each package's, rebased like the roots.
-    fn packageSources(pms, listed) = foldList(pms, [], fn(acc, pm) => listConcat(acc, mapList(listed(manifestOf(pm)), fn(p) => rootPath("${dirOf(pm)}/${p}"))))
-
+    /// A list the derived manifest takes from the root and every package:
+    /// the root's own entries, then each package's.
     fn flavorSources(manifest, pms, listed) = listConcat(mapList(listed(manifest), rootPath), packageSources(pms, listed))
 
+    /// The source roots of the root and of every locked package, in lock order.
+    fn derivedRoots(manifest, pms) = flavorSources(manifest, pms, sourceRootsOf)
+
+    fn sourceRootsOf(m: ManifestModel::Manifest) = m.sourceRoots
     fn pythonOf(m: ManifestModel::Manifest) = m.pythonSources
     fn typescriptOf(m: ManifestModel::Manifest) = m.typescriptSources
 
-    fn rootsLine(roots) = "source_roots = [${join(mapList(roots, quote), ", ")}]"
-
     fn sourcesLine(key, sources) = "${key} = [${join(mapList(sources, quote), ", ")}]"
 
-    fn namespaceLine(manifest) = Maybe::fold(manifest.defaultNamespace, [], fn(ns) => ["default_namespace = ${quote(ns)}"])
+    fn rootsLine(roots) = sourcesLine("source_roots", roots)
 
-    fn entryLine(manifest) = Maybe::fold(manifest.entry, [], fn(e) => ["entry = ${quote(rootPath(e))}"])
+    /// The `key = "<value>"` line of an optional `[project]` member, none
+    /// when the member is absent.
+    fn optionLine(member, key, render) = Maybe::fold(member, [], fn(value) => ["${key} = ${quote(render(value))}"])
 
     fn flavorText(flavor) = toLowerCase(ManifestModel::flavorName(flavor))
 
-    fn flavorLine(manifest) = Maybe::fold(manifest.flavor, [], fn(f) => ["flavor = ${quote(flavorText(f))}"])
+    /// The optional `[project]` members the root may carry, in this order:
+    /// namespace, entry and flavor.
+    fn optionLines(manifest) = listConcat(
+        optionLine(manifest.defaultNamespace, "default_namespace", fn(ns) => ns),
+        listConcat(optionLine(manifest.entry, "entry", rootPath), optionLine(manifest.flavor, "flavor", flavorText)))
 
     fn boolText(flag) = if flag { "true" } else { "false" }
 
     fn projectLines(manifest, pms) = {
         let header = ["[project]", "name = ${quote(manifest.projectName)}", rootsLine(derivedRoots(manifest, pms)), sourcesLine("python_sources", flavorSources(manifest, pms, pythonOf)), sourcesLine("typescript_sources", flavorSources(manifest, pms, typescriptOf))]
-        let options = listConcat(namespaceLine(manifest), listConcat(entryLine(manifest), flavorLine(manifest)))
         let modules = ["[modules]", "allow_wildcard_imports = ${boolText(manifest.allowWildcardImports)}"]
-        listConcat(listConcat(header, options), modules)
+        listConcat(listConcat(header, optionLines(manifest)), modules)
     }
 
     fn derivedText(manifest, pms) = join(projectLines(manifest, pms), "\n")
@@ -121,13 +127,19 @@ module Build {
     fn writeDerived(cmd: CommandLine, manifest, pms) = andThen(perform Host::Tree.ensure(Project::pathAt(cmd.project, buildDir)),
         fn(_dir) => andThen(perform Host::Files.write(Project::pathAt(cmd.project, buildManifest), derivedText(manifest, pms)), fn(_written) => Success { value: 0 }))
 
+    /// The compiler and the derived project, each one shell-quoted word ([PACKAGE-HARDENING] C6).
+    fn compilerWord(cmd: CommandLine) = Host::shellWord(cmd.compiler)
+    fn derivedWord(cmd: CommandLine) = Host::shellWord(Project::pathAt(cmd.project, buildDir))
+
     /// The compiler invocation, every variable word shell-quoted ([PACKAGE-HARDENING] C6).
-    fn command(cmd: CommandLine, manifest) = if cmd.docsDir != "" {
-        "${Host::shellWord(cmd.compiler)} --docs ${Host::shellWord(Project::pathAt(cmd.project, buildDir))} --docs-format html --docs-no-builtins --docs-dir ${Host::shellWord(cmd.docsDir)}"
+    fn command(cmd, manifest) = if cmd.docsDir != "" {
+        "${compilerWord(cmd)} --docs ${derivedWord(cmd)} --docs-format html --docs-no-builtins --docs-dir ${Host::shellWord(cmd.docsDir)}"
+    } else if cmd.test {
+        "${compilerWord(cmd)} test ${derivedWord(cmd)}"
     } else if cmd.run {
-        "${Host::shellWord(cmd.compiler)} ${Host::shellWord(Project::pathAt(cmd.project, buildDir))} --run"
+        "${compilerWord(cmd)} ${derivedWord(cmd)} --run"
     } else {
-        "${Host::shellWord(cmd.compiler)} build ${Host::shellWord(Project::pathAt(cmd.project, buildDir))} -o ${Host::shellWord(Project::pathAt(cmd.project, buildDir + "/" + manifest.projectName))}"
+        "${compilerWord(cmd)} build ${derivedWord(cmd)} -o ${Host::shellWord(Project::pathAt(cmd.project, buildDir + "/" + manifest.projectName))}"
     }
 
     fn stdoutLines(stdout) = filterList(split(stdout, "\n") ?: [], fn(l) => l != "")
@@ -142,7 +154,7 @@ module Build {
     fn compileWithManifest(cmd, lock, manifest) = Reports::checked(packageManifests(cmd.project, lock), fn(value) => compileWithPackages(cmd, manifest, value))
 
     /// Compile against `lock`, every package's tree where the lock says it is.
-    fn compile(cmd, lock) = Reports::checked(Project::readAt(cmd.project), fn(value) => compileWithManifest(cmd, lock, value))
+    fn compile(cmd, lock) = Project::withManifestAt(cmd.project, fn(value) => compileWithManifest(cmd, lock, value))
 
     fn afterVerify(verified: Reports::Report, cmd, read) = if verified.status != 0 { verified } else { Reports::checked(read, fn(value) => compile(cmd, value)) }
 
@@ -155,21 +167,25 @@ module Build {
     } else { releaseVerified(cmd) }
 
     /// The development build: `osprey.local.lock`, verified, locals from their checkouts.
-    fn localBuild(cmd) = match Project::readLocalLockAt(cmd.project) {
-        Error { message } => Reports::failure(["${noLocalLockCode} ${message}", remediation])
-        Success { value } => afterVerify(Verify::verifyLocalAt(cmd.project), cmd, Success { value: value })
-    }
+    fn localBuild(cmd) = Verify::withLocalLockAt(cmd.project, noLocalLockCode, fn(value) =>
+        afterVerify(Verify::verifyLocalAt(cmd.project), cmd, Success { value: value }))
 
     fn withOverlay(cmd, mappings) = if cmd.release { releaseBuild(cmd, mappings) }
-        else if Overlay::active(mappings) { localBuild(cmd) }
-        else { releaseVerified(cmd) }
+    else if Overlay::active(mappings) { localBuild(cmd) }
+    else { releaseVerified(cmd) }
 
     fn build(cmd) = Reports::checked(Overlay::readAt(cmd.project), fn(value) => withOverlay(cmd, value))
 
     export fn docs(args) = Flags::dispatch(args, [compilerFlag, Flags::projectFlag, "--docs-dir"], [], "docs.usage", ["usage: osprey-pkg docs --docs-dir <directory> [--compiler <path>] [--project <dir>]"],
         fn(parsed) => if Flags::given(parsed, "--docs-dir", "") == "" { Reports::usage(["missing --docs-dir"]) } else { build(commandLine(parsed)) })
 
+    fn runCommandLine(parsed) = commandLineFor(parsed, true, false)
+    fn testCommandLine(parsed) = commandLineFor(parsed, false, true)
+
+    export fn exec(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [], "run.usage", ["usage: osprey-pkg run [--compiler <path>] [--project <dir>]"], runCommandLine, build)
+
+    export fn runTest(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [], "test.usage", ["usage: osprey-pkg test [--compiler <path>] [--project <dir>]"], testCommandLine, build)
+
     /// The whole command: verify, then compile; `--run` runs the built program.
-    export fn run(args) = Flags::dispatch(args, [compilerFlag, Flags::projectFlag], [runFlag, releaseFlag], usageCode, usageText,
-        fn(parsed) => build(commandLine(parsed)))
+    export fn run(args) = Flags::dispatchWith(args, [compilerFlag, Flags::projectFlag], [runFlag, releaseFlag], usageCode, usageText, commandLine, build)
 }

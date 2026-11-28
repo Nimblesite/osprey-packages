@@ -2,7 +2,7 @@ namespace registry;
 
 /// The canonical manifest: the typeDiagram `PackageManifest` and its parts,
 /// as `osprey.toml` projects onto them. Field names follow
-/// `src/manager/schemas/package-registry.td` exactly so the JSON projection is mechanical.
+/// `src/manager/core/schemas/package-registry.td` exactly so the JSON projection is mechanical.
 /// Implements the canonical-manifest rule of [PACKAGE-TYPE-INVARIANTS].
 module ManifestModel {
     /// A pinned dependency: the package, the compatibility epoch it must be in and the lowest ordinal accepted.
@@ -85,6 +85,10 @@ module ManifestModel {
     /// The minimum ordinal a requirement accepts.
     export fn requirementFloor(r: Requirement) = r.minimumOrdinal
 
+    /// The requirement of `package` in `epoch` from `minimumOrdinal` up: the
+    /// one constructor the manifest tables and the lock both read through.
+    export fn requirement(package, epoch, minimumOrdinal) = Requirement { package: package, epoch: epoch, minimumOrdinal: minimumOrdinal }
+
     // `Manifest` shares `projectName` and `dependencies` with other records;
     // issue #273 needs the receiver's record spelled out.
     /// The project name the manifest declares.
@@ -139,9 +143,12 @@ module ManifestModel {
         _ => Error { message: "manifest.project.flavor" }
     }
 
+    /// The file extensions the UTF-8 text asset kind accepts.
+    let textExtensions = [".txt", ".md", ".csv", ".tsv"]
+
     /// The file extension each asset kind accepts, per [PACKAGE-PUBLISH].
     export fn kindAccepts(kind, path) = match kind {
-        Utf8Text => endsWith(path, ".txt") || endsWith(path, ".md") || endsWith(path, ".csv") || endsWith(path, ".tsv")
+        Utf8Text => Order::anyString(textExtensions, fn(ext) => endsWith(path, ext))
         Json => endsWith(path, ".json")
         Png => endsWith(path, ".png")
     }

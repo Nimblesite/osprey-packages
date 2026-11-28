@@ -1,0 +1,159 @@
+namespace registry_api;
+import registry::Bytes
+import registry::Checked
+import registry::Dsse
+import registry::Json
+import registry::JsonRead
+import registry::Release
+import registry::Source
+import registry::Sha256
+
+/// GitHub through the registry's own GitHub App [PACKAGE-HOSTED-PUBLISH-FLOW]: a Cloud KMS key signs the
+/// App's ten-minute JWT, GitHub exchanges it for an installation token narrowed to the one repository,
+/// read-only, and every read names the stable numeric repository ID. `admin` asks GitHub whether an
+/// account administers the repository now; `files` reads exactly one commit the bound branch reaches.
+/// Anything GitHub does not confirm fails closed.
+module ForgeGithub {
+    /// The App's ID, its installation and the KMS key version holding its private key.
+    export type App = { id: string, installation: string, key: string }
+    export let unavailable = "forge.unavailable"
+    export let refused = "forge.refused"
+    let api = "https://api.github.com"
+    let json = "application/vnd.github+json"
+    let raw = "application/vnd.github.raw+json"
+    let versions = "/cryptoKeyVersions/"
+    let jwtHeader = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}"
+    let fileLimit = 2000
+
+    fn keyOk(key) = match indexOf(key, versions) {
+        Success { value } => LoginKms::validKey(take(key, value)) && Forge::repositoryOk(drop(key, value + byteLength(versions)))
+        Error => false
+    }
+
+    export fn appOf(doc) = App { id: AuthText::field(doc, "forgeAppId"), installation: AuthText::field(doc, "forgeInstallationId"), key: AuthText::field(doc, "forgeKmsKey") }
+
+    /// A collector deployment must identify its App before opening the release queue.
+    export fn collectorApp(text) = andThen(parsed(text), fn(doc) => {
+            let app = appOf(doc)
+            if configured(app) { Success { value: app } } else { Error { message: Forge::unconfigured } }
+    })
+
+    /// True when every part of `app` is well formed; an empty App leaves the forge closed.
+    export fn configured(app: App) = Forge::repositoryOk(app.id) && Forge::repositoryOk(app.installation) && keyOk(app.key)
+
+    fn encoded(text) = Dsse::base64Url(Bytes::ofString(text))
+
+    fn appToken(app, now) = {
+        let signing = encoded(jwtHeader) + "." + encoded("{\"exp\":${now + 540},\"iat\":${now - 60},\"iss\":\"${app.id}\"}")
+        andThen(LoginKms::rsaSign(app.key, Dsse::base64(Sha256::digest(Bytes::ofString(signing)))), fn(signed) =>
+            Success { value: signing + "." + signed })
+    }
+
+    fn headers(token, accept) = "Authorization: Bearer ${token}\r\nAccept: ${accept}\r\nUser-Agent: osprey-registry\r\nX-GitHub-Api-Version: 2022-11-28"
+
+    fn failure(status) = Error { message: if status >= 400 && status < 500 { refused } else { unavailable } }
+
+    fn answered(result, status) = match result {
+        Error => Error { message: unavailable }
+        Success { value } => if value.status == status { Success { value: value.body } } else { failure(value.status) }
+    }
+
+    fn parsed(body) = match Json::parse(body) {
+        Success { value } => Success { value: value }
+        Error => Error { message: unavailable }
+    }
+
+    fn get(token, path) = andThen(answered(perform Supabase::Provider.request("GET", api, path, headers(token, json), ""), 200), parsed)
+
+    fn tokenOf(doc) = {
+        let token = AuthText::field(doc, "token")
+        if AuthText::bounded(token, 512, [Bytes::underscore]) { Success { value: token } } else { Error { message: unavailable } }
+    }
+
+    /// An installation token that can read `repository` and nothing else.
+    fn access(app, now, repository) = andThen(appToken(app, now), fn(jwt) =>
+        andThen(answered(perform Supabase::Provider.request("POST", api, "/app/installations/${app.installation}/access_tokens",
+                    headers(jwt, json) + "\r\nContent-Type: application/json",
+                    "{\"permissions\":{\"contents\":\"read\",\"metadata\":\"read\"},\"repository_ids\":[${repository}]}"), 201), fn(body) =>
+            andThen(parsed(body), tokenOf)))
+
+    fn numberText(doc, key) = toString(JsonRead::number(JsonRead::field(doc, key)))
+
+    fn loginOf(doc, github) = {
+        let login = AuthText::field(doc, "login")
+        if numberText(doc, "id") == github && AuthText::bounded(login, 39, [Bytes::hyphen]) { Success { value: login } } else { Error { message: refused } }
+    }
+
+    fn administers(doc, github) = AuthText::field(doc, "permission") == "admin" && numberText(JsonRead::field(doc, "user"), "id") == github
+
+    fn adminWith(token, repository, github) = andThen(get(token, "/user/${github}"), fn(account) =>
+        andThen(loginOf(account, github), fn(login) =>
+            andThen(get(token, "/repositories/${repository}/collaborators/${login}/permission"), fn(doc) =>
+                Success { value: administers(doc, github) })))
+
+    fn tip(token, repository, branch) = andThen(get(token, "/repositories/${repository}/git/ref/heads/${branch}"), fn(doc) => {
+            let sha = AuthText::field(JsonRead::field(doc, "object"), "sha")
+            if AuthText::field(doc, "ref") == "refs/heads/${branch}" && Forge::commitOk(sha) { Success { value: sha } } else { Error { message: refused } }
+    })
+
+    /// `commit` is the branch tip or one of its ancestors: their merge base is `commit` itself.
+    fn reachable(token, repository, branch, commit) = andThen(tip(token, repository, branch), fn(head) =>
+        if head == commit { Success { value: commit } }
+        else { andThen(get(token, "/repositories/${repository}/compare/${commit}...${head}"), fn(doc) =>
+                if AuthText::field(JsonRead::field(doc, "merge_base_commit"), "sha") == commit { Success { value: commit } }
+                else { Error { message: refused } }) })
+
+    fn entries(token, repository, tree, suffix) = andThen(get(token, "/repositories/${repository}/git/trees/${tree}${suffix}"), fn(doc) =>
+        match JsonRead::field(doc, "truncated") {
+            Json::Bool { flag } => if flag { Error { message: refused } } else { JsonRead::requiredItems(doc, "tree", refused) }
+            _ => Error { message: unavailable }
+    })
+
+    fn named(entry, name) = AuthText::field(entry, "path") == name && AuthText::field(entry, "type") == "tree"
+
+    /// The tree of `segments` below `tree`, one documented, non-recursive listing per directory.
+    fn subtree(token, repository, tree, segments, depth) = match listGet(segments, depth) {
+        Error => Success { value: tree }
+        Success { value } => andThen(entries(token, repository, tree, ""), fn(listed) =>
+            andThen(Checked::firstMatch(listed, fn(entry) => named(entry, value), refused), fn(entry) =>
+                subtree(token, repository, AuthText::field(entry, "sha"), segments, depth + 1)))
+    }
+
+    /// Reject unsupported entries and unbounded sizes before requesting any file contents.
+    fn totalAfter(total, entry) = {
+        let size = JsonRead::number(JsonRead::field(entry, "size"))
+        if total < 0 || size < 0 || Source::limitCode(0, size, 0) != "" || Source::limitCode(0, total, 0) != ""
+        || AuthText::field(entry, "type") != "blob" || AuthText::field(entry, "mode") != "100644"
+        || !Forge::commitOk(AuthText::field(entry, "sha")) { -1 } else { total + size }
+    }
+
+    fn blob(token, repository, entry) = {
+        let sha = AuthText::field(entry, "sha")
+        let size = JsonRead::number(JsonRead::field(entry, "size"))
+        andThen(answered(perform Supabase::Provider.request("GET", api, "/repositories/${repository}/git/blobs/${sha}", headers(token, raw), ""), 200), fn(content) =>
+            if byteLength(content) == size { Success { value: Release::File { relPath: AuthText::field(entry, "path"), content: content } } }
+            else { Error { message: refused } })
+    }
+
+    /// Every entry that is not a directory must be a plain file: a symlink, submodule or executable refuses the tree.
+    fn fetched(token, repository, listed) = {
+        let leaves = filterList(listed, fn(entry) => AuthText::field(entry, "type") != "tree")
+        let total = foldList(leaves, 0, totalAfter)
+        if total < 0 || length(leaves) > fileLimit || Source::limitCode(length(leaves), total, 0) != "" { Error { message: refused } }
+        else { Checked::collectAll(leaves, fn(entry) => blob(token, repository, entry)) }
+    }
+
+    fn filesWith(token, repository, branch, commit, subdirectory) = andThen(reachable(token, repository, branch, commit), fn(sha) =>
+        andThen(subtree(token, repository, sha, JsonRead::tokens(subdirectory), 0), fn(tree) =>
+            andThen(entries(token, repository, tree, "?recursive=1"), fn(listed) => fetched(token, repository, listed))))
+
+    fn token(app, repository, clock: fn() -> Result<int, string>) = if !configured(app) || !Forge::repositoryOk(repository) { Error { message: Forge::unconfigured } }
+    else { andThen(Checked::mapError(clock(), fn(_reason) => unavailable), fn(now) => access(app, now, repository)) }
+
+    /// The production forge. Install inside a `Supabase::Provider` transport.
+    export fn github(app: App, clock) = handler Forge::Repository {
+        admin repository account => andThen(token(app, repository, clock), fn(granted) => adminWith(granted, repository, account))
+        files repository branch commit subdirectory => andThen(token(app, repository, clock), fn(granted) =>
+            if Forge::commitOk(commit) { filesWith(granted, repository, branch, commit, subdirectory) } else { Error { message: refused } })
+    }
+}

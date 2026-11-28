@@ -1,0 +1,92 @@
+namespace registry_api;
+import registry::Bytes
+import registry::Json
+import registry::JsonRead
+import registry::Names
+
+/// A signed-in person founds an organization and creates its packages [PACKAGE-OWNERSHIP-RLS], binds a
+/// package's GitHub repository and names a commit to release [PACKAGE-HOSTED-PUBLISH-FLOW].
+/// `POST /v1/organizations {"handle","name"}`, `POST /v1/organizations/{id}/packages {"name"}`,
+/// `POST /v1/packages/{id}/repository {"repositoryId","branch","subdirectory"}` and
+/// `POST /v1/packages/{id}/releases {"commit","epoch","ordinal"}` answer `{"id"}`. Anything taken,
+/// unbound or not the caller's creates nothing.
+module HostedOwnership {
+    export let organizations = "/v1/organizations"
+    export let packages = "/v1/packages/"
+    export let badRequest = "ownership.request"
+    export let refused = "ownership.refused"
+
+    fn document(body, count) = match Json::parse(body) {
+        Success { value } => match value {
+            Json::Obj { members } => if length(members) == count { Success { value: value } } else { Error { message: badRequest } }
+            _ => Error { message: badRequest }
+        }
+        Error => Error { message: badRequest }
+    }
+    fn text(doc, key) = JsonRead::text(JsonRead::field(doc, key))
+    fn displayName(name) = trim(name) == name && byteLength(name) >= 1 && byteLength(name) <= 128
+
+    fn organize(token, doc, operations: HostedReview::Operations) = {
+        let slug = text(doc, "handle")
+        let name = text(doc, "name")
+        if Names::scopeCode(slug) != "" || !displayName(name) { Error { message: badRequest } } else { operations.organize(token, slug, name) }
+    }
+
+    fn createPackage(token, org, doc, operations: HostedReview::Operations) = {
+        let name = text(doc, "name")
+        if !Bytes::canonicalUuid(org) || Names::nameCode(name) != "" { Error { message: badRequest } } else { operations.createPackage(token, org, name) }
+    }
+
+    fn pathPunctuation(b) = b == Bytes::dot || b == Bytes::underscore || b == Bytes::hyphen || b == Bytes::slash
+    fn branchByte(b) = Bytes::isAlnum(b) || pathPunctuation(b)
+    fn directoryByte(b) = Bytes::isLowerDigit(b) || pathPunctuation(b)
+    fn branchOk(branch) = byteLength(branch) >= 1 && byteLength(branch) <= 255 && branch != "HEAD" && !startsWith(branch, "-")
+    && !endsWith(branch, ".") && !contains(branch, "..") && Bytes::everyByte(branch, branchByte)
+    && foldList(split(branch, "/") ?: [], true, fn(ok, part) => ok && part != "" && !startsWith(part, ".") && !endsWith(part, ".lock"))
+    fn subdirectoryOk(dir) = dir == "" || (byteLength(dir) <= 255 && !startsWith(dir, "/") && !endsWith(dir, "/") && !contains(dir, "//")
+        && foldList(split(dir, "/") ?: [], true, fn(ok, part) => ok && part != "." && part != "..")
+        && Bytes::everyByte(dir, directoryByte))
+    fn positive(doc, key) = match JsonRead::field(doc, key) {
+        Json::Num { value } => if value > 0 { toString(value) } else { "" }
+        _ => ""
+    }
+
+    fn bind(token, pkg, doc, operations: HostedReview::Operations) = {
+        let repository = text(doc, "repositoryId")
+        let branch = text(doc, "branch")
+        andThen(JsonRead::requiredText(doc, "subdirectory", badRequest), fn(dir) =>
+            if !Forge::repositoryOk(repository) || !branchOk(branch) || !subdirectoryOk(dir) { Error { message: badRequest } }
+            else { operations.bind(token, pkg, repository, branch, dir) })
+    }
+
+    fn release(token, pkg, doc, operations: HostedReview::Operations) = {
+        let commit = text(doc, "commit")
+        let epoch = positive(doc, "epoch")
+        let ordinal = positive(doc, "ordinal")
+        if !Forge::commitOk(commit) || epoch == "" || ordinal == "" { Error { message: badRequest } }
+        else { operations.release(token, pkg, commit, epoch, ordinal) }
+    }
+
+    fn tail(rest) = match indexOf(rest, "/") {
+        Success { value } => drop(rest, value + 1)
+        Error => ""
+    }
+    fn packageAction(path) = tail(drop(path, byteLength(packages)))
+    fn packageId(path) = Bytes::before(drop(path, byteLength(packages)), "/")
+
+    /// True for the ownership routes, which carry a JSON body and need the CSRF token.
+    export fn owns(path) = path == organizations || (startsWith(path, organizations + "/") && endsWith(path, "/packages"))
+    || (startsWith(path, packages) && listContains(["repository", "releases"], packageAction(path)))
+
+    fn packageRoute(path, token, doc, operations) = {
+        let pkg = packageId(path)
+        if !Bytes::canonicalUuid(pkg) { Error { message: badRequest } }
+        else if packageAction(path) == "repository" { bind(token, pkg, doc, operations) } else { release(token, pkg, doc, operations) }
+    }
+
+    /// The created id for `path` and `body`, or the request or ownership refusal.
+    export fn route(path, token, body, operations) = andThen(document(body, if path == organizations { 2 } else if startsWith(path, packages) { 3 } else { 1 }), fn(doc) =>
+        if path == organizations { organize(token, doc, operations) }
+        else if startsWith(path, packages) { packageRoute(path, token, doc, operations) }
+        else { createPackage(token, Bytes::before(drop(path, byteLength(organizations) + 1), "/"), doc, operations) })
+}

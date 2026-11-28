@@ -2,7 +2,6 @@ namespace registry_cli;
 import registry_host::Host
 import registry::Identity
 import registry::ManifestModel
-import registry::Maybe
 import registry::Names
 import registry::Paths
 import registry::Release
@@ -19,7 +18,7 @@ import registry::ReleasePath
 /// newest in the current epoch plus one; `--breaking` opens the next epoch;
 /// the first release is `1.1`. The server reads a folder at startup, so the
 /// new release is served after `registry-serve` restarts. The authenticated
-/// `publish` of the trust plane (spec 0030) replaces this in Milestone B.
+/// `publish` of the trust plane (the Registry Trust and Discovery spec) replaces this in [PLAN-REGISTRY].
 module Publish {
     let usageCode = "publish.usage"
     let noPackageCode = "publish.no-package"
@@ -31,14 +30,6 @@ module Publish {
 
     fn commandLine(parsed) = CommandLine { folder: Flags::given(parsed, folderFlag, ""), project: Flags::project(parsed), breaking: Flags::has(parsed, breakingFlag) }
 
-    // Shared field names need typed receivers (issue #273).
-    fn folderOf(cmd: CommandLine) = cmd.folder
-    fn projectOf(cmd: CommandLine) = cmd.project
-    fn breakingOf(cmd: CommandLine) = cmd.breaking
-    fn assetPath(a: ManifestModel::Asset) = a.path
-
-    fn packageKey(mf: ManifestModel::Manifest) = Maybe::fold(mf.publication, Error { message: noPackageCode }, fn(p) => Success { value: p.package })
-
     // Implements [PACKAGE-LICENSE-DISTRIBUTION] alongside source and asset selection.
 
     fn underRoot(path, root) = startsWith(path, "${root}/")
@@ -47,12 +38,12 @@ module Publish {
         || foldList(mf.sourceRoots, false, fn(found, root) => found || underRoot(path, root))
         || listContains(mf.pythonSources, path)
         || listContains(mf.typescriptSources, path)
-        || listContains(mapList(mf.assets, assetPath), path) }
+        || listContains(mapList(mf.assets, fn(a) => a.path), path) }
 
-    fn selectedWalk(mf, walk: Host::Walk) = Host::Walk {
-        regular: filterList(walk.regular, fn(p) => selected(mf, p)),
-        executable: filterList(walk.executable, fn(p) => selected(mf, p)),
-        special: filterList(walk.special, fn(p) => selected(mf, p))
+    /// The walk cut down to the files `selected` keeps, kind by kind.
+    fn selectedWalk(mf, walk: Host::Walk) = {
+        let kept = fn(paths) => filterList(paths, fn(p) => selected(mf, p))
+        Host::Walk { regular: kept(walk.regular), executable: kept(walk.executable), special: kept(walk.special) }
     }
 
     fn treeFiles(project, mf) = andThen(perform Host::Tree.walk(project), fn(value) => Install::filesOfWalked(selectedWalk(mf, value), project))
@@ -77,9 +68,11 @@ module Publish {
         Success { value } => foldList(value.regular, [], fn(ids, path) => appendId(ids, key, path))
     }
 
-    fn newestEpoch(ids) = foldList(ids, 0, fn(best, id) => if Identity::epochOf(id) > best { Identity::epochOf(id) } else { best })
+    /// The newest epoch a directory holds, 0 for a new package.
+    fn newestEpoch(ids) = Folds::largest(ids, Identity::epochOf)
 
-    fn newestOrdinal(ids, epoch) = foldList(ids, 0, fn(best, id) => if Identity::epochOf(id) == epoch && Identity::ordinalOf(id) > best { Identity::ordinalOf(id) } else { best })
+    /// The newest ordinal of `epoch` a directory holds, 0 when it holds none of it.
+    fn newestOrdinal(ids, epoch) = Folds::largest(filterList(ids, fn(id) => Identity::epochOf(id) == epoch), Identity::ordinalOf)
 
     /// `1.1` for a new package; else the next ordinal of the newest epoch, or
     /// the first ordinal of the next epoch with `--breaking`.
@@ -92,7 +85,7 @@ module Publish {
 
     // ---- placing the release ----
 
-    fn placedAt(cmd, served) = "${folderOf(cmd)}/${ReleasePath::format(Release::idOf(served))}"
+    fn placedAt(cmd, served) = "${cmd.folder}/${ReleasePath::format(Release::idOf(served))}"
 
     fn placedLines(cmd, served) = [
         "published ${Lockfile::compact(Release::idOf(served))}",
@@ -104,15 +97,14 @@ module Publish {
     fn placed(cmd, served) = Reports::checked(Fetch::writeFiles(placedAt(cmd, served), Release::filesOf(served)), fn(_finished) => Reports::success(placedLines(cmd, served)))
 
     /// Check and digest the tree as the server will, then place it.
-    fn assembled(cmd, key, fileList) = Reports::checked(ReleaseFiles::assemble(nextDir(key, existing(folderOf(cmd), key), breakingOf(cmd)), fileList), fn(value) => placed(cmd, value))
+    fn assembled(cmd, key, fileList) = Reports::checked(ReleaseFiles::assemble(nextDir(key, existing(cmd.folder, key), cmd.breaking), fileList), fn(value) => placed(cmd, value))
 
-    fn withKey(cmd, mf, key) = Reports::checked(treeFiles(projectOf(cmd), mf), fn(value) => assembled(cmd, key, value))
+    fn withKey(cmd, mf, key) = Reports::checked(treeFiles(cmd.project, mf), fn(value) => assembled(cmd, key, value))
 
-    fn withManifest(cmd, mf) = Reports::checked(packageKey(mf), fn(value) => withKey(cmd, mf, value))
+    fn withManifest(cmd, mf) = Reports::checked(ManifestEdit::publicationKey(mf, noPackageCode), fn(value) => withKey(cmd, mf, value))
 
-    fn withCommand(cmd) = if folderOf(cmd) == "" { Reports::usageFor(usageCode, usageText) } else { Reports::checked(Project::readAt(projectOf(cmd)), fn(value) => withManifest(cmd, value)) }
+    fn withCommand(cmd) = if cmd.folder == "" { Reports::usageFor(usageCode, usageText) } else { Project::withManifestAt(cmd.project, fn(value) => withManifest(cmd, value)) }
 
     /// The whole command.
-    export fn run(args) = Flags::dispatch(args, [folderFlag, Flags::projectFlag], [breakingFlag], usageCode, usageText,
-        fn(parsed) => withCommand(commandLine(parsed)))
+    export fn run(args) = Flags::dispatchWith(args, [folderFlag, Flags::projectFlag], [breakingFlag], usageCode, usageText, commandLine, withCommand)
 }

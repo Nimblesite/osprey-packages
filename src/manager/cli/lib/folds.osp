@@ -1,0 +1,42 @@
+namespace registry_cli;
+import registry::Checked
+import registry::Names
+import registry::Order
+
+/// The folds the commands share because the standard library lacks them:
+/// the largest measure, any and every, the flattening map, a fold that stops
+/// at its first failure, the item of a key, a sort through an accessor and a
+/// result's success rewritten. One definition each, so no command carries its
+/// own copy.
+module Folds {
+    /// The largest `measure` over `items`, 0 when there are none.
+    export fn largest(items, measure) = foldList(items, 0, fn(best, item) => if measure(item) > best { measure(item) } else { best })
+
+    /// Whether some item of `items` passes `ok`: the presence test of a lookup.
+    export fn any(items, ok) = Checked::succeeded(Checked::firstMatch(items, ok, "none"))
+
+    /// Whether every item of `items` passes `ok`.
+    export fn all(items, ok) = !any(items, fn(item) => !ok(item))
+
+    /// The item of `items` whose `keyOf` is `key`; the failure code is a
+    /// placeholder no caller prints, callers only ask whether there is one.
+    export fn byKey(items, keyOf, key) = Checked::firstMatch(items, fn(item) => Names::same(keyOf(item), key), "none")
+
+    /// The success of `result` rewritten by `make`; a failure passes as is.
+    export fn mapped(result, make) = andThen(result, fn(value) => Success { value: make(value) })
+
+    /// `items` read through `at`, in the order `compare` puts their `keyOf`.
+    export fn sortedBy(items, at, keyOf, compare) = mapList(
+        Order::permutation(length(items), fn(i, j) => compare(keyOf(at(items, i)), keyOf(at(items, j)))),
+        fn(i) => at(items, i))
+
+    /// `items` each mapped by `toParts`, the parts concatenated in order.
+    export fn flatMap(items, toParts) = foldList(items, [], fn(acc, item) => listConcat(acc, toParts(item)))
+
+    /// `foldList` over a `Result` accumulator that stops at its first
+    /// failure: `step` only ever sees the success so far.
+    export fn collect(items, first, step) = foldList(items, first, fn(acc, item) => match acc {
+            Error => acc
+            Success { value } => step(value, item)
+    })
+}

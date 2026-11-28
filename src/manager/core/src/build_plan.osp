@@ -1,0 +1,94 @@
+namespace registry;
+
+/// Canonical deterministic `BuildPlan` and `ReleaseIdentityEnvelope` serialization
+/// and domain-separated digests (`osprey.build-plan.v1` and `osprey.release.v1`).
+/// Implements [PACKAGE-SOURCE-CANONICAL] and [PACKAGE-TYPE-INVARIANTS].
+module BuildPlan {
+    export type Plan = {
+        format: int,
+        scope: string,
+        name: string,
+        sourceDigest: string,
+        manifestDigest: string,
+        resolutionContextDigest: string,
+        selectionDigest: string,
+        moduleGraphDigest: string,
+        compilerInvocationDigest: string,
+        testPlanDigest: string,
+        outputLayoutDigest: string,
+        inferredCapabilities: List<string>
+    }
+
+    export type ReleaseEnvelope = {
+        scope: string,
+        name: string,
+        epoch: int,
+        sourceDigest: string,
+        manifestDigest: string,
+        buildPlanDigest: string
+    }
+
+    fn validDigest(text) = match Digests::parse(text) {
+        Success => true
+        Error => false
+    }
+
+    fn allDigestsValid(digests) = foldList(digests, true, fn(ok, d) => ok && validDigest(d))
+
+    fn packageJson(scope, name) = Json::obj([
+            Json::member("name", Json::str(name)),
+            Json::member("scope", Json::str(scope))
+    ])
+
+    fn sortedUnique(items) = listSort(Order::distinctStrings(items))
+
+    fn planDigests(plan: Plan) = [
+        plan.sourceDigest, plan.manifestDigest, plan.resolutionContextDigest,
+        plan.selectionDigest, plan.moduleGraphDigest, plan.compilerInvocationDigest,
+        plan.testPlanDigest, plan.outputLayoutDigest
+    ]
+
+    fn planJson(plan: Plan) = Json::obj([
+            Json::member("compilerInvocationDigest", Json::str(plan.compilerInvocationDigest)),
+            Json::member("dependencySelection", Json::obj([
+                        Json::member("Release", Json::obj([Json::member("selectionDigest", Json::str(plan.selectionDigest))]))
+            ])),
+            Json::member("format", Json::num(plan.format)),
+            Json::member("inferredCapabilities", Json::arr(mapList(sortedUnique(plan.inferredCapabilities), Json::str))),
+            Json::member("manifestDigest", Json::str(plan.manifestDigest)),
+            Json::member("moduleGraphDigest", Json::str(plan.moduleGraphDigest)),
+            Json::member("outputLayoutDigest", Json::str(plan.outputLayoutDigest)),
+            Json::member("package", packageJson(plan.scope, plan.name)),
+            Json::member("resolutionContextDigest", Json::str(plan.resolutionContextDigest)),
+            Json::member("sourceDigest", Json::str(plan.sourceDigest)),
+            Json::member("testPlanDigest", Json::str(plan.testPlanDigest))
+    ])
+
+    /// Canonical RFC 8785 bytes of a `BuildPlan`, or a validation error.
+    export fn canonicalPlan(plan: Plan) = if plan.format != 1 { Error { message: "build-plan.format" } }
+    else if Names::scopeCode(plan.scope) != "" || Names::nameCode(plan.name) != "" { Error { message: "build-plan.package" } }
+    else if !allDigestsValid(planDigests(plan)) { Error { message: "build-plan.digest" } }
+    else { Canonical::serialize(planJson(plan)) }
+
+    /// Domain-separated `H("osprey.build-plan.v1", canonicalPlan(plan))`.
+    export fn digest(plan: Plan) = andThen(canonicalPlan(plan), fn(bytes) =>
+        Success { value: Digests::hashText(Domains::buildPlanDomain(), bytes) })
+
+    fn envelopeJson(env: ReleaseEnvelope) = Json::obj([
+            Json::member("buildPlanDigest", Json::str(env.buildPlanDigest)),
+            Json::member("epoch", Json::num(env.epoch)),
+            Json::member("manifestDigest", Json::str(env.manifestDigest)),
+            Json::member("package", packageJson(env.scope, env.name)),
+            Json::member("sourceDigest", Json::str(env.sourceDigest))
+    ])
+
+    /// Canonical RFC 8785 bytes of a `ReleaseIdentityEnvelope`, or a validation error.
+    export fn canonicalRelease(env: ReleaseEnvelope) = if env.epoch < 1 { Error { message: "release.epoch" } }
+    else if Names::scopeCode(env.scope) != "" || Names::nameCode(env.name) != "" { Error { message: "release.package" } }
+    else if !allDigestsValid([env.sourceDigest, env.manifestDigest, env.buildPlanDigest]) { Error { message: "release.digest" } }
+    else { Canonical::serialize(envelopeJson(env)) }
+
+    /// Domain-separated `H("osprey.release.v1", canonicalRelease(env))`.
+    export fn releaseDigest(env: ReleaseEnvelope) = andThen(canonicalRelease(env), fn(bytes) =>
+        Success { value: Digests::hashText(Domains::releaseDomain(), bytes) })
+}

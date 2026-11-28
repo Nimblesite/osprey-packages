@@ -12,7 +12,6 @@ import registry::Release
 module LockTests {
     let removalsHint = "(rerun with --accept-removals to drop it from the lock)"
 
-
     fn lockOf(a) = RegistryFixture::writtenTo(a, RegistryFixture::lockPath)
 
     fn runLock(reads, served, extra) = RegistryFixture::run(reads, RegistryFixture::websOf(served), listConcat(["lock", "--project", RegistryFixture::project], extra))
@@ -20,9 +19,6 @@ module LockTests {
     fn lockOver(reads, served) = runLock(reads, served, [])
 
     fn pair() = [RegistryFixture::one(), RegistryFixture::two()]
-
-    /// `<prefix> <release>` for every package of `pkgs`.
-    fn marked(prefix, pkgs) = mapList(pkgs, fn(p) => "${prefix} ${RegistryFixture::compact(p)}")
 
     /// A run of `lock` over `served`, read beside `rootText`'s manifest.
     fn readsRun(rootText, served) = lockOver(RegistryFixture::reads(rootText, served), served)
@@ -46,36 +42,36 @@ module LockTests {
 
     /// The checks a run that resolves `locked` at `floor`, printing `lines`, must pass.
     fn resolves(name, a, floor, locked, lines) = checkAll(name, [
-        RegistryFixture::accepted(a),
-        lockOf(a) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(floor), locked, RegistryFixture::two()),
-        structuralEquals(RegistryFixture::linesOf(a), lines)
+            RegistryFixture::accepted(a),
+            lockOf(a) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(floor), locked, RegistryFixture::two()),
+            structuralEquals(RegistryFixture::linesOf(a), lines)
     ])
 
     /// The checks an accepted run that prints `lines` must pass.
     fn acceptedLines(name, a, lines) = checkAll(name, [
-        RegistryFixture::accepted(a),
-        structuralEquals(RegistryFixture::linesOf(a), lines)
+            RegistryFixture::accepted(a),
+            structuralEquals(RegistryFixture::linesOf(a), lines)
     ])
 
     /// The checks a refusal that prints `lines` and writes no lock must pass.
     fn refuses(name, a, lines) = checkAll(name, [
-        RegistryFixture::statusOf(a) == 1,
-        structuralEquals(RegistryFixture::linesOf(a), lines),
-        lockOf(a) == ""
+            RegistryFixture::statusOf(a) == 1,
+            structuralEquals(RegistryFixture::linesOf(a), lines),
+            lockOf(a) == ""
     ])
 
     /// The two source kinds every surface case loops over.
     fn sourceKinds() = [RegistryFixture::io(), RegistryFixture::interpolatedIo()]
 
     /// The first run: two packages resolved, exact lock bytes, `+` lines.
-    fn firstRun() = resolves("a two-package registry resolves to the exact lock bytes and + lines", freshRun(pair()), 1, RegistryFixture::one(), marked("+", pair()))
+    fn firstRun() = resolves("a two-package registry resolves to the exact lock bytes and + lines", freshRun(pair()), 1, RegistryFixture::one(), RegistryFixture::deltaLines("+", pair()))
 
     /// A second run with the same lock prints only `=` lines.
-    fn secondRun() = acceptedLines("a second run prints only = lines", lockedRun(pair()), marked("=", pair()))
+    fn secondRun() = acceptedLines("a second run prints only = lines", lockedRun(pair()), RegistryFixture::deltaLines("=", pair()))
 
     /// A raised floor selects the newer release of one and prints `~`.
     fn changedFloor() =
-        resolves("a raised floor prints ~ for the changed release", priorRun(2, [RegistryFixture::one(), RegistryFixture::one2(), RegistryFixture::two()]), 2, RegistryFixture::one2(), listConcat(marked("~", [RegistryFixture::one2()]), marked("=", [RegistryFixture::two()])))
+    resolves("a raised floor prints ~ for the changed release", priorRun(2, [RegistryFixture::one(), RegistryFixture::one2(), RegistryFixture::two()]), 2, RegistryFixture::one2(), listConcat(RegistryFixture::deltaLines("~", [RegistryFixture::one2()]), RegistryFixture::deltaLines("=", [RegistryFixture::two()])))
 
     fn reserved(s) = Release::Served { id: Identity::ReleaseId { key: Fixture::idOf(s).key, epoch: Fixture::idOf(s).epoch, ordinal: Fixture::idOf(s).ordinal, digest: RegistryFixture::otherDigest }, files: Fixture::filesOf(s) }
 
@@ -88,7 +84,7 @@ module LockTests {
     /// With --accept-removals the vanished release is a warning and a `-` line,
     /// and the lock is rewritten without it.
     fn releaseVanishedAccepted() = {
-        let lines = listConcat(["lock.release-vanished ${RegistryFixture::compact(RegistryFixture::three())}"], listConcat(marked("=", pair()), marked("-", [RegistryFixture::three()])))
+        let lines = listConcat(["lock.release-vanished ${RegistryFixture::compact(RegistryFixture::three())}"], listConcat(RegistryFixture::deltaLines("=", pair()), RegistryFixture::deltaLines("-", [RegistryFixture::three()])))
         resolves("--accept-removals warns and removes the vanished release", runLock(threePriorReads(pair()), pair(), ["--accept-removals"]), 1, RegistryFixture::one(), lines)
     }
 
@@ -97,9 +93,9 @@ module LockTests {
         let served = pair()
         let a = lockOver(RegistryFixture::readsWithLock(RegistryFixture::rootManifest(1), "{\"format\":7}", served), served)
         checkAll("a current lock that does not decode is its lock.* code and writes nothing", [
-            RegistryFixture::statusOf(a) == 1,
-            startsWith(RegistryFixture::lineOf(a, 0), "lock."),
-            lockOf(a) == ""
+                RegistryFixture::statusOf(a) == 1,
+                startsWith(RegistryFixture::lineOf(a, 0), "lock."),
+                lockOf(a) == ""
         ])
     }
 
@@ -109,10 +105,10 @@ module LockTests {
         let served = [RegistryFixture::badOne(), RegistryFixture::two()]
         let a = freshRun(served)
         checkAll("an invalid candidate manifest is lock.invalid-manifest, excluded and explained", [
-            RegistryFixture::statusOf(a) == 1,
-            startsWith(RegistryFixture::lineOf(a, 0), "lock.invalid-manifest ${RegistryFixture::compact(RegistryFixture::badOne())} manifest.project.name at "),
-            RegistryFixture::lineOf(a, 1) == "resolution.missing-package",
-            pieceAndNoLock(a, 2, "@demo/one")
+                RegistryFixture::statusOf(a) == 1,
+                startsWith(RegistryFixture::lineOf(a, 0), "lock.invalid-manifest ${RegistryFixture::compact(RegistryFixture::badOne())} manifest.project.name at "),
+                RegistryFixture::lineOf(a, 1) == "resolution.missing-package",
+                pieceAndNoLock(a, 2, "@demo/one")
         ])
     }
 
@@ -122,14 +118,13 @@ module LockTests {
         let a = freshRun(served)
         let b = readsRun(RegistryFixture::manifestText("app") + "\n[dependencies]\n\"@demo/io\" = { epoch = 1, min_release = 1 }\n", served)
         checkAll("an ungranted io/files surface is resolution.capability and writes nothing", [
-            RegistryFixture::reported(b, 1, "resolution.capability"),
-            pieceAndNoLock(b, 1, "@demo/io"),
-            RegistryFixture::statusOf(a) == 1
+                RegistryFixture::reported(b, 1, "resolution.capability"),
+                pieceAndNoLock(b, 1, "@demo/io"),
+                RegistryFixture::statusOf(a) == 1
         ])
     }
 
     fn ungrantedSurface() = forEachList(sourceKinds(), fn(s) => ungrantedSource(s))
-
 
     /// With the grant the release is locked and its surface is pinned.
     fn grantedSource(source) = {
@@ -137,9 +132,9 @@ module LockTests {
         let rootText = RegistryFixture::rootManifestGranting("io", ["io/files"])
         let a = readsRun(rootText, served)
         checkAll("a granted surface is locked and pinned", [
-            RegistryFixture::accepted(a),
-            lockOf(a) == RegistryFixture::expectedLockOf(rootText, [RegistryFixture::pkgWith(source, [], ["io/files"])]),
-            structuralEquals(RegistryFixture::linesOf(a), ["+ ${RegistryFixture::compact(source)}"])
+                RegistryFixture::accepted(a),
+                lockOf(a) == RegistryFixture::expectedLockOf(rootText, [RegistryFixture::pkgWith(source, [], ["io/files"])]),
+                structuralEquals(RegistryFixture::linesOf(a), ["+ ${RegistryFixture::compact(source)}"])
         ])
     }
 

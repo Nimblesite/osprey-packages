@@ -1,0 +1,16 @@
+namespace registry_api;
+import registry::Bytes
+import registry::JsonRead
+
+/// The member reads and identifier checks shared by the authentication
+/// modules: the KMS envelopes, the JWT verifier, the provider client and the
+/// login handlers read the same member grammar and bound the same
+/// identifiers. Implements [PACKAGE-HOSTED-AUTH].
+module AuthText {
+    /// The text of member `key` of `doc`, or "" when it is absent or not a string.
+    export fn field(doc, key) = JsonRead::text(JsonRead::field(doc, key))
+
+    /// True when `text` holds 1 to `limit` bytes, each a letter, a digit or one of `extra`.
+    export fn bounded(text, limit, extra) = byteLength(text) > 0 && byteLength(text) <= limit
+    && Bytes::everyByte(text, fn(b) => Bytes::isAlnumIn(b, extra))
+}

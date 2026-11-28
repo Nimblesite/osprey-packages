@@ -1,0 +1,51 @@
+namespace registry_tests;
+import registry::Names
+
+/// [PACKAGE-NAMES] grammar, reason codes and canonical key order.
+module NamesTests {
+    /// The refusal of a package name with a forbidden character.
+    let badChars = "name.name.chars"
+
+    fn code(text) = Fixtures::code(Names::parse(text))
+
+    fn longest(n) = repeat("a", n) ?: ""
+
+    /// The canonical keys every spelling rule accepts, each its own round-trip.
+    fn canonicalKeys() = ["@finch/ledger", "@osprey/http", "@a1/b-2", "@a/a--b", "@${longest(39)}/${longest(63)}"]
+
+    fn acceptsCanonicalKeys() = checkAll("canonical keys parse and round-trip", [
+            Fixtures::mapsTo(canonicalKeys(), canonicalKeys(), fn(text) => Fixtures::shown(Names::parse, Names::display, text))
+    ])
+
+    fn rejectsWithReasonCodes() = checkAll("every rejection names one stable reason code", [
+            Fixtures::mapsTo([
+                    "finch/ledger", "@finch", "@finch/ledger/extra", "@/ledger", "@finch/",
+                    "@${longest(40)}/x", "@x/${longest(64)}", "@Finch/ledger", "@finch/Ledger",
+                    "@finch/-ledger", "@finch-/ledger", "@finch/led_ger", "@finch/lédger", "@finch/led ger"
+                ], [
+                    "name.missing-at", "name.unscoped-or-missing-slash", "name.extra-slash", "name.scope.length",
+                    "name.name.length", "name.scope.length", "name.name.length", "name.scope.chars",
+                    badChars, badChars, "name.scope.chars", badChars, badChars, badChars
+                ], code)
+    ])
+
+    /// The order of `@scope/name` against `@otherScope/otherName`.
+    fn compareKeys(scope, name, otherScope, otherName) = Names::compare(Fixtures::key(scope, name), Fixtures::key(otherScope, otherName))
+
+    fn ordersByScopeThenName() = {
+        let keys = [Fixtures::key("b", "a"), Fixtures::key("a", "z"), Fixtures::key("a", "b"), Fixtures::key("a-b", "a")]
+        check("keys sort by (scope, name) bytes", "@a/b @a/z @a-b/a @b/a", Fixtures::sortedText(keys, Names::compare, Names::blank(), Names::display))
+        checkAll("keys compare by (scope, name) bytes", [
+                compareKeys("a", "b", "a", "b") == 0,
+                compareKeys("a", "b", "a", "c") < 0,
+                compareKeys("b", "a", "a", "z") > 0
+        ])
+    }
+
+    /// The names suite: canonical keys, reason codes and canonical order.
+    export fn run() = {
+        test("package names: canonical keys", acceptsCanonicalKeys)
+        test("package names: reason codes", rejectsWithReasonCodes)
+        test("package names: canonical order", ordersByScopeThenName)
+    }
+}

@@ -7,8 +7,11 @@ namespace registry;
 module Bytes {
     /// Compare every byte of equal-length tokens without stopping at the first difference.
     export fn equalToken(expected, actual) = byteLength(expected) == byteLength(actual)
-        && fold(range(0, byteLength(expected)), 0, fn(difference, i) =>
-            bitOr(difference, bitXor(byteAt(expected, i) ?: 0, byteAt(actual, i) ?: 0))) == 0
+    && fold(range(0, byteLength(expected)), 0, fn(difference, i) =>
+        bitOr(difference, bitXor(byteAt(expected, i) ?: 0, byteAt(actual, i) ?: 0))) == 0
+
+    /// True when `b` lies in `lo`..`hi`: the range test behind every byte class.
+    export fn inRange(b, lo, hi) = b >= lo && b <= hi
 
     let hexDigits = "0123456789abcdef"
     let byteRange = 256
@@ -22,7 +25,7 @@ module Bytes {
 
     /// The raw bytes of a string, in order. `at` matches instead of using `?:`
     /// because `?:` inside a million-iteration pipeline crashes the runtime
-    /// today (probe `runtime.default-operator-pipeline` in `src/manager/blockers`).
+    /// today (probe `runtime.default-operator-pipeline` in `src/manager/core/blockers`).
     export fn ofString(s) = range(0, byteLength(s)) |> map(fn(i) => at(s, i)) |> toList
 
     fn windowEnd(text, i) = if i + runWindow < byteLength(text) { i + runWindow } else { byteLength(text) }
@@ -60,19 +63,28 @@ module Bytes {
     /// Lowercase hex of a byte sequence.
     export fn hex(bytes) = join(mapList(bytes, hexByte), "")
 
-    fn hexValue(b) = if b >= 48 && b <= 57 { b - 48 } else if b >= 97 && b <= 102 { b - 87 } else { 0 }
+    /// Numeric value of an ASCII hexadecimal digit, or -1 for any other byte.
+    export fn hexValue(b) = if inRange(b, 48, 57) { b - 48 }
+    else if inRange(b, 97, 102) { b - 87 }
+    else if inRange(b, 65, 70) { b - 55 }
+    else { -1 }
 
-    fn hexPair(hex, i) = hexValue(at(hex, 2 * i)) * 16 + hexValue(at(hex, 2 * i + 1))
+    fn lowerHexValue(b) = if lowerHexDigit(b) { hexValue(b) } else { 0 }
+
+    fn hexPair(hex, i) = lowerHexValue(at(hex, 2 * i)) * 16 + lowerHexValue(at(hex, 2 * i + 1))
 
     /// The bytes of lowercase hex text; a non-hex digit reads as zero, so
     /// callers validate untrusted hex first (`Digests::parse`).
     export fn fromHex(hex) = range(0, intDiv(byteLength(hex), 2)) |> map(fn(i) => hexPair(hex, i)) |> toList
 
-    fn lowerHexDigit(b) = (b >= 48 && b <= 57) || (b >= 97 && b <= 102)
+    fn lowerHexDigit(b) = inRange(b, 48, 57) || inRange(b, 97, 102)
+
+    /// True when every byte of `text` from `from` up to `to` satisfies `ok`.
+    fn allBetween(text, from, to, ok) = fold(range(from, to), true, fn(good, i) => good && ok(at(text, i)))
 
     /// True when every byte of `text` from `from` up to `to` is a lowercase
     /// hex digit, the spelling of digests and UUIDs ([PACKAGE-TYPE-INVARIANTS]).
-    export fn lowerHexBetween(text, from, to) = fold(range(from, to), true, fn(ok, i) => ok && lowerHexDigit(at(text, i)))
+    export fn lowerHexBetween(text, from, to) = allBetween(text, from, to, lowerHexDigit)
 
     /// Lowercase UUID text shared by database and provider identity boundaries.
     export fn canonicalUuid(text) = byteLength(text) == 36 && (substring(text, 8, 9) ?: "") == "-"
@@ -84,24 +96,17 @@ module Bytes {
     /// Concatenation of several byte sequences, in order.
     export fn concatAll(parts) = foldList(parts, [], fn(acc, part) => listConcat(acc, part))
 
-    let upperA = 65
-    let upperZ = 90
-    let lowerA = 97
-    let lowerZ = 122
-    let digit0 = 48
-    let digit9 = 57
-
     /// ASCII `A`-`Z` or `a`-`z`.
-    export fn isLetter(b) = (b >= upperA && b <= upperZ) || (b >= lowerA && b <= lowerZ)
+    export fn isLetter(b) = inRange(b, 65, 90) || inRange(b, 97, 122)
 
     /// ASCII `0`-`9`.
-    export fn isDigit(b) = b >= digit0 && b <= digit9
+    export fn isDigit(b) = inRange(b, 48, 57)
 
     /// ASCII letter or digit.
     export fn isAlnum(b) = isLetter(b) || isDigit(b)
 
     /// ASCII `a`-`z`.
-    export fn isLower(b) = b >= lowerA && b <= lowerZ
+    export fn isLower(b) = inRange(b, 97, 122)
 
     /// ASCII lowercase letter or digit: the unadorned identifier byte.
     export fn isLowerDigit(b) = isLower(b) || isDigit(b)
@@ -121,13 +126,16 @@ module Bytes {
     export let tilde = 126
 
     /// ASCII letter or digit, or one of the punctuation bytes `extra`.
-    export fn isAlnumIn(b, extra) = isAlnum(b) || listContains(extra, b)
+    export fn isAlnumIn(b, extra) = admits(isAlnum, b, extra)
 
     /// ASCII lowercase letter or digit, or one of the punctuation bytes `extra`.
-    export fn isLowerDigitIn(b, extra) = isLowerDigit(b) || listContains(extra, b)
+    export fn isLowerDigitIn(b, extra) = admits(isLowerDigit, b, extra)
+
+    /// `ok` for the byte, or its presence among the punctuation bytes `extra`.
+    fn admits(ok, b, extra) = ok(b) || listContains(extra, b)
 
     /// True when every byte of `text` satisfies `ok` (the empty text does).
-    export fn everyByte(text, ok) = fold(range(0, byteLength(text)), true, fn(good, i) => good && ok(at(text, i)))
+    export fn everyByte(text, ok) = allBetween(text, 0, byteLength(text), ok)
 
     /// True when any byte of `text` satisfies `ok` (the empty text does not).
     export fn anyByte(text, ok) = fold(range(0, byteLength(text)), false, fn(found, i) => found || ok(at(text, i)))
@@ -150,6 +158,10 @@ module Bytes {
         let scanned = fold(range(0, byteLength(text)), Substitution { out: "", start: 0 }, fn(acc, i) => substitutedAt(text, replace, acc, i))
         scanned.out + between(text, scanned.start, byteLength(text))
     }
+
+    /// `text` with every `first` replaced by `withFirst`, then every `second`
+    /// by `withSecond`; a replacement that fails leaves the text as it was.
+    export fn replaceBoth(text, first, withFirst, second, withSecond) = replace(replace(text, first, withFirst) ?: text, second, withSecond) ?: text
 
     /// True when every element is a byte.
     export fn wellFormed(bytes) = foldList(bytes, true, fn(ok, b) => ok && b >= 0 && b < byteRange)

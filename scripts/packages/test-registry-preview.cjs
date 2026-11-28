@@ -1,193 +1,7 @@
 // Browser acceptance for the served folder registry [PACKAGE-HOSTED-ROUTES-CATALOG].
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright');
-const { withHostedPage } = require('./registry-browser-fixture.cjs');
-const checkHostedAccount = (browser, livePort) => withHostedPage(browser, fixture => checkPackagedAccount(fixture, livePort));
-async function checkPackagedAccount({page, website, api, failures}, livePort) {
-  const headers = {'access-control-allow-origin':website,'access-control-allow-credentials':'true'};
-  if (livePort) {
-    assert.match(livePort, /^[0-9]{4,5}$/);
-    await page.route(url => url.origin === api && (url.pathname.startsWith('/v1/packages') || url.pathname.startsWith('/v1/publishers/')), async route => {
-      const upstream = await page.request.get('http://127.0.0.1:' + livePort + new URL(route.request().url()).pathname, {
-        headers:{Host:'127.0.0.1','X-Edge-Secret':'fixture-edge-secret-at-least-32-bytes',Origin:website}, timeout:5000,
-      });
-      assert.equal(upstream.status(), 200);
-      assert.equal(upstream.headers()['access-control-allow-origin'], website);
-      await route.fulfill({response:upstream});
-    });
-    await page.goto(website);
-    await page.getByRole('link', {name:'By tag'}).click();
-    await page.getByRole('heading', {name:'Tags', exact:true}).waitFor();
-    await page.getByText('No tags have five packages yet.').waitFor();
-    assert.equal(await page.getByRole('link', {name:'graphics', exact:true}).count(), 0);
-    await page.goto(website + '/tags/graphics/');
-    await page.getByRole('heading', {name:'Tag not found'}).waitFor();
-    await page.goto(website);
-    await page.getByRole('link', {name:'By publisher'}).click();
-    await page.getByRole('heading', {name:'Publishers'}).waitFor();
-    assert.equal(await page.getByRole('link', {name:'Atlas Engineering', exact:true}).count(), 1);
-    await page.goto(website + '/?q=http');
-    await page.getByRole('link', {name:'@atlas/net'}).click();
-    await page.getByRole('heading', {name:'e1.r1'}).waitFor();
-    await page.locator('[id="e1.r1"] .prose-license').first().waitFor();
-    await page.getByText("NOTICE.md", {exact:true}).first().click();
-    await page.getByText("Adapted from Atlas upstream.", {exact:false}).waitFor();
-    assert.equal(await page.locator('[id="e1.r2"] .prose-license').textContent(), "Apache-2.0");
-    const content = 'https://content.example.test';
-    async function atContent(path, credential) {
-      return page.request.get('http://127.0.0.1:' + livePort + path, {
-        headers:{Host:'content.example.test','X-Edge-Secret':'fixture-edge-secret-at-least-32-bytes',...credential},
-        timeout:5000,
-      });
-    }
-    await page.route(content + '/**', async route => {
-      await route.fulfill({response:await atContent(new URL(route.request().url()).pathname)});
-    });
-    const licenseBadge = page.locator('[id="e1.r1"] a.prose-license');
-    assert.equal(await licenseBadge.count(), 1);
-    const licenseUrl = new URL(await licenseBadge.getAttribute('href'));
-    assert.equal(licenseUrl.origin, content);
-    const license = await atContent(licenseUrl.pathname);
-    assert.equal(license.status(), 200);
-    assert.match(license.headers()['content-type'], /^text\/plain/);
-    assert.equal(license.headers()['x-content-type-options'], 'nosniff');
-    assert.match(await license.text(), /Atlas license <terms>/);
-    assert.match(await license.text(), /Extra license terms/);
-    assert.doesNotMatch(await license.text(), /Attribution only/);
-    assert.equal((await atContent(licenseUrl.pathname, {Cookie:'__Host-registry=opaque'})).status(), 421);
-    const downloadLink = page.getByRole('link', {name:'Download e1.r1', exact:true});
-    const href = new URL(await downloadLink.getAttribute('href'));
-    assert.equal(href.origin, content);
-    const downloaded = page.waitForEvent('download');
-    await downloadLink.click();
-    const file = await downloaded;
-    assert.equal(file.suggestedFilename(), 'osprey-source.json');
-    const source = JSON.parse(await require('node:fs/promises').readFile(await file.path(), 'utf8'));
-    assert.equal(source.key, '@atlas/net');
-    assert.equal(source.digest, href.pathname.split('/')[3]);
-    assert.equal(source.files.find(item => item.path === 'src/main.osp').text, 'fn main() = 0\n');
-    assert.equal((await atContent(href.pathname, {Cookie:'__Host-registry=opaque'})).status(), 421);
-    assert.equal((await atContent('/v1/packages')).status(), 421);
-    const corrupted = new URL(await page.getByRole('link', {name:'Download e1.r2', exact:true}).getAttribute('href'));
-    assert.equal((await atContent(corrupted.pathname)).status(), 503);
-    await page.getByText('Network access', {exact:true}).waitFor();
-    await page.getByRole('link', {name:'Atlas Labs'}).waitFor();
-    assert.equal(await page.getByRole('link', {name:'networking', exact:true}).count(), 0);
-
-    await page.getByRole('link', {name:'Atlas Engineering'}).click();
-    await page.getByRole('heading', {name:'Atlas Engineering'}).waitFor();
-    assert.equal(await page.getByRole('link', {name:'@atlas/net e1.r2'}).count(), 0);
-    await page.getByText('Network access', {exact:true}).waitFor();
-    await page.getByRole('link', {name:'@atlas/net e1.r1'}).click();
-    assert.equal(new URL(page.url()).hash, '#e1.r1');
-    await page.getByRole('heading', {name:'e1.r1'}).waitFor();
-    await page.locator('[id="e1.r1"] .prose-license').first().waitFor();
-    await page.getByText("NOTICE.md", {exact:true}).first().waitFor();
-    assert.deepEqual(failures.filter(failure => !(failure.url === href.href && failure.error === "net::ERR_ABORTED")), []);
-    await page.close();
-    return;
-  }
-  await page.route(api + '/v1/packages', route => route.fulfill({headers,json:{packages:[]}}));
-  const csrfToken = 'sha256:' + 'a'.repeat(64);
-  let signOutRequests = 0;
-  await page.route(api + '/v1/auth/logout', route => {
-    if (route.request().method() === 'OPTIONS') return route.fulfill({status:204,headers:{...headers,
-      'access-control-allow-methods':'POST','access-control-allow-headers':'X-CSRF-Token'}});
-    assert.equal(route.request().method(), 'POST');
-    assert.equal(route.request().headers()['x-csrf-token'], csrfToken);
-    assert.equal(route.request().postData(), null);
-    signOutRequests++;
-    if (signOutRequests === 1) return route.fulfill({status:503,headers,json:{code:'registry.not-ready',status:503}});
-    return route.fulfill({status:204,headers});
-  });
-  for (const code of [401, 503, 200]) {
-    await page.route(api + '/v1/auth/session', route => route.fulfill({status:code,headers,json:{authenticated:code === 200,csrfToken}}));
-    await page.goto(website + '/upload/');
-    const osprey = page.locator('footer.prose-footer').getByRole('link', { name: 'A package registry for the Osprey language' });
-    assert.equal(await osprey.getAttribute('href'), 'https://www.ospreylang.dev/');
-    const mark = await osprey.locator('img').getAttribute('src');
-    const markHash = require('node:crypto').createHash('sha256').update(require('node:fs').readFileSync('src/manager/web/assets/osprey-mark.svg')).digest('hex');
-    assert.equal(new URL(mark, page.url()).searchParams.get('v'), markHash.slice(0, 12));
-    assert.equal(await osprey.locator('img').evaluate(img => img.naturalWidth > 0 && getComputedStyle(img).opacity < 1), true);
-    const panel = page.locator('[data-session-url]');
-    const login = panel.getByRole('link', {includeHidden:true});
-    if (code === 401) {
-      await login.waitFor();
-      assert.equal(await login.getAttribute('href'), api + '/v1/auth/github/start');
-    } else {
-      await panel.getByText(code === 503 ? /could not verify/ : /Signed in/).waitFor();
-      assert.equal(await login.isVisible(), false);
-    }
-    if (code === 200) {
-      const logout = panel.getByRole('button', {name:'Sign out'});
-      await logout.click();
-      await panel.getByText('Could not sign out. Try again.').waitFor();
-      assert.equal(await login.isVisible(), false);
-      await logout.click();
-      await panel.getByText('Signed out.', {exact:true}).waitFor();
-      await login.waitFor();
-      assert.equal(await logout.count(), 0);
-      assert.equal(signOutRequests, 2);
-    }
-    await page.unroute(api + '/v1/auth/session');
-  }
-  await page.unroute(api + '/v1/auth/logout');
-  await page.unroute(api + '/v1/packages');
-  const entry = {key:'@atlas/net',keywords:['networking','web'],releases:[{digest:'sha256:' + 'a'.repeat(64),epoch:1,ordinal:1,publisherId:"11111111-1111-4111-8111-111111111111",publisherName:"Atlas Engineering",licenseExpression:"MIT",notices:[{path:"NOTICE.md",text:"Upstream <img src=x>"}]}],summary:'HTTP tools <img src=x>',warnings:['Network access']};
-  entry.releases.unshift({...entry.releases[0], digest:'sha256:' + 'b'.repeat(64), ordinal:2, licenseExpression:'Apache-2.0', notices:[]});
-  entry.releases[1].epoch = 2;
-  entry.releases[1].notices[0].path = 'NOTICES.md';
-  let payload = {packages:[entry]};
-  await page.route(api + '/v1/packages', route => route.fulfill({headers,json:payload}));
-  await page.goto(website + '/?q=http');
-  const homePanel = await page.locator('.prose-intro').boundingBox();
-  assert.equal(await page.locator('#results .prose-license').textContent(), 'MIT');
-  await page.getByRole('link', {name:entry.key}).click();
-  assert.equal(new URL(page.url()).pathname, '/packages/@atlas/net/');
-  await page.getByText('Network access', {exact:true}).waitFor();
-  assert.deepEqual(await page.locator('#package-details .prose-cover').boundingBox(), homePanel);
-  const metadata = page.locator('.prose-facts');
-  assert.equal(await metadata.locator('.prose-license').textContent({timeout:2000}), 'MIT');
-  const notices = metadata.getByRole('link', {name:'Notices and attribution'});
-  await notices.click();
-  assert.equal(new URL(page.url()).hash, '#e2.r1-notices');
-  await page.getByText('NOTICES.md', {exact:true}).click();
-  await page.getByText('Upstream <img src=x>', {exact:true}).waitFor();
-  assert.equal(await page.locator('.prose-notice img').count(), 0);
-  await page.goBack();
-  await page.goBack();
-  assert.equal(await page.locator('#q').inputValue(), 'http');
-  await page.goto(website + '/?q=unknown');
-  await page.getByText('No matching packages.').waitFor();
-  const tagged = Array.from({length:4}, (_, i) => ({
-    ...entry, key: '@atlas/fixture-' + i, keywords: i === 3 ? ['networking'] : entry.keywords,
-  }));
-  payload = {packages:[entry, ...tagged, tagged[0]]};
-  await page.goto(website + '/tags/');
-  await page.getByRole('heading', {name:'Tags', exact:true}).waitFor();
-  assert.deepEqual(await page.locator('#package-details .prose-cover').boundingBox(), homePanel);
-  await page.getByRole('link', {name:'networking', exact:true}).click();
-  await page.getByRole('heading', {name:'networking', exact:true}).waitFor();
-  assert.equal(await page.locator('.prose-package').count(), 5);
-  await page.getByRole('link', {name:entry.key, exact:true}).click();
-  await page.getByRole('link', {name:'networking', exact:true}).waitFor();
-  assert.equal(await page.getByRole('link', {name:'web', exact:true}).count(), 0);
-  await page.goto(website + '/tags/web/');
-  await page.getByRole('heading', {name:'Tag not found'}).waitFor();
-  for (const keywords of [null, ['../escape'], ['web', 'networking'], ['web', 'web']]) {
-    payload = {packages:[{...entry,keywords}]};
-    await page.goto(website);
-    await page.getByText('The public catalog is unavailable.').waitFor();
-    assert.equal(await page.locator('#results article').count(), 0);
-  }
-  payload = {packages:[entry, {key:'@atlas/incomplete',summary:'Missing warnings'}]};
-  await page.goto(website);
-  await page.getByText('The public catalog is unavailable.').waitFor();
-  assert.equal(await page.locator('#results article').count(), 0);
-  assert.deepEqual(failures, []);
-  await page.close();
-}
-
+const { checkHostedAccount } = require('./registry-hosted-account.cjs');
 async function checkReferenceTable(browser) {
   for (const width of [390, 1024, 1440]) {
     const page = await browser.newPage({viewport:{width, height:900}});
@@ -315,7 +129,7 @@ async function checkLocalLicense(browser) {
 async function checkCoverGeometry(browser) {
   const base = 'http://127.0.0.1:4187';
   const paths = ['/', '/publishers/', '/publishers/osprey-repository/', '/tags/',
-    '/tags/python-flavor/', '/packages/@osprey/flash-attn/', '/upload/', '/guide/', '/publishing/'];
+    '/tags/python-flavor/', '/packages/@osprey/flash-attn/', '/release/', '/guide/', '/publishing/'];
   for (const width of [320, 390, 768, 1440, 1600]) {
     const page = await browser.newPage({viewport:{width, height:900}});
     let origin;
@@ -355,7 +169,7 @@ async function checkMobileMenu(browser) {
   const menu = page.locator('.prose-bar summary');
   assert.equal(await menu.count(), 1);
   for (const [name, path] of [['By tag', '/tags/'], ['By publisher', '/publishers/'],
-                             ['Upload a package', '/upload/'], ['Browse packages', '/']]) {
+                             ['Sign in', '/signin/'], ['Browse packages', '/']]) {
     const link = page.locator('.prose-bar details').getByRole('link', {name});
     assert.equal(await link.isVisible(), false);
     await menu.tap();
@@ -366,13 +180,15 @@ async function checkMobileMenu(browser) {
   }
   await page.setViewportSize({width:1440, height:900});
   assert.equal(await menu.isVisible(), false);
-  assert.ok(await page.locator('.prose-bar').getByRole('link', {name:'Upload a package'}).isVisible());
+  assert.ok(await page.locator('.prose-bar').getByRole('link', {name:'Sign in'}).isVisible());
+  assert.equal(await page.locator('.prose-bar').getByRole('link', {name:'Release a package'}).count(), 0, 'no release action while signed out');
   await page.close();
 }
 
 (async () => {
   const browser = await chromium.launch();
   try {
+    if (process.argv[2] === '--live-release') return await require('./registry-live-release.cjs').checkLiveRelease(browser, process.argv[3]);
     if (process.argv[2] === '--database-catalog') return await checkHostedAccount(browser, process.argv[3]);
     if (process.argv.includes('--built-hosted-account')) return await checkHostedAccount(browser);
     if (process.argv.includes('--highlighting-only')) return await checkReferenceHighlighting(browser);
@@ -424,13 +240,13 @@ async function checkMobileMenu(browser) {
       const cover = await box('.prose-intro');
       await page.evaluate(() => scrollTo(0, 600));
       assert.deepEqual(await box('.prose-bar'), header, 'Header stays anchored while scrolling');
-      for (const path of ['/upload/', '/guide/', '/publishing/', '/tags/', '/publishers/', '/packages/@osprey/express/e1.r1/docs/api/index.html']) {
+      for (const path of ['/release/', '/guide/', '/publishing/', '/tags/', '/publishers/', '/packages/@osprey/express/e1.r1/docs/api/index.html']) {
         await page.goto(new URL(path, page.url()).href);
         assert.deepEqual(await box('.prose-bar'), header, path);
         assert.equal((await box('main')).x, cover.x, path);
       }
       await page.goto('http://127.0.0.1:4187/');
-      await page.getByRole('link', { name: 'By publisher' }).click();
+      await page.getByRole('navigation', { name: 'Browse packages' }).getByRole('link', { name: 'By publisher' }).click();
       await page.getByRole('link', { name: 'Osprey repository publisher' }).click();
       await page.locator('.prose-credits').getByRole('link', { name: '@osprey/fastapi', exact: true }).first().click();
       await page.getByRole('link', { name: 'python-flavor', exact: true }).click();
@@ -438,7 +254,7 @@ async function checkMobileMenu(browser) {
       assert.ok(await page.getByRole('link', { name: '@osprey/fastapi', exact: true }).count());
       assert.equal(await page.getByRole('link', { name: '@osprey/express', exact: true }).count(), 0);
       await page.goto('http://127.0.0.1:4187/');
-      await page.getByRole('link', { name: 'By tag' }).click();
+      await page.getByRole('navigation', { name: 'Browse packages' }).getByRole('link', { name: 'By tag' }).click();
       await page.getByRole('link', { name: 'python-flavor', exact: true }).click();
       await page.getByRole('link', { name: '@osprey/fastapi', exact: true }).click();
       assert.deepEqual(await box('.prose-bar'), header);
@@ -466,16 +282,10 @@ async function checkMobileMenu(browser) {
       assert.equal(bundle.ordinal, 1);
       assert.equal(bundle.digest, await page.locator('[id="e1.r1"] code').textContent());
       assert.ok(bundle.files.some(file => file.path === 'osprey.toml'));
-      if (width <= 720) await page.locator('.prose-bar summary').click();
-      await page.locator('.prose-bar').getByRole('link', { name: 'Upload a package' }).click();
-      await page.getByRole('heading', { name: 'Upload a package' }).waitFor();
-      await page.getByLabel('Package', {exact:true}).selectOption('@osprey/fastapi');
-      const commit = 'a'.repeat(40);
-      await page.getByLabel('Git commit').fill(commit);
-      await page.getByRole('button', {name:'Review release'}).click();
-      assert.equal(await page.locator('#review code').innerText(), commit);
-      assert.equal(await page.locator('#review strong').innerText(), '@osprey/fastapi');
-      assert.equal(await page.getByText('Public uploads are unavailable.').count(), 1);
+      await page.goto(new URL('/release/', page.url()).href);
+      await page.getByRole('heading', { name: 'Release a package' }).waitFor();
+      assert.equal(await page.locator('[data-release-steps]').count(), 0, 'a folder preview has no hosted release steps');
+      assert.equal(await page.getByText('Hosted releases are unavailable.').count(), 1);
       await page.getByRole('link', { name: 'Browse packages' }).click();
       await page.getByRole('heading', { name: 'Browse packages' }).waitFor();
       assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);

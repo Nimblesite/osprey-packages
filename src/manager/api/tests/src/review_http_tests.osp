@@ -1,0 +1,182 @@
+namespace registry_api_tests;
+import registry_api::HostedLogin
+import registry_api::HostedReview
+import registry_api::HostedOwnership
+
+module ReviewHttpTests {
+    let token = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    let submission = "11111111-1111-4111-8111-111111111111"
+    let digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+    export fn decide(cookie, id, pinned) = if cookie == token && id == submission && pinned == digest {
+        Success { value: id }
+    } else { Error { message: HostedReview::denied } }
+
+    export fn receipt(cookie, id) = if cookie == token && id == submission { Success { value: "{}" } }
+    else { Error { message: HostedReview::missing } }
+
+    let org = "22222222-2222-4222-8222-222222222222"
+    let pkg = "33333333-3333-4333-8333-333333333333"
+    let netPackage = "{\"name\":\"net\"}"
+
+    export fn organize(cookie, slug, name) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if slug == "atlas" && name == "Atlas Engineering" { Success { value: org } } else { Error { message: HostedOwnership::refused } }
+
+    export fn createPackage(cookie, owner, name) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if owner == org && name == "net" { Success { value: pkg } } else { Error { message: HostedOwnership::refused } }
+
+    let commit = "0123456789abcdef0123456789abcdef01234567"
+    let intent = "44444444-4444-4444-8444-444444444444"
+
+    export fn bind(cookie, owner, repository, branch, dir) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if owner == pkg && repository == "4242" && branch == "main" && dir == "packages/net" { Success { value: pkg } } else { Error { message: HostedOwnership::refused } }
+
+    export fn release(cookie, owner, sha, epoch, ordinal) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if owner == pkg && sha == commit && epoch == "1" && ordinal == "2" { Success { value: intent } } else { Error { message: HostedOwnership::refused } }
+
+    let listing = "{\"organizations\":[],\"packages\":[]}"
+    export fn account(cookie) = if cookie == token { Success { value: listing } } else { Error { message: HostedLogin::sessionRequired } }
+
+    export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage, bind: bind, release: release, account: account }
+
+    fn commitBody(sha) = "{\"commit\":\"${sha}\",\"epoch\":1,\"ordinal\":2}"
+
+    /// Each altered commit reaches the real listener. HTTP 400 rejects malformed input,
+    /// 409 means a well-formed value reached the fixture and 201 confirms the exact intent.
+    fn commitCases(client, path, headers) = {
+        let invalidBytes = ["G", "A", "/", ":", "g", "-", " "]
+        let acceptedPositions = filterList(toList(range(0, 40)), fn(i) => {
+                let byte = listGet(invalidBytes, i % length(invalidBytes)) ?: "G"
+                let altered = take(commit, i) + byte + drop(commit, i + 1)
+                status(client, path, headers, commitBody(altered)) != 400
+        })
+        check("positions that failed to reject an invalid commit byte", "", join(mapList(acceptedPositions, toString), ","))
+        checkAll("commit length, alphabet boundaries, reordered fields and exact authorization", [
+                status(client, path, headers, commitBody(take(commit, 39))) == 400,
+                status(client, path, headers, commitBody(commit + "0")) == 400,
+                status(client, path, headers, commitBody(repeat("0", 40) ?: "")) == 409,
+                status(client, path, headers, commitBody(repeat("9", 40) ?: "")) == 409,
+                status(client, path, headers, commitBody(repeat("a", 40) ?: "")) == 409,
+                status(client, path, headers, commitBody(repeat("f", 40) ?: "")) == 409,
+                status(client, path, headers, "{\"ordinal\":2,\"epoch\":1,\"commit\":\"${commit}\"}") == 201,
+                status(client, path, headers, commitBody(commit)) == 201
+        ])
+    }
+
+    fn repositoryCase(client, path, headers, id) = status(client, path, headers,
+        "{\"branch\":\"main\",\"repositoryId\":\"${id}\",\"subdirectory\":\"packages/net\"}")
+
+    fn repositoryCases(client, path, headers) = {
+        let invalid = ["", "0", "01", "-1", "+1", " 1", "1 ", "1.0", "1e1", "1a", "9223372036854775808", "9999999999999999999", "10000000000000000000"]
+        let admitted = filterList(invalid, fn(id) => repositoryCase(client, path, headers, id) != 400)
+        check("repository IDs rejected before the forge", "", join(mapList(admitted, fn(id) => "[" + id + "]"), ","))
+        checkAll("positive bigint boundaries reach the forge", [
+                repositoryCase(client, path, headers, "1") == 409,
+                repositoryCase(client, path, headers, "9223372036854775807") == 409,
+                repositoryCase(client, path, headers, "4242") == 201
+        ])
+    }
+
+    fn branchCases(client, path, headers) = {
+        let reply = fn(branch) => status(client, path, headers,
+            "{\"branch\":\"${branch}\",\"repositoryId\":\"4242\",\"subdirectory\":\"packages/net\"}")
+        let invalid = ["/main", "main/", "main//next", "HEAD", "-option", ".hidden", "a/.hidden", "end.", "a.lock", "a.lock/b", "a..b", "a b", "a~b", repeat("a", 256) ?: ""]
+        let valid = ["Release/V1.2", "a./b", "a.locked/b", "release/-2", repeat("a", 255) ?: ""]
+        check("malformed Git branches that reached the forge", "", join(filterList(invalid, fn(name) => reply(name) != 400), ","))
+        check("valid alternatives that failed before forge authorization", "", join(filterList(valid, fn(name) => reply(name) != 409), ","))
+        check("original binding after branch refusals", 201, reply("main"))
+    }
+
+    fn releases(client, cookie, auth) = {
+        let repository = HostedOwnership::packages + pkg + "/repository"
+        let releasing = HostedOwnership::packages + pkg + "/releases"
+        let bound = "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"
+        let named = "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":2}"
+        branchCases(client, repository, json(auth))
+        repositoryCases(client, repository, json(auth))
+        commitCases(client, releasing, json(auth))
+        checkAll("binding a repository and naming a commit need the browser, CSRF token and exact values", [
+                answer(client, repository, json(auth), bound) == "201|{\"id\":\"${pkg}\"}",
+                startsWith(answer(client, repository, json(cookie), bound), "403|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":4242,\"branch\":\"main\",\"subdirectory\":\"\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"0042\",\"branch\":\"main\",\"subdirectory\":\"\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"../main\",\"subdirectory\":\"\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"../etc\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"/abs\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"9999\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"), "409|"),
+                answer(client, releasing, json(auth), named) == "201|{\"id\":\"${intent}\"}",
+                startsWith(answer(client, releasing, json(cookie), named), "403|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":2,\"archive\":\"fixture\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":null}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"main\",\"epoch\":1,\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":0,\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":\"1\",\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${repeat("A", 40) ?: ""}\",\"epoch\":1,\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":3}"), "409|"),
+                startsWith(answer(client, HostedOwnership::packages + "not-a-uuid/releases", json(auth), named), "400|"),
+                startsWith(answer(client, HostedOwnership::packages + pkg + "/upload", json(auth), named), "403|")
+        ])
+    }
+
+    /// `status|body` of one POST.
+    fn answer(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
+        Error => "-1|"
+        Success { value } => {
+            let result = toString(httpResponseStatus(value)) + "|" + (httpResponseBody(value) ?: "")
+            let _released = httpResponseFree(value)
+            result
+        }
+    }
+    fn json(headers) = headers + "\r\nContent-Type: application/json"
+
+    fn ownership(client, origin, cookie, auth) = {
+        let packages = HostedOwnership::organizations + "/" + org + "/packages"
+        let founded = "{\"handle\":\"atlas\",\"name\":\"Atlas Engineering\"}"
+        checkAll("organization and package creation require the browser, origin, CSRF token and valid names", [
+                startsWith(answer(client, HostedOwnership::organizations, json(origin), founded), "401|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(cookie), founded), "403|"),
+                answer(client, HostedOwnership::organizations, json(auth), founded) == "201|{\"id\":\"${org}\"}",
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"Atlas!\",\"name\":\"Atlas\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"atlas\",\"name\":\" Atlas\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"atlas\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"taken\",\"name\":\"Taken\"}"), "409|"),
+                answer(client, packages, json(auth), netPackage) == "201|{\"id\":\"${pkg}\"}",
+                startsWith(answer(client, packages, json(cookie), netPackage), "403|"),
+                startsWith(answer(client, packages, json(auth), "{\"name\":\"\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations + "/not-a-uuid/packages", json(auth), netPackage), "400|"),
+                startsWith(answer(client, packages, json(auth), "{\"name\":\"other\"}"), "409|"),
+                startsWith(answer(client, HostedOwnership::organizations + "/" + pkg + "/packages", json(auth), netPackage), "409|")
+        ])
+    }
+
+    fn status(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
+        Error => -1
+        Success { value } => {
+            let result = httpResponseStatus(value)
+            let _released = httpResponseFree(value)
+            result
+        }
+    }
+
+    export fn exercise(port, edge) = match httpCreateClient("http://127.0.0.1:${port}", 5000) {
+        Error { message } => check("review listener", "ready", message)
+        Success { value } => {
+            let path = HostedReview::prefix + submission + "/" + digest + "/approve"
+            let origin = edge + "\r\nOrigin: https://packages.example.test"
+            let cookie = origin + "\r\nCookie: __Host-registry=" + token
+            let auth = cookie + "\r\nX-Csrf-Token: " + HostedLogin::csrfToken(token)
+            checkAll("review POST requires the browser, origin, CSRF token and digest", [
+                    status(value, path, origin, "") == 401, status(value, path, cookie, "") == 403,
+                    status(value, path, auth, "data") == 400, status(value, path, auth, "") == 204,
+                    status(value, replace(path, digest, "latest") ?: "", auth, "") == 400,
+                    status(value, replace(path, digest, "sha256:" + (repeat("c", 64) ?: "")) ?: "", auth, "") == 403
+            ])
+            ListenerTests::receiptChecks(port, edge, cookie, submission)
+            ListenerTests::accountChecks(port, edge, cookie, edge + "\r\nCookie: __Host-registry=" + token)
+            ownership(value, origin, cookie, auth)
+            releases(value, cookie, auth)
+            let _closed = httpCloseClient(value)
+        }
+    }
+}

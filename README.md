@@ -4,8 +4,8 @@
 
 <p align="center">
   <a href="https://nimblesite.github.io/osprey-packages/"><b>Browse packages</b></a> ·
-  <a href="docs/specs/ecosystem/0029-PackageManagement.md">Spec</a> ·
-  <a href="docs/plans/0020-package-manager.md">Plan</a> ·
+  <a href="docs/specs/ecosystem/PackageManagement.md">Spec</a> ·
+  <a href="docs/plans/package-manager.md">Plan</a> ·
   <a href="https://www.ospreylang.dev/docs/package-manager/">Guide</a> ·
   <a href="https://github.com/Nimblesite/osprey">Osprey language</a>
 </p>
@@ -49,10 +49,10 @@ A package is **Osprey source, identified by its SHA-256 digest**. A version is n
 |---|---|---|
 | **Client** | [`src/manager/cli`](src/manager/cli) | `osprey-pkg`: `add`, `remove`, `update`, `fetch`, `verify`, `use`, `publish` and `build` |
 | **Registry** | [`src/manager/api`](src/manager/api) | The folder registry and the hosted API listener |
-| **Core** | [`src/manager/core`](src/manager/core), [`resolver`](src/manager/resolver), [`manifest`](src/manager/manifest) | Names, canonical JSON, SHA-256, capability surfaces, the TOML parser and the deterministic solver |
+| **Core** | [`src/manager/core`](src/manager/core) (with `host`, `manifest` and `resolver`) | Names, canonical JSON, SHA-256, capability surfaces, the TOML parser and the deterministic solver |
 | **Website** | [`src/manager/web`](src/manager/web) | The registry site, compiled to WASM and rendered to static pages |
-| **Editor** | [`src/manager/editor`](src/manager/editor) | The VS Code package workspace |
-| **Model** | [`src/manager/schemas/package-registry.td`](src/manager/schemas/package-registry.td) | The canonical domain model, in [typeDiagram](https://typediagram.dev/) |
+| **Editor** | [`src/manager/web/editor`](src/manager/web/editor) | The VS Code package workspace |
+| **Model** | [`src/manager/core/schemas/package-registry.td`](src/manager/core/schemas/package-registry.td) | The canonical domain model, in [typeDiagram](https://typediagram.dev/) |
 
 The [manager README](src/manager/README.md) covers each part in depth.
 
@@ -62,16 +62,16 @@ You need `make`, `curl` and a POSIX shell. `make` downloads the released Osprey 
 
 ```sh
 make build            # osprey-pkg, the folder-registry server and the editor WASM
-make ci               # every suite under GC and ARC, then the website check in Chromium
+make ci               # every suite once under its app's memory strategy, then the website check in Chromium
 make registry-serve   # serve the @osprey packages on http://127.0.0.1:8787
 make help             # every target
 ```
 
-CI runs three phases, once each. Phase 1 builds the client and the hosted fixture site. Phase 2 runs every suite under GC and ARC with line coverage. Phase 3 gates the merged coverage against [`scripts/coverage-thresholds.json`](scripts/coverage-thresholds.json), which only goes up.
+CI runs three phases, once each. Phase 1 builds the client and the hosted fixture site. Phase 2 runs every suite once with line coverage, under its app's one memory strategy: GC for the client, ARC for the folder registry, the hosted API and the WASM editor and website. Phase 3 gates the merged coverage against [`scripts/coverage-thresholds.json`](scripts/coverage-thresholds.json), which only goes up.
 
 ## Specs
 
-[Package management](docs/specs/ecosystem/0029-PackageManagement.md) · [registry trust and discovery](docs/specs/ecosystem/0030-PackageRegistryTrustAndDiscovery.md) · [domain model](docs/specs/ecosystem/0031-PackageDomainModel.md) and [invariants](docs/specs/ecosystem/0031-PackageDomainInvariants.md) · [evidence and discovery](docs/specs/ecosystem/0032-PackageEvidenceAndDiscovery.md) · [deployment and ownership](docs/specs/ecosystem/0044-PackageRegistryDeploymentAndOwnership.md) · [organization governance](docs/specs/ecosystem/0045-OrganizationPackageGovernance.md) · [research basis](docs/specs/ecosystem/PackageResearchBasis.md)
+[Package management](docs/specs/ecosystem/PackageManagement.md) · [registry trust and discovery](docs/specs/ecosystem/PackageRegistryTrustAndDiscovery.md) · [domain model](docs/specs/ecosystem/PackageDomainModel.md) and [invariants](docs/specs/ecosystem/PackageDomainInvariants.md) · [evidence and discovery](docs/specs/ecosystem/PackageEvidenceAndDiscovery.md) · [deployment and ownership](docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) · [organization governance](docs/specs/ecosystem/OrganizationPackageGovernance.md) · [research basis](docs/specs/ecosystem/PackageResearchBasis.md)
 
 ## Relationship to Osprey
 

@@ -30,28 +30,29 @@ module Sha256 {
     fn rotr(x, n) = bitAnd(bitOr(shiftRightLogical(x, n), shiftLeft(x, wrapSub(32, n))), wordMask)
     fn shr(x, n) = shiftRightLogical(x, n)
 
-    fn sigma0(x) = bitXor(bitXor(rotr(x, 7), rotr(x, 18)), shr(x, 3))
-    fn sigma1(x) = bitXor(bitXor(rotr(x, 17), rotr(x, 19)), shr(x, 10))
-    fn bigSigma0(x) = bitXor(bitXor(rotr(x, 2), rotr(x, 13)), rotr(x, 22))
-    fn bigSigma1(x) = bitXor(bitXor(rotr(x, 6), rotr(x, 11)), rotr(x, 25))
+    /// `x XOR y XOR z`: the three-term XOR behind every round function of FIPS 180-4.
+    fn xor3(x, y, z) = bitXor(bitXor(x, y), z)
+
+    fn sigma0(x) = xor3(rotr(x, 7), rotr(x, 18), shr(x, 3))
+    fn sigma1(x) = xor3(rotr(x, 17), rotr(x, 19), shr(x, 10))
+    fn bigSigma0(x) = xor3(rotr(x, 2), rotr(x, 13), rotr(x, 22))
+    fn bigSigma1(x) = xor3(rotr(x, 6), rotr(x, 11), rotr(x, 25))
     // `x & y` and `~x & z` are bit-disjoint, so OR equals the FIPS XOR here.
     fn choose(x, y, z) = bitOr(bitAnd(x, y), bitAnd(notW(x), z))
-    fn majority(x, y, z) = bitXor(bitXor(bitAnd(x, y), bitAnd(x, z)), bitAnd(y, z))
+    fn majority(x, y, z) = xor3(bitAnd(x, y), bitAnd(x, z), bitAnd(y, z))
 
-    fn wordAt(padded, base) = {
-        let b0 = listGet(padded, base) ?: 0
-        let b1 = listGet(padded, wrapAdd(base, 1)) ?: 0
-        let b2 = listGet(padded, wrapAdd(base, 2)) ?: 0
-        let b3 = listGet(padded, wrapAdd(base, 3)) ?: 0
-        wrapAdd(wrapAdd(wrapMul(b0, 16777216), wrapMul(b1, 65536)), wrapAdd(wrapMul(b2, 256), b3))
-    }
+    /// The big-endian word of the four bytes at `base` and its wrap-around successors.
+    fn wordAt(padded, base) = foldList([0, 1, 2, 3], 0, fn(word, k) => wrapAdd(wrapMul(word, 256), listGet(padded, wrapAdd(base, k)) ?: 0))
+
+    /// The schedule word `back` places before round `i`.
+    fn earlier(acc, i, back) = listGet(acc, wrapSub(i, back)) ?: 0
 
     fn schedule(padded, off) = {
         let words = range(0, 16) |> map(fn(i) => wordAt(padded, wrapAdd(off, wrapMul(i, 4)))) |> toList
         fold(range(16, 64), words, fn(acc, i) => {
-            let s1 = sigma1(listGet(acc, wrapSub(i, 2)) ?: 0)
-            let s0 = sigma0(listGet(acc, wrapSub(i, 15)) ?: 0)
-            listAppend(acc, modAdd(modAdd(modAdd(s1, listGet(acc, wrapSub(i, 7)) ?: 0), s0), listGet(acc, wrapSub(i, 16)) ?: 0))
+                let s1 = sigma1(earlier(acc, i, 2))
+                let s0 = sigma0(earlier(acc, i, 15))
+                listAppend(acc, modAdd(modAdd(modAdd(s1, earlier(acc, i, 7)), s0), earlier(acc, i, 16)))
         })
     }
 

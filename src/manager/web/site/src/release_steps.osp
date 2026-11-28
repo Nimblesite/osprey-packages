@@ -1,0 +1,92 @@
+namespace registry_web;
+import registry::Bytes
+import registry::Canonical
+import registry::Json
+import registry::JsonRead
+
+/// The publisher's four steps on the release page [PACKAGE-HOSTED-PUBLISH-FLOW], in Osprey: found an
+/// organization, create its package, link the package's GitHub repository, and name the commit to
+/// release. `request` turns a step's fields into `<path>\n<body>` for the browser bridge to POST, or
+/// `invalid\n<message>`; `reply` turns the API's answer into `ok\n<id>\n<message>` or
+/// `error\n<message>`. The API validates every field again and is the only authority.
+module ReleaseSteps {
+    let unavailable = "The registry is unavailable. Try again shortly."
+
+    fn field(fields, i) = trim(listGet(fields, i) ?: "")
+
+    fn text(key, fields, i) = Json::member(key, Json::str(field(fields, i)))
+
+    fn post(path, members) = match Canonical::serialize(Json::obj(members)) {
+        Success { value } => "${path}\n${value}"
+        Error => invalid("These details cannot be sent.")
+    }
+
+    fn invalid(message) = "invalid\n${message}"
+
+    /// A POST under the id an earlier step created, or the step that must come first.
+    fn under(id, first, path, members) = if Bytes::canonicalUuid(id) { post(path, members) } else { invalid(first) }
+
+    fn number(text) = if byteLength(text) >= 1 && byteLength(text) <= 9 && Bytes::everyByte(text, Bytes::isDigit) { parseInt(text) ?: 0 } else { 0 }
+
+    /// The two numbers of a version `e<epoch>.r<ordinal>`, zero where the text names none.
+    fn epochOf(version) = if startsWith(version, "e") { number(Bytes::before(drop(version, 1), ".r")) } else { 0 }
+
+    fn ordinalOf(version) = match indexOf(version, ".r") {
+        Success { value } => number(drop(drop(version, value), 2))
+        Error => 0
+    }
+
+    fn release(fields) = {
+        let version = field(fields, 2)
+        let members = [text("commit", fields, 1), Json::member("epoch", Json::num(epochOf(version))), Json::member("ordinal", Json::num(ordinalOf(version)))]
+        if epochOf(version) > 0 && ordinalOf(version) > 0 {
+            under(field(fields, 0), "Create the package first.", "/v1/packages/${field(fields, 0)}/releases", members)
+        } else { invalid("Write the version as e<epoch>.r<release>, for example e1.r1.") }
+    }
+
+    /// The POST one step makes: `fields` are the step's inputs, ids from earlier steps first.
+    export fn request(step, fields) = match step {
+        "organization" => post("/v1/organizations", [text("handle", fields, 0), text("name", fields, 1)])
+        "package" => under(field(fields, 0), "Create the organization first.", "/v1/organizations/${field(fields, 0)}/packages", [text("name", fields, 1)])
+        "repository" => under(field(fields, 0), "Create the package first.", "/v1/packages/${field(fields, 0)}/repository", [text("repositoryId", fields, 1), text("branch", fields, 2), text("subdirectory", fields, 3)])
+        "release" => release(fields)
+        _ => invalid(unavailable)
+    }
+
+    fn created(step) = match step {
+        "organization" => "Organization created. Now create its package."
+        "package" => "Package created. Now link its GitHub repository."
+        "repository" => "Repository linked. Now name the commit to release."
+        _ => "Release requested. The registry fetches that commit, scans it and publishes it once a reviewer approves. Submission ID:"
+    }
+
+    fn taken(step) = match step {
+        "organization" => "That handle is taken. Choose another."
+        "package" => "That package name is taken, or the organization is not yours."
+        "repository" => "This package already has a repository, or your GitHub account is not an admin of that repository."
+        _ => "This version already exists, or the package has no linked repository."
+    }
+
+    fn rejected(step) = match step {
+        "organization" => "Use a lowercase handle (letters, digits, hyphens) and a name of at most 128 characters."
+        "package" => "Use a lowercase package name: letters, digits and hyphens."
+        "repository" => "Use the numeric GitHub repository ID, a branch name, and a lowercase subdirectory or none."
+        _ => "Use the full 40-character commit hash in lowercase."
+    }
+
+    fn createdId(step, body) = match Json::parse(body) {
+        Success { value } => {
+            let id = JsonRead::text(JsonRead::field(value, "id"))
+            if Bytes::canonicalUuid(id) { "ok\n${id}\n${created(step)}" } else { "error\n${unavailable}" }
+        }
+        Error => "error\n${unavailable}"
+    }
+
+    /// What the page shows for the API's `code` and `body` after `step`.
+    export fn reply(step, code, body) = if code == 201 { createdId(step, body) }
+    else if code == 400 { "error\n${rejected(step)}" }
+    else if code == 401 { "error\nYour session has ended. Sign in again." }
+    else if code == 403 { "error\nThe registry refused this page. Reload it and try again." }
+    else if code == 409 { "error\n${taken(step)}" }
+    else { "error\n${unavailable}" }
+}

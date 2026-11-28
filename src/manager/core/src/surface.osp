@@ -104,15 +104,18 @@ module Surface {
         if lineBreak(b) { c { boundary: c.previous != continuation } }
         else if listContains(horizontalWhitespace, b) { c }
         else { c {
-            boundary: b == 123 || b == 125 || b == 59,
-            previous: if listContains(expressionDelimiters, b) && !(listContains(declarers, c.previous) && (b == 40 || b == 91)) { continuation }
+                boundary: listContains([123, 125, 59], b),
+                previous: if listContains(expressionDelimiters, b) && !(listContains(declarers, c.previous) && (b == 40 || b == 91)) { continuation }
                 else if c.previous == nativeDeclaration || c.previous == continuation { "" } else { c.previous }
-        } }
+            } }
     }
 
     fn pushed(s, mode, skip) = moved(s, mode, -1, listPrepend(s.frames, s.mode), skip)
 
     fn popped(s, skip) = moved(s, listGet(s.frames, 0) ?: codeMode, -1, fold(range(1, length(s.frames)), [], fn(acc, j) => listAppend(acc, listGet(s.frames, j) ?: codeMode)), skip)
+
+    fn skipped(s) = moved(s, s.mode, -1, s.frames, 1)
+    fn closedComment(s) = popped(s, 1)
 
     fn atBoundary(s: Scan) = s { boundary: s.previous != continuation }
 
@@ -120,16 +123,22 @@ module Surface {
 
     fn triple(text, i, delimiter) = byte(text, i + 1) == delimiter && byte(text, i + 2) == delimiter
 
-    fn bomAt(text, i) = byte(text, i) == byte(bom, 0) && byte(text, i + 1) == byte(bom, 1) && byte(text, i + 2) == byte(bom, 2)
+    /// True when the byte at `i` is `first` and the one after it `second`.
+    fn pairAt(text, i, b, first, second) = b == first && byte(text, i + 1) == second
 
-    // The vendored Python lexer also accepts U+200B and U+2060 between tokens.
-    fn pythonSpaceAt(text, i) = bomAt(text, i) || (byte(text, i) == 226 &&
-        ((byte(text, i + 1) == 128 && byte(text, i + 2) == 139) || (byte(text, i + 1) == 129 && byte(text, i + 2) == 160)))
+    /// True when bytes `i`, `i + 1` and `i + 2` of `text` are `lead`, `second` and `third`.
+    fn tripleAt(text, i, lead, second, third) = byte(text, i) == lead && byte(text, i + 1) == second && byte(text, i + 2) == third
+
+    fn bomAt(text, i) = tripleAt(text, i, byte(bom, 0), byte(bom, 1), byte(bom, 2))
+
+    // The vendored Python lexer also accepts U+200B (E2 80 8B) and U+2060
+    // (E2 81 A0) between tokens.
+    fn pythonSpaceAt(text, i) = bomAt(text, i) || tripleAt(text, i, 226, 128, 139) || tripleAt(text, i, 226, 129, 160)
 
     fn formattedPrefix(word) = {
         let prefix = toLowerCase(word)
         fold(range(0, byteLength(prefix)), false, fn(found, i) => found || byte(prefix, i) == 102) &&
-            fold(range(0, byteLength(prefix)), true, fn(valid, i) => valid && listContains([102, 114, 117], byte(prefix, i)))
+        fold(range(0, byteLength(prefix)), true, fn(valid, i) => valid && listContains([102, 114, 117], byte(prefix, i)))
     }
 
     fn stringStart(text, s, i, delimiter) = {
@@ -140,16 +149,16 @@ module Surface {
     }
 
     fn inCode(text, s, i, b) = if s.python && pythonSpaceAt(text, i) { moved(closed(text, s, i), codeMode, -1, s.frames, 2) }
-        else if identByte(s, b) { moved(s, codeMode, if s.start < 0 { i } else { s.start }, s.frames, 0) }
-        else if s.python && b == 64 { closedWord(closed(text, s, i), "@") }
-        else if s.ml && b == 40 && byte(text, i + 1) == 42 { pushed(closed(text, s, i), blockCommentMode, 1) }
-        else if s.typescript && b == backslash { unclassified(closed(text, s, i)) }
-        else if s.typescript && b == slash && byte(text, i + 1) == star { pushed(closed(text, s, i), flatCommentMode, 1) }
-        else if b == quote || ((s.python || s.typescript) && b == apostrophe) || (s.typescript && b == backtick) { stringStart(text, s, i, b) }
-        else if (b == slash && byte(text, i + 1) == slash) || (s.python && b == 35) { pushed(closed(text, s, i), commentMode, 0) }
-        else if b == 123 { pushed(separated(text, s, i, b), codeMode, 0) }
-        else if b == 125 { popped(separated(text, s, i, b), 0) }
-        else { separated(text, s, i, b) }
+    else if identByte(s, b) { moved(s, codeMode, if s.start < 0 { i } else { s.start }, s.frames, 0) }
+    else if s.python && b == 64 { closedWord(closed(text, s, i), "@") }
+    else if s.ml && pairAt(text, i, b, 40, 42) { pushed(closed(text, s, i), blockCommentMode, 1) }
+    else if s.typescript && b == backslash { unclassified(closed(text, s, i)) }
+    else if s.typescript && pairAt(text, i, b, slash, star) { pushed(closed(text, s, i), flatCommentMode, 1) }
+    else if b == quote || ((s.python || s.typescript) && b == apostrophe) || (s.typescript && b == backtick) { stringStart(text, s, i, b) }
+    else if pairAt(text, i, b, slash, slash) || (s.python && b == 35) { pushed(closed(text, s, i), commentMode, 0) }
+    else if b == 123 { pushed(separated(text, s, i, b), codeMode, 0) }
+    else if b == 125 { popped(separated(text, s, i, b), 0) }
+    else { separated(text, s, i, b) }
 
     // Default strings interpolate `${}`; TypeScript only in backticks; Python
     // through its own formatted prefixes.
@@ -164,23 +173,27 @@ module Surface {
         let wide = s.mode % formattedOffset >= tripleOffset
         let formatted = s.mode >= formattedOffset
         if b == delimiter && (!wide || triple(text, i, delimiter)) { popped(s, if wide { 2 } else { 0 }) }
-        else if b == backslash && !(formatted && byte(text, i + 1) == 123) && !(interpolates(s, delimiter) && byte(text, i + 1) == 36) { moved(s, s.mode, -1, s.frames, 1) }
-        else if formatted && b == 123 && byte(text, i + 1) == 123 { moved(s, s.mode, -1, s.frames, 1) }
+        else if b == backslash && !(formatted && byte(text, i + 1) == 123) && !(interpolates(s, delimiter) && byte(text, i + 1) == 36) { skipped(s) }
+        else if formatted && pairAt(text, i, b, 123, 123) { skipped(s) }
         else if formatted && b == 123 { pushed(s, codeMode, 0) }
-        else if interpolates(s, delimiter) && b == 36 && byte(text, i + 1) == 123 { pushed(s, codeMode, 1) }
+        else if interpolates(s, delimiter) && pairAt(text, i, b, 36, 123) { pushed(s, codeMode, 1) }
         else { s }
     }
 
-    fn inBlockComment(text, s, i, b) = if b == 40 && byte(text, i + 1) == 42 { pushed(s, blockCommentMode, 1) }
-        else if b == 42 && byte(text, i + 1) == 41 { popped(s, 1) }
-        else if lineBreak(b) { atBoundary(s) } else { s }
+    /// A byte inside a comment, its opener aside: a line break re-opens a word
+    /// boundary, the closing pair of bytes ends the comment, and anything else
+    /// changes nothing.
+    fn inComment(s, b, closes) = if closes { closedComment(s) } else if lineBreak(b) { atBoundary(s) } else { s }
+
+    fn inBlockComment(text, s, i, b) = if pairAt(text, i, b, 40, 42) { pushed(s, blockCommentMode, 1) }
+    else { inComment(s, b, pairAt(text, i, b, 42, 41)) }
 
     fn step(text, s, i) = {
         let b = byte(text, i)
         if s.skip > 0 { moved(s, s.mode, s.start, s.frames, s.skip - 1) }
         else if s.mode == commentMode { if lineBreak(b) { atBoundary(popped(s, 0)) } else { s } }
         else if s.mode == blockCommentMode { inBlockComment(text, s, i, b) }
-        else if s.mode == flatCommentMode { if b == star && byte(text, i + 1) == slash { popped(s, 1) } else if lineBreak(b) { atBoundary(s) } else { s } }
+        else if s.mode == flatCommentMode { inComment(s, b, pairAt(text, i, b, star, slash)) }
         else if s.mode == codeMode { inCode(text, s, i, b) }
         else { inString(text, s, i, b) }
     }
@@ -188,7 +201,6 @@ module Surface {
     fn declaredIn(s: Scan) = s.declared
 
     fn foundIn(s: Scan) = s.found
-
 
     /// Sorted and duplicate-free: a surface is a set.
     fn canonicalOrEmpty(capabilities) = listSort(Order::distinctStrings(capabilities))
@@ -220,7 +232,7 @@ module Surface {
 
     fn shadowsFile(f) = isSource(pathOf(f)) && !isEmpty(declaredIn(scannedFile(f)))
 
-    // A `.d.ts` file declares types only and is never compiled (spec 0054).
+    // A `.d.ts` file declares types only and is never compiled (the Osprey TypeScript-flavor spec).
     fn typescriptSource(path) = endsWith(path, ".ts") && !endsWith(path, ".d.ts")
 
     fn isSource(path) = endsWith(path, ".osp") || endsWith(path, ".ospml") || endsWith(path, ".py") || typescriptSource(path)

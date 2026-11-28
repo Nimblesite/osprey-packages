@@ -2,17 +2,21 @@ namespace registry;
 
 /// Groups the files found under a folder-registry root into release
 /// directories `@scope/name/<epoch>.<ordinal>`. Pure: the walk itself is a
-/// host effect. Implements the catalog walk of [PACKAGE-FOLDER-REGISTRY].
+/// host effect. A `@scope/name/<epoch>.<ordinal>.yanked` file beside a
+/// release directory marks that release yanked ([PACKAGE-RESOLUTION]: never
+/// chosen afresh, still served by digest). Implements the catalog walk of
+/// [PACKAGE-FOLDER-REGISTRY].
 module Folder {
     /// A release directory and its files, relative to that directory, sorted.
     export type Pending = { releaseDir: string, relPaths: List<string> }
 
-    /// Every release directory to assemble and every one refused before reading.
-    export type Plan = { pending: List<Pending>, refused: List<Release::Refused> }
+    /// Every release directory to assemble, every one refused before reading,
+    /// and every release directory a yank marker names.
+    export type Plan = { pending: List<Pending>, refused: List<Release::Refused>, yanked: List<string> }
 
     let releaseDepth = 3
     let straySegments = "release-path.segments"
-
+    let yankSuffix = ".yanked"
 
     fn segmentsOf(path) = split(path, "/") ?: [path]
 
@@ -23,6 +27,17 @@ module Folder {
         else { join(range(0, releaseDepth) |> map(fn(i) => listGet(parts, i) ?: "") |> toList, "/") }
     }
 
+    /// The marker file that yanks the release at `releaseDir`.
+    export fn yankMarkerOf(releaseDir) = "${releaseDir}${yankSuffix}"
+
+    /// The release directory a yank marker names, or `""` for any other path.
+    fn yankedDirOf(path) = {
+        let dir = take(path, byteLength(path) - byteLength(yankSuffix))
+        if releaseDirOf(path) == "" && endsWith(path, yankSuffix) && Checked::succeeded(ReleasePath::parse(dir)) { dir } else { "" }
+    }
+
+    fn isMarker(path) = yankedDirOf(path) != ""
+
     /// `path` relative to its release directory.
     export fn withinRelease(path) = drop(path, byteLength(releaseDirOf(path)) + 1)
 
@@ -31,10 +46,13 @@ module Folder {
         Release::Refused { dir: if dir == "" { path } else { dir }, code: code }
     }
 
+    /// Every path of one forbidden file kind, refused with that kind's code.
+    fn refusedKind(paths, kind) = mapList(paths, fn(p) => refusal(p, Source::kindCode(kind)))
+
     fn refusals(regular, executable, special) = listConcat(listConcat(
-        mapList(filterList(regular, fn(p) => releaseDirOf(p) == ""), fn(p) => refusal(p, straySegments)),
-        mapList(executable, fn(p) => refusal(p, Source::kindCode("executable")))),
-        mapList(special, fn(p) => refusal(p, Source::kindCode("special"))))
+            mapList(filterList(regular, fn(p) => releaseDirOf(p) == "" && !isMarker(p)), fn(p) => refusal(p, straySegments)),
+            refusedKind(executable, "executable")),
+        refusedKind(special, "special"))
 
     // `Release::Refused` and `Pending` both carry a directory; the receiver is
     // annotated for issue #273.
@@ -61,6 +79,6 @@ module Folder {
         let blocked = mapList(refused, refusedDir)
         let inside = filterList(regular, fn(p) => releaseDirOf(p) != "" && !listContains(blocked, releaseDirOf(p)))
         let groups = grouped(inside)
-        Plan { pending: pendingOf(groups, listSort(mapKeys(groups))), refused: refused }
+        Plan { pending: pendingOf(groups, listSort(mapKeys(groups))), refused: refused, yanked: listSort(mapList(filterList(regular, isMarker), yankedDirOf)) }
     }
 }

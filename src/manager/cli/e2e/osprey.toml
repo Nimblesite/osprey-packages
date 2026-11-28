@@ -1,0 +1,8 @@
+[project]
+name = "registry-e2e"
+source_roots = ["src", "../../core/src", "../../core/host", "../../api/lib", "../lib", "../../core/manifest", "../../core/resolver"]
+default_namespace = "registry_e2e"
+entry = "src/main.osp"
+
+[modules]
+allow_wildcard_imports = false

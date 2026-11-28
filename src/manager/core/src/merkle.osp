@@ -13,6 +13,7 @@ module Merkle {
     let nodePrefix = 1
 
     type Span = { start: int, width: int, shared: bool, hash: List<int> }
+    type Halves = { left: List<List<int>>, right: List<List<int>> }
 
     /// SHA256(0x00 || leaf), the RFC 9162 section 2.1.1 leaf hash.
     export fn leafHash(leaf) = Sha256::digest(listConcat([leafPrefix], leaf))
@@ -25,6 +26,8 @@ module Merkle {
     fn splitOf(n) = splitAt(1, n)
 
     fn sub(leaves, from, to) = range(from, to) |> map(fn(i) => listGet(leaves, i) ?: []) |> toList
+
+    fn halves(leaves, k) = Halves { left: sub(leaves, 0, k), right: sub(leaves, k, length(leaves)) }
 
     /// MTH(D) of RFC 9162 section 2.1.1 over raw leaves. Implements
     /// [PACKAGE-TRUST].
@@ -45,10 +48,9 @@ module Merkle {
     }
 
     fn inclusionStep(index, leaves, k) = {
-        let left = sub(leaves, 0, k)
-        let right = sub(leaves, k, length(leaves))
-        if index < k { listConcat(inclusionProof(index, left), [root(right)]) }
-        else { listConcat(inclusionProof(wrapSub(index, k), right), [root(left)]) }
+        let parts = halves(leaves, k)
+        if index < k { listConcat(inclusionProof(index, parts.left), [root(parts.right)]) }
+        else { listConcat(inclusionProof(wrapSub(index, k), parts.right), [root(parts.left)]) }
     }
 
     /// PROOF(m, D) of RFC 9162 section 2.1.4.1 for prefix size `first`.
@@ -60,10 +62,9 @@ module Merkle {
     }
 
     fn proofStep(m, leaves, exact, k) = {
-        let left = sub(leaves, 0, k)
-        let right = sub(leaves, k, length(leaves))
-        if m <= k { listConcat(subProof(m, left, exact), [root(right)]) }
-        else { listConcat(subProof(wrapSub(m, k), right, false), [root(left)]) }
+        let parts = halves(leaves, k)
+        if m <= k { listConcat(subProof(m, parts.left, exact), [root(parts.right)]) }
+        else { listConcat(subProof(wrapSub(m, k), parts.right, false), [root(parts.left)]) }
     }
 
     fn span(start, width, hash) = Span { start: start, width: width, shared: false, hash: hash }
@@ -95,14 +96,15 @@ module Merkle {
         listConcat(consSpans(wrapSub(m, k), wrapSub(n, k), wrapAdd(base, k), false), [cspan(base, k, true)])
     }
 
-    fn withHash(s, hash) = Span { start: s.start, width: s.width, shared: s.shared, hash: hash }
+    fn withHash(s, hash) = s { hash: hash }
 
     fn zipped(spans, proof) = range(0, length(spans)) |> map(fn(i) =>
         withHash(listGet(spans, i) ?: span(0, 0, []), listGet(proof, i) ?: [])) |> toList
 
     fn within(s, from, to) = s.start >= from && s.start < to
 
-    fn part(spans, from, to) = foldList(spans, [], fn(acc, s) => if within(s, from, to) { listAppend(acc, s) } else { acc })
+    /// The spans that fall inside `[from, to)`.
+    fn part(spans, from, to) = filterList(spans, fn(s) => within(s, from, to))
 
     /// The root of a tree already tiled by complete subtrees, folded at the
     /// 2.1.1 split; a single span is its own root.
@@ -125,10 +127,8 @@ module Merkle {
     /// [PACKAGE-TRUST].
     export fn verifyInclusion(index, size, leaf, proof, expected) = {
         let spans = pathSpans(index, size, 0)
-        match index < 0 || index >= size || length(proof) != length(spans) {
-            true => false
-            false => structuralEquals(treeRoot(0, size, listConcat([span(index, 1, leaf)], zipped(spans, proof))), expected)
-        }
+        let shapeOk = index >= 0 && index < size && length(proof) == length(spans)
+        if shapeOk { structuralEquals(treeRoot(0, size, listConcat([span(index, 1, leaf)], zipped(spans, proof))), expected) } else { false }
     }
 
     /// RFC 9162 section 2.1.4.2: does `proof` tie `firstHash` at size
@@ -137,10 +137,8 @@ module Merkle {
     /// [PACKAGE-TRUST].
     export fn verifyConsistency(first, second, firstHash, secondHash, proof) = {
         let spans = consSpans(first, second, 0, true)
-        match first < 1 || first >= second || length(proof) != length(spans) {
-            true => false
-            false => consistent(spans, first, second, firstHash, secondHash, proof)
-        }
+        let shapeOk = first >= 1 && first < second && length(proof) == length(spans)
+        if shapeOk { consistent(spans, first, second, firstHash, secondHash, proof) } else { false }
     }
 
     fn consistent(spans, first, second, firstHash, secondHash, proof) = {
@@ -156,5 +154,5 @@ module Merkle {
 
     fn powerOfTwo(n) = n == 1 || (n > 0 && n % 2 == 0 && powerOfTwo(intDiv(n, 2)))
 
-    fn sharedOnly(spans) = foldList(spans, [], fn(acc, s) => if s.shared { listAppend(acc, s) } else { acc })
+    fn sharedOnly(spans) = filterList(spans, fn(s) => s.shared)
 }

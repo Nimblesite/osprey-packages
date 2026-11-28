@@ -1,0 +1,69 @@
+namespace registry_live_tests;
+import registry::PublicCatalog
+import registry_host::Database
+import registry_host::Host
+import registry_api::CatalogMemo
+
+/// The public catalog's stored functions on real PostgreSQL, as the migration declares them
+/// [PACKAGE-HOSTED-ROUTES-CATALOG] [PACKAGE-OWNERSHIP-RLS]: only registry_catalog_writer may run
+/// registry.refresh_public_catalog() and only registry_catalog_reader registry.public_catalog_timed();
+/// neither role is elevated; the writer's grants stop at the catalog row and the three tables it
+/// aggregates, and RLS keeps it to row 1. A refresh of an empty registry yields a live, one-hour row
+/// the reader sees and the API decodes. Leaves no catalog row behind.
+module CatalogWriter {
+    let owner = "psql -XqAt --no-password -p 18873 -U registry_check -d postgres -v ON_ERROR_STOP=1 "
+    let writer = "registry_catalog_writer"
+    let reader = "registry_catalog_reader"
+    fn onFixture(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
+    export fn piped(role, script) = onFixture("printf '%s' " + Host::shellWord(script) + " | psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1")
+    fn asRole(role, statement) = onFixture("psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1 -c " + Host::shellWord(statement))
+    export fn sql(statement) = onFixture(owner + "-c " + Host::shellWord(statement))
+    export fn answers(statement, expected) = {
+        let run = sql(statement)
+        run.status == 0 && trim(run.stdout) == expected
+    }
+    /// The writer's one call, exactly as the API makes it.
+    export fn refreshed() = piped(writer, Database::refreshCatalogScript()).status == 0
+    /// The live catalog body as the API reads it, or "" when there is none or the read fails.
+    export fn readerBody() = {
+        let read = piped(reader, Database::timedCatalogScript())
+        if read.status != 0 { "" } else {
+            match CatalogMemo::parse(trim(read.stdout), 0) {
+                Success { value } => value.body
+                Error => ""
+            }
+        }
+    }
+    fn emptyCatalog(body) = match PublicCatalog::decode(body) {
+        Success { value } => isEmpty(value)
+        Error => false
+    }
+    fn refused(role, statement) = asRole(role, statement).status != 0
+
+    fn unelevated() = answers("SELECT bool_or(rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb) FROM pg_roles WHERE rolname IN ('${writer}', '${reader}')", "f")
+    fn tableRights() = answers("SELECT string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type) FROM information_schema.role_table_grants WHERE grantee = '${writer}'",
+        "organizations:SELECT,packages:SELECT,public_catalog:INSERT,public_catalog:SELECT,public_catalog:UPDATE,releases:SELECT")
+    fn executeRights() = answers("SELECT string_agg(r || ':' || f || '=' || has_function_privilege(r, f, 'EXECUTE')::text, ',' ORDER BY r, f) FROM unnest(ARRAY['${writer}', '${reader}']) r, unnest(ARRAY['registry.refresh_public_catalog()', 'registry.public_catalog_timed()']) f",
+        "registry_catalog_reader:registry.public_catalog_timed()=true,registry_catalog_reader:registry.refresh_public_catalog()=false,registry_catalog_writer:registry.public_catalog_timed()=false,registry_catalog_writer:registry.refresh_public_catalog()=true")
+    fn invoker() = answers("SELECT bool_or(prosecdef) FROM pg_proc WHERE oid IN ('registry.refresh_public_catalog()'::regprocedure, 'registry.public_catalog_timed()'::regprocedure)", "f")
+    fn lifetime() = answers("SELECT expires_at - verified_at = interval '1 hour' AND verified_at <= now() FROM registry.public_catalog WHERE id = 1", "t")
+    export fn cleaned() = sql("DELETE FROM registry.public_catalog").status == 0
+
+    export fn check() = {
+        let none = readerBody() == ""
+        let first = refreshed()
+        let again = refreshed()
+        let rows = answers("SELECT count(*) FROM registry.public_catalog", "1")
+        let live = lifetime()
+        let read = emptyCatalog(readerBody())
+        let expired = sql("UPDATE registry.public_catalog SET verified_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'").status == 0 && readerBody() == ""
+        let renewed = refreshed() && emptyCatalog(readerBody())
+        let readerCannotWrite = refused(reader, "SELECT registry.refresh_public_catalog()") && refused(reader, "UPDATE registry.public_catalog SET body = 'x'")
+        let writerScoped = refused(writer, "INSERT INTO registry.public_catalog VALUES (2, now(), now() + interval '1 hour', '{}')")
+        && refused(writer, "DELETE FROM registry.public_catalog") && refused(writer, "SELECT count(*) FROM registry.memberships")
+        && refused(writer, "UPDATE registry.releases SET state = 'eligible'")
+        let clean = cleaned()
+        checkAll("the catalog functions refresh an empty registry into a live, decodable row", [none, first, again, rows, live, read, expired, renewed,
+                unelevated(), tableRights(), executeRights(), invoker(), readerCannotWrite, writerScoped, clean])
+    }
+}

@@ -25,36 +25,39 @@ module PermissionTests {
         controlScreen(WebFixtures::adminWithPublish(), WebFixtures::atlasGrantLedger()),
         [packageAdministratorMemAdmin, "publish-release"], [administrationAloneDoesNot])
 
-    /// The package page carries the same context and warning for members.
-    fn packageViewShowsAccess() = WebFixtures::showsTexts("web: package page shows access context",
-        PackageView::render(WebFixtures::warnedAtlasUtil(), WebFixtures::adminWithoutPublish(), WebFixtures::now()),
-        [packageAdministratorMemAdmin, "Your effective permissions: edit-metadata",
-            administrationAloneDoesNot], [])
+    fn packageTexts(name, member, wanted, unwanted) = WebFixtures::showsTexts(name,
+        PackageView::render(WebFixtures::warnedAtlasUtil(), member, WebFixtures::now()), wanted, unwanted)
 
-    /// A publisher sees their own effective permission, and no implied
-    /// admin powers.
-    fn publisherSeesOwnGrant() = WebFixtures::showsTexts("web: publisher sees own grant",
-        PackageView::render(WebFixtures::warnedAtlasUtil(), WebFixtures::publisher(), WebFixtures::now()),
-        ["Your effective permissions: publish-release"], [administrationAloneDoesNot])
+    /// One package-page case: the member viewing, the texts the page must show and the texts it must not.
+    fn packageCase(name, member, wanted, unwanted) = { name: name, member: member, wanted: wanted, unwanted: unwanted }
 
-    /// Anonymous visitors get the public projection only: no seat, no
+    /// The package page carries the same context and warning for members: an
+    /// administrator without a publish grant is warned, a publisher sees
+    /// their own effective permission and no implied admin powers, a member
+    /// of another organization never sees this package's access context,
+    /// and anonymous visitors get the public projection only — no seat, no
     /// grants, no permission panel at all.
-    fn anonymousSeesNoAccess() = WebFixtures::showsTexts("web: anonymous sees no access",
-        PackageView::render(WebFixtures::warnedAtlasUtil(), WebFixtures::anonymous(), WebFixtures::now()),
-        ["@atlas/util", "OSA-2026-0001"], ["Package administrator", "Your effective permissions"])
+    fn packageCases() = [
+        packageCase("web: package page shows access context", WebFixtures::adminWithoutPublish(),
+            [packageAdministratorMemAdmin, "Your effective permissions: edit-metadata", administrationAloneDoesNot], []),
+        packageCase("web: publisher sees own grant", WebFixtures::publisher(),
+            ["Your effective permissions: publish-release"], [administrationAloneDoesNot]),
+        packageCase("web: anonymous sees no access", WebFixtures::anonymous(),
+            ["@atlas/util", "OSA-2026-0001"], ["Package administrator", "Your effective permissions"]),
+        packageCase("web: outsider sees no access context", WebFixtures::outsider(),
+            ["@atlas/util", "OSA-2026-0001"], ["Organization and permissions", "Package administrator", "Your effective permissions"])
+    ]
+
+    /// The control screen hides for `member`, who does not hold the seat.
+    fn adminHidden(member) = WebFixtures::hiddenFor(controlScreen(member, WebFixtures::atlasGrantLedger()), adminOnlyCode)
 
     /// The control screen is admin-only: a publisher, an outsider and an
     /// anonymous visitor all get the hidden screen.
     fn controlScreenAdminOnly() = checkAll("web: control screen admin only", [
-        WebFixtures::hiddenFor(controlScreen(WebFixtures::publisher(), WebFixtures::atlasGrantLedger()), adminOnlyCode),
-        WebFixtures::hiddenFor(controlScreen(WebFixtures::outsider(), WebFixtures::atlasGrantLedger()), adminOnlyCode),
-        WebFixtures::hiddenFor(controlScreen(WebFixtures::anonymous(), WebFixtures::atlasGrantLedger()), adminOnlyCode)
+            adminHidden(WebFixtures::publisher()),
+            adminHidden(WebFixtures::outsider()),
+            adminHidden(WebFixtures::anonymous())
     ])
-
-    /// A member of another organization never sees this package's access
-    /// context on the package page.
-    fn outsiderSeesNoAccess() = WebFixtures::showsTexts("web: outsider sees no access context",
-        PackageView::render(WebFixtures::warnedAtlasUtil(), WebFixtures::outsider(), WebFixtures::now()), ["@atlas/util", "OSA-2026-0001"], ["Organization and permissions", "Package administrator", "Your effective permissions"])
 
     /// The grant table escapes hostile membership ids.
     fn hostileLedger() = WebFixtures::showsTexts("web: hostile ledger escaped",
@@ -74,14 +77,11 @@ module PermissionTests {
 
     /// The suite.
     export fn run() = {
+        forEachList(packageCases(), fn(c) => test(c.name, fn() => packageTexts(c.name, c.member, c.wanted, c.unwanted)))
         test("web: delegated publisher scope", scopedPublisher)
         test("web: admin without publish warned", adminWithoutPublish)
         test("web: admin with publish not warned", adminWithPublish)
-        test("web: package page shows access context", packageViewShowsAccess)
-        test("web: publisher sees own grant", publisherSeesOwnGrant)
-        test("web: anonymous sees no access", anonymousSeesNoAccess)
         test("web: control screen admin only", controlScreenAdminOnly)
-        test("web: outsider sees no access context", outsiderSeesNoAccess)
         test("web: hostile ledger escaped", hostileLedger)
     }
 }

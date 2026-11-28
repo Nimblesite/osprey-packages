@@ -1,0 +1,22 @@
+namespace registry_api;
+import registry_collect::CollectJob
+import registry::Policy
+import registry_host::Host
+import registry_host::Database
+import registry_host::Native
+
+fn mounted() = handler CollectJob::Inputs {
+    query script => Database::collector(script)
+    quarantine id digest bytes => CloudObjects::mounted("/run/registry-quarantine", id, digest, bytes)
+}
+
+/// Freeze one waiting release intent [PACKAGE-HOSTED-PUBLISH-FLOW].
+fn collect() = andThen(readFile("/run/registry-collector/forge.json"), fn(source) =>
+    andThen(ForgeGithub::collectorApp(source), fn(app) => ForgeGithub::github(app, Host::utcSeconds)(CollectJob::run)))
+
+fn work() = match collect() {
+    Success => 0
+    Error => 1
+}
+
+fn main() = print("status: ${Policy::guarded(fn() => Native::session(fn() => ProviderNative::bounded(120000)(fn() => mounted()(work))))}")

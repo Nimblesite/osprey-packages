@@ -18,7 +18,13 @@ module HostedLogin {
     let configError = "auth.configuration"
 
     export type Redirect = { location: string, cookie: string }
-    export type Settings = { oauth: OAuth::Config, key: string, sessionKey: string }
+    export type Settings = { oauth: OAuth::Config, key: string, sessionKey: string, forge: ForgeGithub::App }
+    export let passkeyCookieName = "__Host-registry-passkey"
+    export let expiredPasskeyCookie = "${passkeyCookieName}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax"
+    /// A passkey challenge reply and the cookie that carries its id back.
+    export type PasskeyStart = { body: string, cookie: string }
+    /// Passkey sign-in: `options()` starts a challenge, `verify(challenge, credential)` issues the browser session.
+    export type Passkeys = { options: fn() -> Result<PasskeyStart, string>, verify: fn(string, string) -> Result<Redirect, string> }
 
     fn field(doc, key) = JsonRead::text(JsonRead::field(doc, key))
 
@@ -30,8 +36,10 @@ module HostedLogin {
         let sessionKey = field(doc, "sessionKmsKey")
         let disabled = key == "" && sessionKey == "" && oauth.supabaseOrigin == "" && oauth.publishableKey == ""
         let sessionReady = sessionKey == "" || (sessionKey != key && LoginKms::validKey(sessionKey))
-        if disabled || (sessionReady && LoginKms::validKey(key) && OAuth::configCode(oauth) == "") {
-            Success { value: Settings { oauth: oauth, key: key, sessionKey: sessionKey } }
+        let forge = ForgeGithub::appOf(doc)
+        let forgeReady = forge.id + forge.installation + forge.key == "" || ForgeGithub::configured(forge)
+        if forgeReady && (disabled || (sessionReady && LoginKms::validKey(key) && OAuth::configCode(oauth) == "")) {
+            Success { value: Settings { oauth: oauth, key: key, sessionKey: sessionKey, forge: forge } }
         }
         else { Error { message: configError } }
     }
@@ -50,9 +58,9 @@ module HostedLogin {
     }
 
     fn saved(callback, stateDigest, browserDigest, verifier, url, flowCookie, seal, store) =
-        andThen(seal(aad(callback, stateDigest, browserDigest), verifier), fn(envelope) =>
-            andThen(store(stateDigest, browserDigest, envelope), fn(_receipt) =>
-                Success { value: Redirect { location: url, cookie: flowCookie } }))
+    andThen(seal(aad(callback, stateDigest, browserDigest), verifier), fn(envelope) =>
+        andThen(store(stateDigest, browserDigest, envelope), fn(_receipt) =>
+            Success { value: Redirect { location: url, cookie: flowCookie } }))
 
     export fn unavailable() = Error { message: "auth.unavailable" }
 
@@ -74,7 +82,7 @@ module HostedLogin {
         let prefix = OAuth::callbackPath + "?code="
         let code = drop(path, byteLength(prefix))
         if startsWith(path, prefix) && byteLength(code) > 0 && byteLength(code) <= 128 &&
-            Bytes::everyByte(code, fn(b) => Bytes::isAlnumIn(b, [Bytes::hyphen, Bytes::underscore])) {
+        Bytes::everyByte(code, fn(b) => Bytes::isAlnumIn(b, [Bytes::hyphen, Bytes::underscore])) {
             Success { value: code }
         } else { Error { message: refused } }
     }
@@ -102,8 +110,8 @@ module HostedLogin {
     fn now() = Checked::mapError(Host::utcSeconds(), fn(_reason) => "auth.clock-unavailable")
 
     fn verifiedNative(config, path, headers) = andThen(callback(config.oauth, path, headers, LoginFlow::redeem,
-        fn(context, envelope) => LoginKms::unseal(config.key, context, envelope)), fn(session) =>
-            verifyCurrent(config.oauth, session))
+            fn(context, envelope) => LoginKms::unseal(config.key, context, envelope)), fn(session) =>
+        verifyCurrent(config.oauth, session))
 
     fn verifyCurrent(oauth, session) = andThen(now(), fn(seconds) => Jwt::verifySession(oauth, seconds, session))
 
@@ -130,7 +138,7 @@ module HostedLogin {
     fn sessionCookie(token) = "${sessionCookieName}=${token}; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax"
 
     fn stored(oauth, token, id) = if Bytes::canonicalUuid(id) {
-        Success { value: Redirect { location: oauth.websiteOrigin + "/upload/", cookie: sessionCookie(token) } }
+        Success { value: Redirect { location: oauth.websiteOrigin + "/release/", cookie: sessionCookie(token) } }
     } else if id == "" { Error { message: unapproved } }
     else { Error { message: sessionUnavailable } }
 
@@ -140,36 +148,39 @@ module HostedLogin {
         let digest = sessionDigest(token)
         if OAuth::configCode(oauth) != "" { Error { message: configError } }
         else { andThen(seal(sessionContext(oauth, digest), session), fn(envelope) => andThen(
-            save(digest, issuerOf(oauth), session.identity.authSubject, session.identity.githubId, envelope), fn(id) => stored(oauth, token, id))) }
+                    save(digest, issuerOf(oauth), session.identity.authSubject, session.identity.githubId, envelope), fn(id) => stored(oauth, token, id))) }
     }
 
     fn issueNative(config, session) = if config.sessionKey == "" { Error { message: sessionUnavailable } }
-        else { issue(config.oauth, session, fn(context, tokens) => LoginKms::sealSession(config.sessionKey, context, tokens), BrowserSessions::save) }
+    else { issue(config.oauth, session, fn(context, tokens) => LoginKms::sealSession(config.sessionKey, context, tokens), BrowserSessions::save) }
 
     /// Bind the exchanged, signed identity to a durable registry browser session.
     export fn nativeCallback(config: Settings, path, headers) =
-        if config.key == "" { unavailable() }
-        else { ProviderNative::transport()(fn() => andThen(verifiedNative(config, path, headers), fn(session) => issueNative(config, session))) }
+    if config.key == "" { unavailable() }
+    else { ProviderNative::transport()(fn() => andThen(verifiedNative(config, path, headers), fn(session) => issueNative(config, session))) }
 
     fn confirmed(oauth, token, digest, identity: Supabase::Identity, revalidate) =
-        andThen(revalidate(digest, issuerOf(oauth), identity.authSubject, identity.githubId), fn(row) =>
-            if Bytes::canonicalUuid(Bytes::before(row, "|")) { Success { value: csrfToken(token) } }
-            else { Error { message: sessionRequired } })
+    andThen(revalidate(digest, issuerOf(oauth), identity.authSubject, identity.githubId), fn(row) =>
+        if Bytes::canonicalUuid(Bytes::before(row, "|")) { Success { value: csrfToken(token) } }
+        else { Error { message: sessionRequired } })
 
     /// A cookie proves no authority until the sealed access token and active database binding both pass.
-    export fn readSession(oauth, token, load, open, verify, revalidate) = {
+    fn verifiedAction(oauth, token, load, open, verify, action) = {
         let digest = sessionDigest(token)
         andThen(load(digest), fn(envelope) => if envelope == "" { Error { message: sessionRequired } }
             else { andThen(open(sessionContext(oauth, digest), envelope), fn(credentials) =>
-                andThen(verify(digest, envelope, credentials), fn(identity) => confirmed(oauth, token, digest, identity, revalidate))) })
+                    andThen(verify(digest, envelope, credentials), fn(identity) => action(digest, identity))) })
     }
+
+    export fn readSession(oauth, token, load, open, verify, revalidate) = verifiedAction(oauth, token, load, open, verify,
+        fn(digest, identity) => confirmed(oauth, token, digest, identity, revalidate))
 
     fn matchedSubject(oauth, access, subject) = andThen(Supabase::verify(oauth, access), fn(identity) =>
         if subject == identity.authSubject { Success { value: identity } } else { Error { message: sessionRequired } })
 
     fn recheckAccess(oauth, access) = andThen(now(), fn(seconds) => match Jwt::verify(oauth, seconds, access) {
-        Success { value } => matchedSubject(oauth, access, value)
-        Error { message } => if message == Jwt::expired { Error { message: message } }
+            Success { value } => matchedSubject(oauth, access, value)
+            Error { message } => if message == Jwt::expired { Error { message: message } }
             else if message == "auth.jwt-invalid" || message == "auth.jwt-signature" { Error { message: sessionRequired } }
             else { Error { message: sessionUnavailable } }
     })
@@ -182,14 +193,14 @@ module HostedLogin {
     }
 
     fn persistRotation(oauth, digest, previous, claim, fresh: Supabase::Session, finish, seal) =
-        andThen(seal(sessionContext(oauth, digest), fresh), fn(secured) =>
-            andThen(finish(digest, issuerOf(oauth), fresh.identity.authSubject, fresh.identity.githubId, previous, claim, secured), fn(row) =>
-                if Bytes::canonicalUuid(row) { Success { value: fresh.identity } } else { Error { message: sessionRequired } }))
+    andThen(seal(sessionContext(oauth, digest), fresh), fn(secured) =>
+        andThen(finish(digest, issuerOf(oauth), fresh.identity.authSubject, fresh.identity.githubId, previous, claim, secured), fn(row) =>
+            if Bytes::canonicalUuid(row) { Success { value: fresh.identity } } else { Error { message: sessionRequired } }))
 
     fn rotate(oauth, digest, previous, claim, stored: Supabase::Session, finish, seal, verify) =
-        andThen(refreshed(oauth, stored.refreshToken), fn(fresh) =>
-            if !sameIdentity(stored.identity, fresh.identity) { Error { message: sessionRequired } }
-            else { andThen(verify(fresh), fn(verified) => persistRotation(oauth, digest, previous, claim, verified, finish, seal)) })
+    andThen(refreshed(oauth, stored.refreshToken), fn(fresh) =>
+        if !sameIdentity(stored.identity, fresh.identity) { Error { message: sessionRequired } }
+        else { andThen(verify(fresh), fn(verified) => persistRotation(oauth, digest, previous, claim, verified, finish, seal)) })
 
     /// Only a signed, expired access token may enter this path. Claim the sealed generation before contacting Supabase.
     export fn refreshSession(oauth, digest, envelope, stored: Supabase::Session, reserve, finish, seal, verify) = {
@@ -207,11 +218,69 @@ module HostedLogin {
         } else { Error { message: message } }
     }
 
-    fn nativeRead(config: Settings, token) = if config.sessionKey == "" { unavailable() }
-        else { ProviderNative::transport()(fn() => readSession(config.oauth, token, BrowserSessions::read,
-            fn(context, envelope) => LoginKms::openSession(config.sessionKey, context, envelope),
-            fn(digest, envelope, credentials) => validCredentials(config, digest, envelope, credentials), BrowserSessions::revalidate)) }
+    fn nativeAction(config: Settings, token, action) = if config.sessionKey == "" { unavailable() }
+    else { ProviderNative::transport()(fn() => verifiedAction(config.oauth, token, BrowserSessions::read,
+                fn(context, envelope) => LoginKms::openSession(config.sessionKey, context, envelope),
+                fn(digest, envelope, credentials) => validCredentials(config, digest, envelope, credentials), action)) }
+
+    fn nativeRead(config, token, revalidate) = nativeAction(config, token,
+        fn(digest, identity) => confirmed(config.oauth, token, digest, identity, revalidate))
+
+    fn approve(config, token, id, digest) = nativeRead(config, token, fn(cookie, issuer, subject, github) =>
+        BrowserSessions::approve(cookie, issuer, subject, github, id, digest))
+
+    fn receipt(config, token, id) = nativeAction(config, token, fn(cookie, identity: Supabase::Identity) =>
+        BrowserSessions::receipt(cookie, issuerOf(config.oauth), identity.authSubject, identity.githubId, id))
+
+    fn owned(config, token, create) = nativeAction(config, token, fn(cookie, identity: Supabase::Identity) =>
+        create(cookie, issuerOf(config.oauth), identity.authSubject, identity.githubId))
+
+    /// GitHub through the registry's App once it is provisioned; until then every forge call fails closed.
+    fn forge(config: Settings) = if ForgeGithub::configured(config.forge) { ForgeGithub::github(config.forge, now) } else { Forge::closed() }
+
+    export fn reviewOperations(config) = HostedReview::Operations {
+        approve: fn(token, id, digest) => approve(config, token, id, digest),
+        receipt: fn(token, id) => receipt(config, token, id),
+        organize: fn(token, slug, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createOrganization(cookie, issuer, subject, github, slug, name)),
+        createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name)),
+        bind: fn(token, pkg, repository, branch, dir) => ProviderNative::transport()(fn() => forge(config)(fn() => owned(config, token, fn(cookie, issuer, subject, github) =>
+                    bound(cookie, issuer, subject, github, pkg, repository, branch, dir)))),
+        release: fn(token, pkg, commit, epoch, ordinal) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal)),
+        account: fn(token) => owned(config, token, BrowserSessions::account)
+    }
+
+    /// Bind only a repository the forge says this GitHub account administers [PACKAGE-HOSTED-PUBLISH-FLOW].
+    export fn bound(cookie, issuer, subject, github, pkg, repository, branch, dir) = andThen(perform Forge::Repository.admin(repository, github), fn(admin) =>
+        if admin { BrowserSessions::bindRepository(cookie, issuer, subject, github, pkg, repository, branch, dir) } else { Error { message: HostedOwnership::refused } })
+
+    /// The challenge id travels only in a five-minute HttpOnly cookie; Supabase consumes the challenge once.
+    export fn passkeyStart(oauth) = andThen(Supabase::passkeyChallenge(oauth), fn(challenge: Supabase::Challenge) => Success { value: PasskeyStart {
+                body: challenge.body, cookie: "${passkeyCookieName}=${challenge.id}; Path=/; Max-Age=300; Secure; HttpOnly; SameSite=Lax" } })
+
+    /// The challenge id this browser was given, or "" without exactly one.
+    export fn passkeyChallenge(headers) = HostedCookies::foundValue(HostedCookies::select(HostedHeaders::find(headers, "cookie") ?: "", passkeyCookieName))
+
+    /// The provider session for a WebAuthn assertion `body` over `challenge`. Only a JSON object is relayed.
+    export fn passkeyAssertion(oauth, challenge, body) = match Json::parse(body) {
+        Success { value } => match value {
+            Json::Obj { members } => if isEmpty(members) { Error { message: Supabase::passkeyRejected } } else { Supabase::passkeySession(oauth, challenge, value) }
+            _ => Error { message: Supabase::passkeyRejected }
+        }
+        Error => Error { message: Supabase::passkeyRejected }
+    }
+
+    fn passkeySignIn(config, challenge, body) = andThen(passkeyAssertion(config.oauth, challenge, body), fn(session) =>
+        andThen(verifyCurrent(config.oauth, session), fn(current) => issueNative(config, current)))
+
+    /// A passkey issues the same sealed browser session as the GitHub callback [PACKAGE-HOSTED-AUTH].
+    export fn nativePasskeys(config: Settings) = Passkeys {
+        options: fn() => if config.key == "" { unavailable() } else { ProviderNative::transport()(fn() => passkeyStart(config.oauth)) },
+        verify: fn(challenge, body) => if config.key == "" { unavailable() } else { ProviderNative::transport()(fn() => passkeySignIn(config, challenge, body)) }
+    }
+
+    /// No passkey provider: every request is refused.
+    export fn noPasskeys() = Passkeys { options: unavailable, verify: fn(_challenge, _body) => unavailable() }
 
     export fn nativeSession(config, method, token) = if method == "POST" { BrowserSessions::logout(sessionDigest(token)) }
-        else { nativeRead(config, token) }
+    else { nativeRead(config, token, BrowserSessions::revalidate) }
 }

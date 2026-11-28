@@ -11,5 +11,9 @@
     "activityBar.activeBorder": "#c3f773",
     "activityBarBadge.background": "#c3f773",
     "activityBarBadge.foreground": "#163f35"
-  }
+  },
+  "osprey.diagnostics.exclude": [
+    "src/manager/cli/e2e/consumer/**",
+    "src/manager/cli/e2e/sample-registry/@demo/report/**"
+  ]
 }

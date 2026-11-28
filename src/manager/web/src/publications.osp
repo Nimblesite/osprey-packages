@@ -12,7 +12,7 @@ module Publications {
     /// `web.evidence-unavailable` when any entry lacks verified evidence.
     export fn render(publications, access: Model::Access) = match access.viewer {
         Model::Member { principal, _, orgHandle } =>
-            renderBoard(filterList(publications, fn(p) => p.key.scope == orgHandle && p.actor == principal))
+        renderBoard(filterList(publications, fn(p) => p.key.scope == orgHandle && p.actor == principal))
         _ => Model::hidden("web.publications.member-only")
     }
 
@@ -22,18 +22,18 @@ module Publications {
     }
 
     fn body(publications) = join([
-        "<main id=\"publications\"><h1>Publications</h1>",
-        Html::note("A pending intent is a proposal, not an accepted release; only the registry's signed eligibility status makes a release public."),
-        join(mapList(publications, item), ""),
-        "</main>"], "")
+            "<main id=\"publications\"><h1>Publications</h1>",
+            Html::note("A pending intent is a proposal, not an accepted release; only the registry's signed eligibility status makes a release public."),
+            join(mapList(publications, item), ""),
+            "</main>"], "")
 
     /// One publication. Only called after `render`'s gate passed, so the
     /// evidence is verified; a hidden screen renders no items at all.
     fn item(p) = join([
-        "<article class=\"publication\" aria-labelledby=\"${Html::id(Names::display(p.key))}-pub\"><h2>${Html::escape(Names::display(p.key))}</h2>",
-        Html::field("Actor", p.actor),
-        statusLine(p.status),
-        "</article>"], "")
+            "<article class=\"publication\" aria-labelledby=\"${Html::id(Names::display(p.key))}-pub\"><h2>${Html::escape(Names::display(p.key))}</h2>",
+            Html::field("Actor", p.actor),
+            statusLine(p.status),
+            "</article>"], "")
 
     fn statusLine(status) = match status {
         Model::Pending { reason } => Html::field("Pending", reason)

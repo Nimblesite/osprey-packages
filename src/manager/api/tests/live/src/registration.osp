@@ -1,0 +1,42 @@
+namespace registry_live_tests;
+import registry_host::BrowserSessions
+import registry_host::Host
+import registry::Bytes
+
+/// First GitHub sign-in registers an account [PACKAGE-HOSTED-AUTH]: an identity the registry has
+/// never seen gets one new principal with no authority and one active binding, through the issuer
+/// login only. A known identity reuses its principal; an identity whose binding was revoked, or a
+/// second GitHub account claiming an already bound Supabase subject, registers nothing and gets no
+/// session. Leaves no rows behind.
+module Registration {
+    let issuer = "https://supabase.example.test/auth/v1"
+    let subject = "7c0d5ad2-2f6b-4e43-9a8e-5d1c3b2a4f60"
+    let github = "9001"
+    fn cookie(fill) = "sha256:" + (repeat(fill, 64) ?: "")
+
+    /// The session id the issuer login returns for this identity, or "" when it issues none.
+    fn issued(fill, authSubject, provider) = match BrowserSessions::issueScript(cookie(fill), issuer, authSubject, provider, "sealed-registration") {
+        Error => "refused"
+        Success { value } => {
+            let result = Ownership::run("printf '%s' " + Host::shellWord(value) + " | " + Ownership::psql("registry_session_issuer"))
+            if result.status == 0 { trim(result.stdout) } else { "failed" }
+        }
+    }
+    fn principals() = "SELECT count(DISTINCT b.principal_id) FROM registry.auth_bindings b JOIN registry.principals p ON p.id=b.principal_id WHERE b.provider_subject='${github}' AND p.kind='human' AND p.state='active' AND p.credential_epoch=1"
+    let cleanup = "DELETE FROM registry.browser_sessions; DELETE FROM registry.auth_bindings WHERE provider_subject IN ('${github}','9002'); DELETE FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id);"
+
+    export fn check() = {
+        let first = issued("a", subject, github)
+        let registered = Ownership::answers(principals(), "1")
+        let again = issued("b", subject, github)
+        let reused = Ownership::answers(principals(), "1") && Ownership::answers("SELECT count(*) FROM registry.browser_sessions WHERE principal_id=(SELECT principal_id FROM registry.auth_bindings WHERE provider_subject='${github}')", "2")
+        let stolen = issued("c", subject, "9002")
+        let unbound = Ownership::answers("SELECT count(*) FROM registry.auth_bindings WHERE provider_subject='9002'", "0")
+        let revoked = Ownership::owner("UPDATE registry.auth_bindings SET state='revoked' WHERE provider_subject='${github}'").status == 0
+        let afterRevoke = issued("d", subject, github)
+        let noOrphans = Ownership::answers("SELECT count(*) FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id)", "0")
+        let clean = Ownership::owner(cleanup).status == 0
+        checkAll("a first GitHub sign-in registers exactly one principal", [Bytes::canonicalUuid(first), registered, Bytes::canonicalUuid(again), first != again, reused,
+                stolen == "", unbound, revoked, afterRevoke == "", noOrphans, clean])
+    }
+}

@@ -55,24 +55,20 @@ module SetOrder {
     fn rank(names, name) = foldList(range(0, length(names)) |> toList, -1, fn(found, i) => if (listGet(names, i) ?: "") == name { i } else { found })
 
     fn component(value, path) = if startsWith(path, "@variant:") { Json::Num { value: rank(split(drop(path, 9), "|") ?: [], variantName(value)) } }
-        else if startsWith(path, "?") { Json::Num { value: if present(JsonRead::at(value, drop(path, 1))) { 1 } else { 0 } } }
-        else { firstPresent(value, split(path, "|") ?: [path]) }
-
-    fn textVs(left, b) = match b {
-        Json::Str { text } => Order::compareStrings(left, text)
-        _ => 1
-    }
-
-    fn numberVs(left, b) = match b {
-        Json::Num { value } => Order::compareInts(left, value)
-        _ => 1
-    }
+    else if startsWith(path, "?") { Json::Num { value: if present(JsonRead::at(value, drop(path, 1))) { 1 } else { 0 } } }
+    else { firstPresent(value, split(path, "|") ?: [path]) }
 
     /// An absent component sorts first; like kinds compare by value; mixed
     /// kinds never occur in schema-valid data and compare as the left greater.
     fn compareScalars(a, b) = match a {
-        Json::Str { text } => textVs(text, b)
-        Json::Num { value } => numberVs(value, b)
+        Json::Str { text } => match b {
+            Json::Str { text: other } => Order::compareStrings(text, other)
+            _ => 1
+        }
+        Json::Num { value } => match b {
+            Json::Num { value: other } => Order::compareInts(value, other)
+            _ => 1
+        }
         _ => if present(b) { -1 } else { 0 }
     }
 
@@ -88,8 +84,8 @@ module SetOrder {
     fn strictCode(paths, items) = foldList(range(1, length(items)) |> toList, "", fn(code, i) => if code == "" { pairCode(paths, items, i) } else { code })
 
     fn scalarTexts(items) = mapList(items, fn(v) => match v {
-        Json::Str { text } => text
-        _ => ""
+            Json::Str { text } => text
+            _ => ""
     })
 
     fn uniqueCode(items) = match Order::canonicalSet(scalarTexts(items)) {
@@ -101,6 +97,6 @@ module SetOrder {
     /// type `element`, obeys its canonical order; else `order.unsorted` or
     /// `order.duplicate` at the first offending pair.
     export fn listCode(element, field, items) = if field == "flags" || field == "hashes" { "" }
-        else if field == "sourceRoots" || field == "testRoots" { uniqueCode(items) }
-        else { strictCode(rulePaths(element), items) }
+    else if field == "sourceRoots" || field == "testRoots" { uniqueCode(items) }
+    else { strictCode(rulePaths(element), items) }
 }

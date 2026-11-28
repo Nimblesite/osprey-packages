@@ -1,8 +1,8 @@
 // The package registry's contracts: its security suites gate CI and local
-// tests under GC and ARC with a real uv, nested compiler invocations keep the
-// selected compiler and memory backend, suites default to GC over stale
-// inherited E2E context, and an invalid REGISTRY_MEMORY fails before any
-// compiler runs. Run from the repository root:
+// tests with a real uv, each app has one memory strategy (client GC, APIs ARC,
+// WASM ARC) that every build, suite and hunt uses, and nested compiler invocations keep
+// the selected compiler and strategy over stale inherited E2E context.
+// Run from the repository root:
 //   node --test scripts/ci/ci-registry-contract-tests.mjs
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -27,17 +27,21 @@ function makeRecipe(name) {
   return commands
 }
 
-function assertRealUv(registry, memory) {
+function assertRealUv(registry) {
   for (const requirement of [/uses: astral-sh\/setup-uv@[0-9a-f]{40}\b/,
     /version: "0\.11\.3"/, /python-version: "3\.12"/, /uv python install 3\.12/, /run: chmod \+x target\/osprey\/osprey target\/osprey-pkg/]) assert.match(registry, requirement)
   const available = registry.indexOf('uv --version')
   assert.ok(available >= 0, 'real uv must be available')
-  assert.ok(available < registry.indexOf('_test_registry REGISTRY_MEMORY='), 'uv must be installed before package tests')
-  const local = makeRecipe('ci')
-  assert.ok(local.includes(`$(MAKE) _test_registry REGISTRY_MEMORY=${memory} REGISTRY_COVERAGE=target/coverage`))
+  assert.ok(available < registry.indexOf('make _test_registry'), 'uv must be installed before package tests')
+  assert.ok(makeRecipe('ci').includes('$(MAKE) _test_registry REGISTRY_COVERAGE=target/coverage'))
 }
 
-const registrySuites = ['fixture-check', 'manifest/tests', 'cli/tests', 'tests', 'e2e', 'auth-tests', 'database-tests', 'governance-tests', 'hosted-tests', 'web', 'editor/tests', 'editor/wire-tests']
+const cliSuites = ['core/fixture-check', 'cli/tests', 'core/tests', 'cli/e2e']
+const apiSuites = ['api/tests']
+const wasmSuites = ['web', 'web/editor/tests']
+const registrySuites = [...cliSuites, ...apiSuites, ...wasmSuites]
+const variableOf = (suite) => (cliSuites.includes(suite) ? 'CLI_MEMORY' : apiSuites.includes(suite) ? 'API_MEMORY' : 'WASM_MEMORY')
+const strategyOf = (suite) => (cliSuites.includes(suite) ? 'gc' : 'arc')
 
 // A fake compiler records, for every process the Make target starts, its argv plus
 // the two E2E selection variables. Only those three fields are stored — no secret
@@ -91,13 +95,12 @@ function registryCalls(path) {
   return recorded.split('\n').filter(Boolean).map(line => JSON.parse(line))
 }
 
-function assertNativeRegistryCalls(native, fixture, memory) {
-  const selected = memory === 'arc' ? 'target/registry-tests/osprey-pkg-arc' : 'target/osprey-pkg'
+function assertNativeRegistryCalls(native, fixture) {
   assert.deepEqual(native.map(call => call.script), ['scripts/packages/test-package-publication.py', 'scripts/packages/test-package-interruption.py'])
   for (const call of native) {
     assert.equal(call.compiler, fixture.compiler)
-    assert.equal(call.memory, memory)
-    assert.equal(call.client, process.env.OSPREY_PACKAGE_CLIENT || resolve(selected))
+    assert.equal(call.memory, 'gc')
+    assert.equal(call.client, process.env.OSPREY_PACKAGE_CLIENT || resolve('target/osprey-pkg'))
   }
 }
 
@@ -113,16 +116,50 @@ function withRegistryFixture(body) {
     assert.match(build, /_registry-website-fixture _registry-migration-tool/)
     assert.match(build, /target\/registry-site-build\/hosted-fixture\//)
     assert.match(hosted, /needs: build/)
-    assert.match(hosted, /registry-integration-verify/)
+    const restoreBinaries = hosted.indexOf('chmod u+x target/osprey-pkg target/registry-tools/*/bin/DataProviderMigrate')
+    assert.ok(restoreBinaries >= 0 && restoreBinaries < hosted.indexOf('make _registry-integration-verify'))
     assert.doesNotMatch(hosted, /registry-website-fixture|_registry-migration-tool/)
-    assert.match(job('ci'), /needs: \[build, test, test-hosted, coverage\]/)
+    assert.match(job('ci'), /needs: \[build, test, hunt, test-hosted, coverage\]/)
     assert.match(job('ci'), /if: always\(\)/)
+  })
+
+  test('phase 1 gates analysis: warnings are errors, sources are formatted, duplication stays under 3%', () => {
+    const build = job('build')
+    assert.ok(build.indexOf('make _lint') >= 0 && build.indexOf('make _lint') < build.indexOf('make build'), 'analysis runs before the build')
+    const lint = makeRecipe('_lint').join('\n')
+    for (const gate of ['--check --warnings-as-errors', 'fmt --check src/manager', 'scripts/deslop.sh']) assert.ok(lint.includes(gate), gate)
+    assert.match(readFileSync('.deslop.toml', 'utf8'), /max_duplication_percent = 3\.0/)
+    assert.doesNotMatch(readFileSync('Makefile', 'utf8'), /--no-warnings/, 'no build silences warnings')
+  })
+
+  test('osprey hunt runs once from every program entry under its app\'s strategy in phase 2', () => {
+    const hunt = job('hunt')
+    assert.match(hunt, /needs: build/)
+    assert.doesNotMatch(hunt, /matrix/)
+    assert.ok(hunt.includes('run: make _hunt\n'))
+    assert.match(job('ci'), /needs\.hunt\.result/)
+    assert.match(readFileSync(recipes, 'utf8'), /^HUNT_PROGRAMS = cli:\$\(CLI_MEMORY\) api:\$\(API_MEMORY\) api\/hosted:\$\(API_MEMORY\) api\/scan:\$\(API_MEMORY\) api\/collect:\$\(API_MEMORY\)$/m)
+    assert.ok(makeRecipe('_hunt').some((line) => line.includes('$(OSPREY) hunt src/manager/$$p --memory=$$memory')))
+  })
+
+  test('each app has one memory strategy: client GC, folder and hosted APIs ARC, WASM ARC', () => {
+    const make = readFileSync(recipes, 'utf8')
+    for (const [name, value] of [['CLI', 'gc'], ['API', 'arc'], ['WASM', 'arc']]) {
+      assert.equal(make.match(new RegExp(`^${name}_MEMORY = `, 'gm'))?.length, 1, `${name}_MEMORY is defined once`)
+      assert.match(make, new RegExp(`^${name}_MEMORY = ${value}$`, 'm'))
+    }
+    assert.ok(make.includes('build src/manager/cli --memory=$(CLI_MEMORY) '))
+    for (const app of ['api', 'api/hosted']) assert.ok(make.includes(`build src/manager/${app} --memory=$(API_MEMORY) `), app)
+    assert.ok(make.includes('build src/manager/web/editor --target=wasm32 --memory=$(WASM_MEMORY) '))
+    assert.ok(make.includes('build $(REGISTRY_WEB)/site --target=wasm32 --memory=$(WASM_MEMORY) '))
+    assert.doesNotMatch(make, /--memory=(gc|arc)\b|REGISTRY_MEMORY|HUNT_MEMORY|NATIVE_MEMORY/, 'no target picks a strategy of its own')
+    assert.doesNotMatch(readFileSync(workflow, 'utf8'), /matrix\.memory|memory: \[/, 'CI runs each suite once')
   })
 
   test('every suite\'s coverage reaches the gate, and the gate reads reports only', () => {
     const registry = job('test')
     assert.ok(registry.includes('REGISTRY_COVERAGE=target/coverage'))
-    assert.match(registry, /name: coverage-\$\{\{ matrix\.memory \}\}/)
+    assert.match(registry, /name: coverage-registry/)
     const coverage = job('coverage')
     assert.match(coverage, /needs: \[test, test-hosted\]/)
     assert.match(coverage, /node scripts\/coverage\.mjs \. target\/coverage\/\*\.json/)
@@ -134,76 +171,48 @@ function withRegistryFixture(body) {
     for (const suite of registrySuites) assert.ok(commands.some((line) => line.endsWith(`$(call registry_coverage,${suite.replaceAll('/', '-')})`)), suite)
   })
 
-  test('make ci gates coverage like CI: fresh reports from both backends, then the gate, last', () => {
+  test('make ci gates coverage like CI: fresh reports, then the gate, last', () => {
     const dry = spawnSync('make', ['-n', '-f', recipes, 'ci', 'BIN=/bin/true'], { encoding: 'utf8' })
     assert.equal(dry.status, 0, dry.stdout + dry.stderr)
     const lines = dry.stdout.split('\n')
     const at = (pattern) => lines.findIndex((line) => pattern.test(line))
     const cleared = at(/rm -rf target\/coverage\b/)
-    const gc = at(/_test_registry REGISTRY_MEMORY=gc REGISTRY_COVERAGE=target\/coverage/)
-    const arc = at(/_test_registry REGISTRY_MEMORY=arc REGISTRY_COVERAGE=target\/coverage/)
+    const suites = at(/_test_registry REGISTRY_COVERAGE=target\/coverage/)
     const gate = at(/node scripts\/coverage\.mjs \. target\/coverage\/\*\.json/)
-    for (const [name, index] of Object.entries({ cleared, gc, arc, gate })) assert.ok(index >= 0, `make ci must run: ${name}`)
-    assert.ok(cleared < gc && gc < arc && arc < gate, 'stale reports are cleared, both backends report, then the gate reads them')
+    for (const [name, index] of Object.entries({ cleared, suites, gate })) assert.ok(index >= 0, `make ci must run: ${name}`)
+    assert.ok(cleared < suites && suites < gate, 'stale reports are cleared, the suites report, then the gate reads them')
     assert.equal(gate, Math.max(...lines.map((line, i) => (/node |\$\(MAKE\)|make /.test(line) ? i : -1))), 'the coverage gate is the last step of make ci')
   })
 
-  test('package manager security suites gate CI and local tests under GC and ARC', () => {
+  test('package manager security suites gate CI and local tests, each under its app\'s strategy', () => {
     const registry = job('test')
     assert.match(registry, /needs: build/)
-    assert.match(registry, /memory: \[gc, arc\]/)
-    assert.ok(registry.includes('name: "Tests: package manager (${{ matrix.memory }})"'))
-    assert.ok(registry.includes('_test_registry REGISTRY_MEMORY=${{ matrix.memory }}'))
-    for (const memory of ['gc', 'arc']) assertRealUv(registry, memory)
+    assert.ok(registry.includes('name: "Tests: package manager"'))
+    assert.ok(registry.includes('make _test_registry REGISTRY_COVERAGE=target/coverage'))
+    assertRealUv(registry)
     const commands = makeRecipe('_test_registry')
-    for (const script of ['publication', 'interruption']) assert.match(commands.join('\n'), new RegExp(`OSPREY_PACKAGE_CLIENT=.*REGISTRY_NATIVE_CLIENT.*python3 scripts/packages/test-package-${script}\\.py`))
+    for (const script of ['publication', 'interruption']) assert.match(commands.join('\n'), new RegExp(`OSPREY_PACKAGE_CLIENT=.*target/osprey-pkg.*python3 scripts/packages/test-package-${script}\\.py`))
     for (const suite of registrySuites) {
-      assert.ok(commands.includes(`$(OSPREY) test src/manager/${suite} --memory=$(REGISTRY_MEMORY) $(call registry_coverage,${suite.replaceAll('/', '-')})`), suite)
+      assert.ok(commands.includes(`$(OSPREY) test src/manager/${suite} --memory=$(${variableOf(suite)}) $(call registry_coverage,${suite.replaceAll('/', '-')})`), suite)
     }
   })
 
-  test('registry nested compiler invocations retain the selected compiler and memory backend', () => {
+  test('registry suites keep the selected compiler and each app\'s strategy over stale inherited E2E context', () => {
     withRegistryFixture(fixture => {
-      const { result, invocations, native } = runRegistryMake(fixture, { REGISTRY_MEMORY: 'arc' })
-      assert.equal(result.status, 0, result.stdout + result.stderr)
-      assertNativeRegistryCalls(native, fixture, 'arc')
-      // Order proves the fail-fast fixture suite still runs first.
-      const expected = registrySuites.map(suite => ['test', `src/manager/${suite}`])
-      if (!process.env.OSPREY_PACKAGE_CLIENT) expected.push(['build', 'src/manager/cli'])
-      assert.deepEqual(invocations.map(seen => seen.argv.slice(0, 2)), expected)
-      const builds = invocations.filter(seen => seen.argv[0] === 'build')
-      assert.equal(builds.length, process.env.OSPREY_PACKAGE_CLIENT ? 0 : 1)
-      if (builds.length) assert.ok(['src/manager/cli', '--memory=arc', '--no-warnings', resolve('target/registry-tests/osprey-pkg-arc')].every(arg => builds[0].argv.includes(arg)))
-      for (const seen of invocations) {
-        assert.equal(seen.OSPREY_E2E_COMPILER, fixture.compiler)
-        assert.ok(isAbsolute(seen.OSPREY_E2E_COMPILER), 'selection must stay absolute')
-        assert.equal(seen.OSPREY_E2E_MEMORY, 'arc')
-        assert.ok(seen.argv.includes('--memory=arc'), `${seen.argv[1]} must run ARC`)
-      }
-    })
-  })
-
-  test('registry suites default to GC and override stale inherited E2E context', () => {
-    withRegistryFixture(fixture => {
-      const { result, invocations, native } = runRegistryMake(fixture, { REGISTRY_MEMORY: undefined,
+      const { result, invocations, native } = runRegistryMake(fixture, {
         OSPREY_E2E_COMPILER: '/stale/compiler', OSPREY_E2E_MEMORY: 'default' })
       assert.equal(result.status, 0, result.stdout + result.stderr)
-      assertNativeRegistryCalls(native, fixture, 'gc')
-      assert.equal(invocations.length, registrySuites.length)
+      assertNativeRegistryCalls(native, fixture)
+      // Order proves the fail-fast fixture suite still runs first; no second client is built.
+      assert.deepEqual(invocations.map(seen => seen.argv.slice(0, 2)), registrySuites.map(suite => ['test', `src/manager/${suite}`]))
       for (const seen of invocations) {
+        const suite = seen.argv[1].slice('src/manager/'.length)
         assert.equal(seen.OSPREY_E2E_COMPILER, fixture.compiler)
+        assert.ok(isAbsolute(seen.OSPREY_E2E_COMPILER), 'selection must stay absolute')
         assert.equal(seen.OSPREY_E2E_MEMORY, 'gc')
-        assert.ok(seen.argv.includes('--memory=gc'), `${seen.argv[1]} must run GC`)
+        assert.ok(seen.argv.includes(`--memory=${strategyOf(suite)}`), `${suite} must run ${strategyOf(suite)}`)
+        assert.equal(seen.argv.filter(arg => arg.startsWith('--memory=')).length, 1, `${suite} has one strategy`)
       }
-    })
-  })
-
-  test('an invalid REGISTRY_MEMORY fails before any compiler executes', () => {
-    withRegistryFixture(fixture => {
-      const { result, invocations } = runRegistryMake(fixture, { REGISTRY_MEMORY: 'default' })
-      assert.notEqual(result.status, 0, 'unsupported backends must not be tolerated')
-      assert.match(result.stdout + result.stderr, /Registry tests require GC or ARC/)
-      assert.deepEqual(invocations, [], 'no suite may start with an unsupported backend')
     })
   })
 }

@@ -1,0 +1,106 @@
+namespace registry_live_tests;
+import registry_api::HostedLogin
+import registry_api::HostedReview
+import registry_api::HostedService
+import registry::Digests
+import registry_host::Host
+
+/// The consumer leg of [PLAN-ROLLOUT-PUBLICATION-JOURNEY]: the released `osprey-pkg` binary fetches
+/// a release through the real hosted API and verifies its digest. Production puts the Cloudflare
+/// Worker in front of the API to add the edge headers; here a loopback listener does the same, and
+/// nothing else: it forwards GETs only and never changes a reply.
+module Consume {
+    let portFile = "target/live-edge-port"
+    /// The live suite's stand-in for the published-source bucket the API mounts at `/run/registry-source`.
+    export let publishedDir = "target/live-published"
+    let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
+    let edgeHeaders = "X-Edge-Host: 127.0.0.1\r\nX-Edge-Secret: fixture-edge-secret-at-least-32-bytes"
+
+    fn reply(status, body) = HttpResponse { status: status, headers: "", contentType: "application/json", streamFd: -1, isComplete: true, partialBody: body }
+
+    fn relayed(response) = {
+        let answer = reply(httpResponseStatus(response), httpResponseBody(response) ?: "")
+        let _freed = httpResponseFree(response)
+        answer
+    }
+
+    fn forwarded(client, path) = {
+        let answer = match httpGetResponse(client, path, edgeHeaders) {
+            Success { value } => relayed(value)
+            Error => reply(502, "")
+        }
+        let _closed = httpCloseClient(client) ?: -1
+        answer
+    }
+
+    fn toApi(port, path) = match httpCreateClient("http://127.0.0.1:${trim(port)}", 5000) {
+        Success { value } => forwarded(value, path)
+        Error => reply(502, "")
+    }
+
+    /// The edge's part: one GET forwarded to the API named in `portFile`, with the edge's headers.
+    export fn edge(method, path, _headers, _body) = if method != "GET" { reply(405, "") } else {
+        match readFile(portFile) {
+            Success { value } => toApi(value, path)
+            Error => reply(502, "")
+        }
+    }
+
+    /// The client's report for `fetch <digest>` from the edge on `edgePort`, run in a fresh directory.
+    fn fetchThrough(edgePort, digest) = perform Host::Process.run(join([
+                "d=$(mktemp -d) && cd \"$d\" && printf '%s\\n' ",
+                Host::shellWord("fetch ${digest} --registry http://127.0.0.1:${edgePort}"),
+                " | \"$OLDPWD/target/osprey-pkg\"; s=$?; cd \"$OLDPWD\"; rm -rf \"$d\"; exit $s"
+            ], ""))
+
+    fn fetchedOk(run: Host::Run, key, version, digest) = run.status == 0 && contains(run.stdout, "fetched: ${key}@${version}#${digest}") && contains(run.stdout, "status: 0")
+
+    fn refused(run: Host::Run) = contains(run.stdout, "status: 1") && !contains(run.stdout, "fetched:")
+
+    fn served(edgePort, key, version, digest, tampered) = {
+        let good = fetchThrough(edgePort, digest)
+        let bad = fetchThrough(edgePort, tampered)
+        reported(fetchedOk(good, key, version, digest) && refused(bad), "consume: ${good.stdout}${good.stderr} | ${bad.stdout}${bad.stderr}")
+    }
+
+    fn failedWith(text) = {
+        print(text)
+        false
+    }
+
+    fn reported(ok, text) = if ok { true } else { failedWith(text) }
+
+    fn listening(server, edgePort, key, version, digest, tampered) = match httpListen(server, edge) {
+        Success => {
+            let ok = served(edgePort, key, version, digest, tampered)
+            let _stopped = httpStopServer(server) ?: -1
+            ok
+        }
+        Error => false
+    }
+
+    /// `osprey-pkg fetch` takes `key` `version` at `digest` from the API on `apiPort` through the
+    /// edge, and refuses `tampered`, a listed digest whose served bytes do not match it.
+    export fn check(apiPort, key, version, digest, tampered) = {
+        let edgePort = apiPort + 2
+        let _written = writeFile(portFile, "${apiPort}")
+        match httpCreateServer(edgePort, "127.0.0.1") {
+            Success { value } => listening(value, edgePort, key, version, digest, tampered)
+            Error => false
+        }
+    }
+
+    fn publishedSource(digest) = andThen(Digests::parse(digest), fn(parsed) => readFile("${publishedDir}/${Digests::hexOf(parsed)}.json"))
+
+    export fn noReviews() = HostedReview::Operations { approve: fn(_token, _id, _digest) => HostedLogin::unavailable(), receipt: fn(_token, _id) => Error { message: HostedReview::missing }, organize: fn(_token, _slug, _name) => HostedLogin::unavailable(), createPackage: fn(_token, _org, _name) => HostedLogin::unavailable(), bind: fn(_token, _pkg, _repo, _branch, _dir) => HostedLogin::unavailable(), release: fn(_token, _pkg, _commit, _epoch, _ordinal) => HostedLogin::unavailable(), account: fn(_token) => HostedLogin::unavailable() }
+
+    /// The real API, serving `catalog` and the published-source directory with sign-in unavailable,
+    /// and `osprey-pkg` consuming `digest` through it while refusing `missing`.
+    export fn fromPublished(catalog, key, version, digest, missing) = {
+        let port = 20000 + random() % 15000
+        let listened = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "", "127.0.0.1", port, port + 1,
+                catalog, publishedSource, fn() => HostedLogin::unavailable(), fn(_path, _headers) => HostedLogin::unavailable(),
+                fn(_method, _token) => HostedLogin::unavailable(), HostedLogin::noPasskeys(), noReviews(), fn() => Success { value: check(port, key, version, digest, missing) }))
+        listened ?: false
+    }
+}

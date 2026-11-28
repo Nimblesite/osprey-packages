@@ -1,0 +1,8 @@
+[project]
+name = "registry-tests"
+source_roots = ["src", "../src", "../host", "../manifest", "../resolver", "../../api/lib"]
+default_namespace = "registry_tests"
+entry = "src/main.osp"
+
+[modules]
+allow_wildcard_imports = false

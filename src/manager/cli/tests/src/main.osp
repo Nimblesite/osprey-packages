@@ -2,9 +2,8 @@ namespace registry_tests;
 import registry::Policy
 
 /// The suites over the package frontend (`src/manager/cli/lib`), assembled apart
-/// from `src/manager/tests` so the frontend can depend on the manifest parser
-/// without that program paying the parser's type-check cost (plan 0020,
-/// Phase 1).
+/// from `src/manager/core/tests` so the frontend can depend on the manifest parser
+/// without that program paying the parser's type-check cost ([PLAN-ENGINE-BUILD]).
 fn suites() = {
     DispatchTests::run()
     FetchTests::run()
@@ -14,8 +13,11 @@ fn suites() = {
     BuildTests::run()
     LockTests::run()
     TransactionTests::run()
+    LoginTests::run()
     OverlayTests::run()
     PublishTests::run()
+    YankTests::run()
+    AuditTests::run()
     PythonTests::run()
     TreeTests::run()
     TreeGraphTests::run()

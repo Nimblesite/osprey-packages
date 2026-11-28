@@ -2,9 +2,13 @@
 
 **Osprey package manager:** `osprey-pkg` client, registry API (local folder registry + hosted Cloud Run on Supabase), registry website, VS Code package workspace. 🌐 <https://nimblesite.github.io/osprey-packages/>
 
-- 🗄️ Backend = Osprey + Supabase, ❌ Rust. Prefer SQL triggers/functions; APIs beside Supabase go on GCP
+- 🗄️ Backend = Osprey + Supabase, ❌ Rust. APIs beside Supabase go on GCP
+- 🧱 DB migrations = [DataProvider Migrations](https://dataprovider.tech/docs/migrations/) (`src/manager/ops/supabase/migrations/schema.yaml`); ❌ SQL, DDL: SQL is illegal in this repo
+- 🗃️ Data access = stored procedures + functions, declared in `schema.yaml` `functions:` and called by the API. DataProvider is ONLY the migration tool: ❌ DataProvider or LQL for querying data, ❌ ad-hoc query text in application code
 - 🔐 Package integrity is the product: hashes, locks and trust checks never fail open
-- 🧪 `make ci` = every suite under GC **and** ARC, then the website check
+- 🚢 ONE way to release a package version: a signed intent for a commit in the package's bound GitHub repo; the registry fetches it (`[PACKAGE-HOSTED-PUBLISH-FLOW]`). ❌ upload, second path, operator shortcut, test bypass
+- 🧠 One memory strategy per app, never a matrix: client = GC, folder + hosted API = ARC, WASM (editor, website) = ARC. `CLI_MEMORY` / `API_MEMORY` / `WASM_MEMORY` in `Makefile`
+- 🧪 `make ci` = every suite once under its app's strategy, then the website check
 
 ## 🐦 Osprey
 - 🛠️ Compiler: use what's installed. 1️⃣ the VS Code extension's bundled one (`~/.vscode/extensions/nimblesite.osprey-<version>-<platform>/bin/<platform>/osprey`), 2️⃣ `brew install nimblesite/tap/osprey` (macOS/Linux) or `scoop install osprey` (Windows, [bucket](https://github.com/Nimblesite/scoop-bucket)). ❌ build ospreylang just to run a program. [Install](https://www.ospreylang.dev/docs/installation/)
@@ -24,6 +28,7 @@
 - 1️⃣ Memory safety + security first. 0️⃣ tolerance. Attack first
 - 🛑 Osprey never panics, aborts or exits: every failure is `Result` or a handled effect. ❌ fake zero/empty values
 - 🟥 Red = fail: every tracked program compiles
+- ✅ Can be [formally verified](https://www.ospreylang.dev/docs/proofs/formal-verification/) → MUST be. Every program entry runs [`osprey hunt`](https://www.ospreylang.dev/docs/hunt/) in CI (`make _hunt`)
 
 ## 🧪 Tests
 - ✅ E2E use-case tests: many inputs, many interactions, many assertions. Unit tests only when isolation is needed
@@ -35,6 +40,7 @@
 - 🐛 Duplication + dead code = bugs. Run [deslop](https://deslop.live/docs/for-ai/)
 - 📏 Files < 500 LOC, functions < 20 LOC. Pure functions, immutable types, expressions over statements
 - 🧹 Osprey: drop every inferable type annotation (Hindley-Milner)
+- 🧾 JSON = core `registry::Json` / `JsonRead` / `Canonical` (`src/manager/core/src`) ONLY. ❌ builtin `jsonDecode`, `jsonField`, `JsonArray`…, ❌ `@osprey/json`: contamination
 - 📦 Minimize deps. 🚫📦 No build output in git: generate, gitignore, ship as CI artifacts
 - 🗺️ Data models in [typeDiagram](https://typediagram.dev/docs/language-reference.html); mermaid, ❌ ASCII art
 
@@ -43,3 +49,4 @@
 - ⏱️ Heavy CPU runs: `nice` + strict timeouts
 - 🤖 Legwork → pi: ONLY `zai/glm-5.4` or `kimi-coding/k3.1-pro`
 - 🙅 Never commit as co-author. Never merge PRs
+- 🚀 Deploys run from `main` only: `deploy.sh` and the deploy workflows fail on any other branch, an unmerged commit or a dirty tree. ❌ Deploy a feature branch

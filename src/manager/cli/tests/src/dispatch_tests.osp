@@ -40,65 +40,62 @@ module DispatchTests {
         get _base _path => Error { message: "http.transport: fixture offline" }
     }
 
-    fn doctor() = Dispatch::run(["doctor"])
+    /// The frontend's report for `args` on a healthy host. `Dispatch::run` may
+    /// perform host effects on any argument, so every call runs under fixture
+    /// handlers even when the command touches none.
+    fn reportOf(args) = RegistryFixture::runHosted(healthyProcess(), healthyFiles(), healthyTree(), healthyWeb(), fn() => Dispatch::run(args))
 
-    /// `Dispatch::run` may perform host effects on any argument, so every call
-    /// runs under fixture handlers even when the command touches none.
-    fn onHealthyHost(body) = healthyFiles()(fn() => healthyProcess()(fn() => healthyTree()(fn() => healthyWeb()(body))))
-
-    fn line(report, i) = listGet(report.lines, i) ?: ""
+    /// Whether line 0 of `report` is one JSON document opening with `head` and closing with `tail`.
+    fn jsonLine(report, head, tail) = startsWith(Fixture::line(report, 0), head) && endsWith(Fixture::line(report, 0), tail)
 
     fn helpAndUnknown() = {
-        let help = onHealthyHost(fn() => Dispatch::run([]))
-        let explicit = onHealthyHost(fn() => Dispatch::run(["help"]))
-        let unknown = onHealthyHost(fn() => Dispatch::run(["frobnicate"]))
-        let planned = onHealthyHost(fn() => Dispatch::run(["audit"]))
-        let release = onHealthyHost(fn() => Dispatch::run(["build", "--bogus"]))
-        checkAll("help is the default, unknown commands are usage errors, specified ones say not implemented", [
-            structuralEquals([help.status, explicit.status, unknown.status], [0, 0, 2]),
-            structuralEquals([planned.status, release.status], [3, 2]),
-            line(help, 0) == "usage: osprey-pkg [--json] <command>",
-            length(explicit.lines) == length(help.lines),
-            line(unknown, 0) == "unknown command: frobnicate",
-            line(unknown, 1) == "usage: osprey-pkg [--json] <command>",
-            line(planned, 0) == "not implemented: audit (plan 0020, Milestone A)",
-            line(release, 0) == "build.usage"
+        let help = reportOf([])
+        let explicit = reportOf(["help"])
+        let unknown = reportOf(["frobnicate"])
+        let audit = reportOf(["audit", "--bogus"])
+        let release = reportOf(["build", "--bogus"])
+        checkAll("help is the default, unknown commands are usage errors, audit is routed", [
+                structuralEquals([help.status, explicit.status, unknown.status], [0, 0, 2]),
+                structuralEquals([audit.status, release.status], [2, 2]),
+                Fixture::line(help, 0) == "usage: osprey-pkg [--json] <command>",
+                length(explicit.lines) == length(help.lines),
+                structuralEquals([Fixture::line(unknown, 0), Fixture::line(unknown, 1)],
+                    ["unknown command: frobnicate", "usage: osprey-pkg [--json] <command>"]),
+                Fixture::line(audit, 0) == "audit.usage",
+                Fixture::line(release, 0) == "build.usage"
         ])
     }
 
     fn doctorHealthy() = {
-        let report = onHealthyHost(doctor)
+        let report = reportOf(["doctor"])
         checkAll("doctor reports a healthy host and every blocked capability", [
-            report.status == 0,
-            structuralEquals(mapList([0, 1], fn(k) => line(report, k)), ["process: ok", "files: ok"]),
-            line(report, 2) == "compiler: /usr/local/bin/osprey",
-            line(report, 3) == "uv: missing (python/uv: needed only by packages declaring python/interop)",
-            length(report.lines) == 4 + length(Capabilities::blocked()),
-            startsWith(line(report, 4), "blocked: process.argv")
+                report.status == 0,
+                structuralEquals(mapList([0, 1, 2, 3], fn(k) => Fixture::line(report, k)),
+                    ["process: ok", "files: ok", "compiler: /usr/local/bin/osprey", "uv: missing (python/uv: needed only by packages declaring python/interop)"]),
+                length(report.lines) == 4 + length(Capabilities::blocked()),
+                startsWith(Fixture::line(report, 4), "blocked: process.argv")
         ])
     }
 
     fn doctorBroken() = {
-        let report = brokenFiles()(fn() => brokenProcess()(fn() => healthyTree()(fn() => healthyWeb()(doctor))))
+        let report = RegistryFixture::runHosted(brokenProcess(), brokenFiles(), healthyTree(), healthyWeb(), fn() => Dispatch::run(["doctor"]))
         checkAll("doctor names each failing probe", [
-            line(report, 0) == "process: failed (status 1)",
-            line(report, 1) == "files: write failed: writeFile: denied",
-            line(report, 2) == "compiler: missing (osprey is not on PATH)"
+                Fixture::line(report, 0) == "process: failed (status 1)",
+                Fixture::line(report, 1) == "files: write failed: writeFile: denied",
+                Fixture::line(report, 2) == "compiler: missing (osprey is not on PATH)"
         ])
     }
 
     /// `--json` renders the same report as one canonical JSON line.
     fn jsonRendering() = {
-        let plain = onHealthyHost(fn() => Dispatch::run(["help"]))
-        let rendered = onHealthyHost(fn() => Dispatch::run(["--json", "help"]))
-        let failing = onHealthyHost(fn() => Dispatch::run(["--json", "frobnicate"]))
+        let plain = reportOf(["help"])
+        let rendered = reportOf(["--json", "help"])
+        let failing = reportOf(["--json", "frobnicate"])
         checkAll("--json is the report as one canonical JSON line with the same status", [
-            rendered.status == plain.status,
-            structuralEquals([length(rendered.lines), failing.status], [1, 2]),
-            startsWith(line(rendered, 0), "{\"lines\":[\"usage: osprey-pkg [--json] <command>\","),
-            endsWith(line(rendered, 0), "],\"status\":0}"),
-            startsWith(line(failing, 0), "{\"lines\":[\"unknown command: frobnicate\","),
-            endsWith(line(failing, 0), "],\"status\":2}")
+                rendered.status == plain.status,
+                structuralEquals([length(rendered.lines), failing.status], [1, 2]),
+                jsonLine(rendered, "{\"lines\":[\"usage: osprey-pkg [--json] <command>\",", "],\"status\":0}"),
+                jsonLine(failing, "{\"lines\":[\"unknown command: frobnicate\",", "],\"status\":2}")
         ])
     }
 

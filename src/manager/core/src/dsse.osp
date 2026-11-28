@@ -1,7 +1,7 @@
 namespace registry;
 
 /// The DSSE protocol v1 pre-authentication encoding and the two detached
-/// hash forms spec 0030 builds on it: the PAE bytes a detached envelope
+/// hash forms the Registry Trust and Discovery spec builds on it: the PAE bytes a detached envelope
 /// signs, the base64url WebAuthn challenge over those bytes, and the
 /// EnvelopeDigest of canonical envelope bytes. Implements [PACKAGE-PUBLISH].
 module Dsse {
@@ -44,9 +44,9 @@ module Dsse {
         |> map(fn(i) => b64Chunk(bytes, wrapMul(i, 3))) |> toList, "")
 
     fn sextet(b) = if b >= 65 && b <= 90 { b - 65 }
-        else if b >= 97 && b <= 122 { b - 71 }
-        else if b >= 48 && b <= 57 { b + 4 }
-        else if b == 45 { 62 } else if b == 95 { 63 } else { -1 }
+    else if b >= 97 && b <= 122 { b - 71 }
+    else if b >= 48 && b <= 57 { b + 4 }
+    else if b == 45 { 62 } else if b == 95 { 63 } else { -1 }
 
     fn encodedAt(text, index) = sextet(byteAt(text, index) ?: 0)
 
@@ -66,14 +66,14 @@ module Dsse {
         let tail = count % 4
         let last = if tail == 0 { 0 } else { encodedAt(text, count - 1) }
         if tail == 1 || (tail == 2 && last % 16 != 0) || (tail == 3 && last % 4 != 0)
-            || !Bytes::everyByte(text, fn(b) => sextet(b) >= 0) { Error { message: "base64url.invalid" } }
+        || !Bytes::everyByte(text, fn(b) => sextet(b) >= 0) { Error { message: "base64url.invalid" } }
         else { Success { value: range(0, intDiv(count * 3, 4)) |> map(fn(i) => decodedByte(text, i)) |> toList } }
     }
 
     /// RFC 4648 standard alphabet with padding, for binary process and KMS boundaries.
     export fn base64(bytes) = {
         let url = base64Url(bytes)
-        let standard = replace(replace(url, "-", "+") ?: url, "_", "/") ?: url
+        let standard = Bytes::replaceBoth(url, "-", "+", "_", "/")
         let leftover = length(bytes) % 3
         standard + (if leftover == 1 { "==" } else if leftover == 2 { "=" } else { "" })
     }
@@ -82,22 +82,22 @@ module Dsse {
     /// payload`, both lengths counting bytes — the exact bytes a detached
     /// envelope signs. Implements [PACKAGE-PUBLISH].
     export fn pae(payloadType, payloadBytes) = Bytes::concatAll([
-        ascii(versionTag), sp(),
-        ascii(toString(byteLength(payloadType))), sp(),
-        ascii(payloadType), sp(),
-        ascii(toString(length(payloadBytes))), sp(),
-        payloadBytes
+            ascii(versionTag), sp(),
+            ascii(toString(byteLength(payloadType))), sp(),
+            ascii(payloadType), sp(),
+            ascii(toString(length(payloadBytes))), sp(),
+            payloadBytes
     ])
 
     fn domainChained(domain, bytes) = Bytes::concatAll([ascii(domain), [nul], bytes])
 
     /// base64url(SHA256("osprey.webauthn.v1" || 0x00 || PAE)) without
-    /// padding — the WebAuthn challenge of spec 0030. Implements
+    /// padding — the WebAuthn challenge of the Registry Trust and Discovery spec. Implements
     /// [PACKAGE-PUBLISH].
     export fn webAuthnChallenge(paeBytes) = base64Url(Sha256::digest(domainChained(Domains::webAuthnDomain(), paeBytes)))
 
     /// "sha256:" + lowercase hex of SHA256("osprey.envelope.v1" || 0x00 ||
     /// canonical envelope bytes), with no length prefix — the EnvelopeDigest
-    /// of spec 0030. Implements [PACKAGE-PUBLISH].
+    /// of the Registry Trust and Discovery spec. Implements [PACKAGE-PUBLISH].
     export fn envelopeDigest(canonicalEnvelopeBytes) = Digests::format(Sha256::digest(domainChained(Domains::envelopeDomain(), canonicalEnvelopeBytes)))
 }

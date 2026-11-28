@@ -13,6 +13,9 @@ module Transaction {
     /// development lock is the target (`local`).
     export type Settings = { base: string, project: string, acceptRemovals: bool, fresh: bool, local: bool }
 
+    /// The flags of every relocking command: the registry and the project.
+    export let flags = [Fetch::registryFlag, Flags::projectFlag]
+
     /// Settings from the parsed command line: `--registry`, `--project`, the
     /// vanished-release policy, sticky-or-fresh choices, and the lock target.
     export fn settingsOf(parsed, acceptRemovals, fresh, local) = Settings {
@@ -26,26 +29,36 @@ module Transaction {
     /// Settings for the release lock, with nothing dropped from the current choices.
     export fn releaseSettings(parsed) = settingsOf(parsed, false, false, false)
 
+    /// The same relock against the development lock with the overlay applied,
+    /// the current lock's choices kept: the transaction `use`, `add <path>`
+    /// and `update` commit after a mapping changes.
+    export fn localOf(s: Settings) = Settings { base: s.base, project: s.project, acceptRemovals: s.acceptRemovals, fresh: false, local: true }
+
     // `Settings` shares `base` and `project` with other records; issue #273
     // needs the receiver's record spelled out.
     /// The registry the relock reads.
     export fn baseOf(s: Settings) = s.base
     /// The project the relock writes.
     export fn projectOf(s: Settings) = s.project
+    /// The lock the relock writes: the development lock in local mode, else the folder lock.
+    export fn lockPath(s: Settings) = if s.local { Project::localLockPathAt(s.project) } else { Project::lockPathAt(s.project) }
 
     let restoreCode = "transaction.restore"
 
     /// Relock without touching any file; `update` without `--breaking`.
     export fn relock(s: Settings) = Lock::relock(s.base, s.project, s.fresh, s.acceptRemovals, s.local)
 
-    fn restored(path, previous, locked) = Reports::restored(Host::restore(path, previous), locked, restoreCode)
+    /// The file at `path` written back from `previous`; a failed restore
+    /// appends `code` and the OS reason to the report that was already going out.
+    fn restoredWith(path, previous, report, code) = Reports::restored(Host::restore(path, previous), report, code)
 
-    fn lockPath(s: Settings) = if s.local { Project::localLockPathAt(s.project) } else { Project::lockPathAt(s.project) }
+    fn restored(path, previous, locked) = restoredWith(path, previous, locked, restoreCode)
 
-    fn writtenAfter(path, text, target, content) = match perform Host::Files.write(path, text) {
-        Error { message } => Error { message: message }
-        Success => perform Host::Files.write(target, content)
-    }
+    /// The release lock written back after a failed development relock, so an
+    /// `update` or `add <path>` that fails changes nothing.
+    export fn restoredRelease(s: Settings, previous, report, code) = restoredWith(Project::lockPathAt(s.project), previous, report, code)
+
+    fn writtenAfter(path, text, target, content) = andThen(perform Host::Files.write(path, text), fn(_written) => perform Host::Files.write(target, content))
 
     fn commitPrepared(target, path, previous, previousLock, text, prefix, resolve) = {
         mut changed = false
@@ -65,15 +78,18 @@ module Transaction {
 
     fn commitAt(target, path, previous, text, prefix, resolve) = Reports::checked(Host::snapshot(target), fn(value) => commitPrepared(target, path, previous, value, text, prefix, resolve))
 
+    /// The manifest as it was before the edit, for a transaction that stages its new text.
+    fn wasPresent(text) = Host::Snapshot { present: true, text: text }
+
     /// Resolve with proposed manifest `text`; on success `prefix` heads the
     /// lock delta. A reported lock-write failure restores `previous`.
-    export fn commit(s, previous, text, prefix) = commitAt(lockPath(s), Project::manifestPathAt(projectOf(s)), Host::Snapshot { present: true, text: previous }, text, prefix, fn() => relock(s))
+    export fn commit(s, previous, text, prefix) = commitAt(lockPath(s), Project::manifestPathAt(projectOf(s)), wasPresent(previous), text, prefix, fn() => relock(s))
 
     /// The same for the overlay `osprey.local.toml` and the development lock.
     export fn commitOverlay(s, text, prefix) = Reports::checked(Host::snapshot(Overlay::pathAt(projectOf(s))), fn(value) => commitAt(lockPath(s), Overlay::pathAt(projectOf(s)), value, text, prefix, fn() => relock(s)))
 
     /// An unpublished local Add resolves its overlay before writing the new
     /// root dependency. The nested overlay transaction supplies the lock.
-    export fn commitLocalManifest(project, previous, text, prefix, resolve) = commitAt(Project::localLockPathAt(project), Project::manifestPathAt(project), Host::Snapshot { present: true, text: previous }, text, prefix, resolve)
+    export fn commitLocalManifest(project, previous, text, prefix, resolve) = commitAt(Project::localLockPathAt(project), Project::manifestPathAt(project), wasPresent(previous), text, prefix, resolve)
 
 }

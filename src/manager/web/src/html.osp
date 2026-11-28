@@ -29,12 +29,12 @@ module Html {
     /// and the five HTML-significant bytes become entities, covering text
     /// and attribute contexts alike because quotes are escaped.
     fn substitution(b) = if control(b) { "?" }
-        else if b == amp { "&amp;" }
-        else if b == lt { "&lt;" }
-        else if b == gt { "&gt;" }
-        else if b == quote { "&quot;" }
-        else if b == apostrophe { "&#39;" }
-        else { "" }
+    else if b == amp { "&amp;" }
+    else if b == lt { "&lt;" }
+    else if b == gt { "&gt;" }
+    else if b == quote { "&quot;" }
+    else if b == apostrophe { "&#39;" }
+    else { "" }
 
     /// `text` with every control byte and every HTML-significant byte
     /// neutralized. One pass over bytes, so UTF-8 sequences pass through

@@ -1,8 +1,10 @@
 namespace registry_api;
 import registry_host::Database
+import registry_host::Host
 import registry::Bytes
 import registry::Bundle
 import registry::Catalog
+import registry::Digests
 import registry::Json
 import registry::Canonical
 import registry::PublicCatalog
@@ -10,6 +12,7 @@ import registry::JsonRead
 import registry::Maybe
 import registry::Paths
 import registry::Release
+import registry::Sha256
 
 /// Process liveness and public ingress use separate listeners [PACKAGE-HOSTED-TOPOLOGY].
 module HostedService {
@@ -17,7 +20,13 @@ module HostedService {
     let jsonType = "application/json"
     let authorizationHeader = "authorization"
     let publisherPrefix = "/v1/publishers/"
+    let originRequired = "req.origin-required"
+    let accountPath = "/v1/account"
     let logoutPath = "/v1/auth/logout"
+    let passkeyOptionsPath = "/v1/auth/passkey/options"
+    let passkeyVerifyPath = "/v1/auth/passkey/verify"
+    let publicCache = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    let immutableCache = "public, max-age=31536000, immutable"
 
     export fn config(source) = match Json::parse(source) {
         Error => Error { message: "hosted.config-invalid" }
@@ -36,7 +45,7 @@ module HostedService {
     fn field(document, key) = JsonRead::text(JsonRead::field(document, key))
 
     fn validSecret(value) = byteLength(value) >= 32 && byteLength(value) <= 256
-        && Bytes::everyByte(value, fn(b) => b > 32 && b < 127)
+    && Bytes::everyByte(value, fn(b) => b > 32 && b < 127)
 
     fn invalidConfig() = Error { message: "hosted.config-invalid" }
 
@@ -63,12 +72,12 @@ module HostedService {
         let origin = field(document, "websiteOrigin")
         let secret = field(document, "edgeSecret")
         if !OAuth::validOrigin("https://${api}") || !OAuth::validOrigin(origin) || origin == "https://${api}"
-            || !validSecret(secret) {
+        || !validSecret(secret) {
             invalidConfig()
         } else {
             andThen(edgeOverlap(document, secret), fn(overlap) => Success { value: HostedRequest::Policy {
-                allowedHost: api, allowedOrigin: origin, edgeSecret: secret, edgeSecretOverlap: overlap,
-                cookieName: HostedLogin::sessionCookieName, csrfToken: "", maxBody: 1048576 } })
+                        allowedHost: api, allowedOrigin: origin, edgeSecret: secret, edgeSecretOverlap: overlap,
+                        cookieName: HostedLogin::sessionCookieName, csrfToken: "", maxBody: 1048576 } })
         }
     }
 
@@ -76,9 +85,31 @@ module HostedService {
         headers: "Content-Type: ${mime}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" + extra,
         streamFd: -1, isComplete: true, partialBody: body }
 
+    fn anonymous(headers) = !HostedHeaders::has(headers, "cookie") && !HostedHeaders::has(headers, authorizationHeader)
+
+    fn etagMatches(headers, etag) = match HostedHeaders::find(headers, "if-none-match") {
+        Success { value } => trim(value) == etag
+        Error => false
+    }
+
+    fn cachedAnonymous(headers, mime, body, cacheControl, extra) = {
+        let digest = Digests::format(Sha256::digest(Bytes::ofString(body)))
+        let etag = "\"${digest}\""
+        let base = "Cache-Control: ${cacheControl}\r\nETag: ${etag}\r\nX-Content-Type-Options: nosniff\r\n" + extra
+        if etagMatches(headers, etag) { HttpResponse { status: 304, contentType: mime, headers: base, streamFd: -1, isComplete: true, partialBody: "" } }
+        else { HttpResponse { status: 200, contentType: mime, headers: "Content-Type: ${mime}\r\n" + base, streamFd: -1, isComplete: true, partialBody: body } }
+    }
+
+    fn cachedReply(headers, mime, body, cacheControl, extra) = if !anonymous(headers) {
+        replyWith(200, mime, body, extra)
+    } else { cachedAnonymous(headers, mime, body, cacheControl, extra) }
+
     fn reply(status, mime, body) = replyWith(status, mime, body, "")
 
-    fn problem(status, code) = reply(status, problemType, "{\"code\":\"${code}\",\"status\":${status}}")
+    fn problemWith(status, code, headers) = replyWith(status, problemType,
+        "{\"code\":\"${code}\",\"status\":${status}}", headers)
+
+    fn problem(status, code) = problemWith(status, code, "")
 
     fn probe(method, path, _headers, _body) = if method == "GET" && path == "/v1/ready" {
         reply(200, "text/plain", "")
@@ -89,7 +120,7 @@ module HostedService {
     fn requestedHeaders(headers) = match HostedHeaders::find(headers, "access-control-request-headers") {
         Error => true
         Success { value } => foldList(split(value, ",") ?: [], true, fn(ok, part) => ok && listContains(
-            [authorizationHeader, "content-type", "x-csrf-token", "idempotency-key"], toLowerCase(trim(part))))
+                [authorizationHeader, "content-type", "x-csrf-token", "idempotency-key"], toLowerCase(trim(part))))
     }
 
     fn preflight(headers, origin) = {
@@ -101,48 +132,113 @@ module HostedService {
         }
     }
 
-    fn dispatch(headers, policy, method, path, catalog, source, login, callback, session) = {
+    fn dispatch(headers, policy, method, path, body, catalog, source, login, callback, session, passkeys: HostedLogin::Passkeys, reviews) = {
         let origin = if HostedHeaders::has(headers, "origin") { policy.allowedOrigin } else { "" }
         let cors = if origin == "" { "" } else { browserHeaders(origin) }
         if path == "/v1/ready" { problem(404, "api.not-found") }
         else if method == "OPTIONS" { preflight(headers, origin) }
-        else if method == "GET" && (path == "/v1/packages" || startsWith(path, "/v1/packages/") || startsWith(path, publisherPrefix) || startsWith(path, HostedSource::prefix)) { catalogResponse(catalog(), path, cors, source) }
+        else if method == "GET" && (path == "/v1/packages" || startsWith(path, "/v1/packages/") || startsWith(path, publisherPrefix) || startsWith(path, HostedSource::prefix)) { catalogResponse(headers, catalog(), path, cors, source) }
+        else if method == "GET" && startsWith(path, HostedReview::receipts) { receiptRequest(headers, path, cors, reviews.receipt) }
         else if method == "GET" && path == HostedLogin::startPath { loginResponse(login(), cors) }
         else if method == "GET" && Bytes::before(path, "?") == OAuth::callbackPath {
             callbackResponse(callback(path, headers), cors)
         }
+        else if method == "GET" && path == accountPath { sessionRead(headers, cors, reviews.account) }
         else if method == "GET" && path == "/v1/auth/session" { sessionRequest(headers, session, cors) }
+        else if method == "POST" && startsWith(path, HostedReview::prefix) { reviewRequest(headers, path, cors, reviews.approve) }
         else if method == "POST" && path == logoutPath { logoutRequest(headers, session, cors) }
+        else if method == "POST" && path == passkeyOptionsPath { passkeyOptions(passkeys.options, cors) }
+        else if method == "POST" && path == passkeyVerifyPath { passkeyVerify(passkeys.verify, HostedLogin::passkeyChallenge(headers), body, cors) }
+        else if method == "POST" && HostedOwnership::owns(path) { ownershipRequest(headers, path, body, cors, reviews) }
         else { unavailable(cors) }
+    }
+
+    /// A signed-in, same-origin read: `read(token)`'s JSON, or the session, origin, request or lookup refusal.
+    fn sessionRead(headers, cors, read) = {
+        let token = HostedLogin::browserToken(headers)
+        if token == "" { signedOut(cors) }
+        else if cors == "" { problem(403, originRequired) }
+        else { match read(token) {
+                Success { value } => replyWith(200, jsonType, value, cors)
+                Error { message } => if message == HostedReview::badRequest { problemWith(400, message, cors) }
+                else if message == HostedReview::missing { problemWith(404, message, cors) }
+                else if message == HostedLogin::sessionRequired { signedOut(cors) } else { unavailable(cors) }
+            } }
+    }
+
+    fn receiptRequest(headers, path, cors, receipt) = {
+        let id = drop(path, byteLength(HostedReview::receipts))
+        sessionRead(headers, cors, fn(token) => if Bytes::canonicalUuid(id) { receipt(token, id) } else { Error { message: HostedReview::badRequest } })
+    }
+
+    fn reviewRequest(headers, path, cors, approve) = {
+        let token = HostedLogin::browserToken(headers)
+        if token == "" { signedOut(cors) }
+        else if cors == "" { problem(403, originRequired) }
+        else { match HostedReview::route(path, token, approve) {
+                Success => replyWith(204, "text/plain", "", cors)
+                Error { message } => if message == HostedReview::badRequest { problemWith(400, message, cors) }
+                else if message == HostedLogin::sessionRequired { signedOut(cors) }
+                else if message == HostedReview::denied { problemWith(403, message, cors) }
+                else { unavailable(cors) }
+            } }
+    }
+
+    fn ownershipRequest(headers, path, body, cors, reviews) = {
+        let token = HostedLogin::browserToken(headers)
+        if token == "" { signedOut(cors) }
+        else if cors == "" { problem(403, originRequired) }
+        else { match HostedOwnership::route(path, token, body, reviews) {
+                Success { value } => replyWith(201, jsonType, "{\"id\":\"${value}\"}", cors)
+                Error { message } => if message == HostedOwnership::badRequest { problemWith(400, message, cors) }
+                else if message == HostedLogin::sessionRequired { signedOut(cors) }
+                else if message == HostedOwnership::refused { problemWith(409, message, cors) }
+                else { unavailable(cors) }
+            } }
     }
 
     fn sessionRequest(headers, session, cors) = {
         let token = HostedLogin::browserToken(headers)
         if token == "" && HostedHeaders::has(headers, authorizationHeader) { unavailable(cors) }
-        else if token != "" && cors == "" { problem(403, "req.origin-required") }
+        else if token != "" && cors == "" { problem(403, originRequired) }
         else { sessionReply(token, session, cors) }
     }
 
-    fn signedOut(cors) = replyWith(401, problemType, "{\"code\":\"auth.session-required\",\"status\":401}", cors)
+    fn signedOut(cors) = problemWith(401, "auth.session-required", cors)
 
     fn sessionReply(token, session, cors) = if token == "" { signedOut(cors) } else { match session("GET", token) {
-        Success { value } => jsonReply(Json::obj([
-            Json::member("authenticated", Json::Bool { flag: true }), Json::member("csrfToken", Json::str(value))
-        ]), cors)
-        Error { message } => if message == HostedLogin::sessionRequired { signedOut(cors) } else { unavailable(cors) }
-    } }
+            Success { value } => jsonReply(Json::obj([
+                        Json::member("authenticated", Json::Bool { flag: true }), Json::member("csrfToken", Json::str(value))
+                ]), cors)
+            Error { message } => if message == HostedLogin::sessionRequired { signedOut(cors) } else { unavailable(cors) }
+        } }
 
     fn loggedOut(cors) = replyWith(204, "text/plain", "", cors + "Set-Cookie: ${HostedLogin::expiredSessionCookie}\r\n")
 
     fn logoutRequest(headers, session, cors) = {
         let token = HostedLogin::browserToken(headers)
-        if cors == "" { problem(403, "req.origin-required") }
+        if cors == "" { problem(403, originRequired) }
         else if token == "" { loggedOut(cors) }
         else { match session("POST", token) {
-            Success => loggedOut(cors)
-            Error => unavailable(cors)
-        } }
+                Success => loggedOut(cors)
+                Error => unavailable(cors)
+            } }
     }
+
+    fn passkeyOptions(start, cors) = if cors == "" { problem(403, originRequired) } else { match start() {
+            Success { value } => replyWith(200, jsonType, value.body, cors + "Set-Cookie: ${value.cookie}\r\n")
+            Error => problemWith(503, Supabase::passkeyUnavailable, cors)
+        } }
+
+    let expiredPasskey = "Set-Cookie: ${HostedLogin::expiredPasskeyCookie}\r\n"
+
+    /// A challenge answers once: every outcome expires its cookie, and only a verified one sets a session.
+    fn passkeyVerify(verify, challenge, body, cors) = if cors == "" { problem(403, originRequired) } else { match verify(challenge, body) {
+            Success { value } => replyWith(204, "text/plain", "", cors + "Set-Cookie: ${value.cookie}\r\n" + expiredPasskey)
+            Error { message } => if message == Supabase::passkeyRejected || message == "auth.github-identity" { problemWith(401, Supabase::passkeyRejected, cors + expiredPasskey) }
+            else if message == HostedLogin::unapproved { problemWith(403, message, cors + expiredPasskey) }
+            else { unavailable(cors + expiredPasskey) }
+        } }
 
     let noReferrer = "Referrer-Policy: no-referrer\r\n"
     let expiredFlow = "Set-Cookie: ${HostedLogin::expiredCookie}\r\n"
@@ -161,17 +257,17 @@ module HostedService {
     }
 
     fn callbackDenied(message, headers) = if message == HostedLogin::refused {
-        replyWith(401, problemType, "{\"code\":\"auth.callback-invalid\",\"status\":401}", headers)
+        problemWith(401, "auth.callback-invalid", headers)
     } else if message == HostedLogin::unapproved {
-        replyWith(403, problemType, "{\"code\":\"auth.session-unapproved\",\"status\":403}", headers + expiredFlow)
+        problemWith(403, "auth.session-unapproved", headers + expiredFlow)
     } else if message == HostedLogin::sessionUnavailable {
-        replyWith(503, problemType, "{\"code\":\"auth.session-unavailable\",\"status\":503}", headers + expiredFlow)
+        problemWith(503, "auth.session-unavailable", headers + expiredFlow)
     } else { unavailable(headers) }
 
-    fn catalogResponse(result: Result<string, string>, path, cors, source) = match result {
+    fn catalogResponse(headers, result: Result<string, string>, path, cors, source) = match result {
         Success { value } => match PublicCatalog::decode(value) {
             Success => match Json::parse(value) {
-                Success { value } => catalogDocument(value, path, cors, source)
+                Success { value } => catalogDocument(headers, value, path, cors, source)
                 Error => unavailable(cors)
             }
             Error => unavailable(cors)
@@ -179,87 +275,97 @@ module HostedService {
         Error => unavailable(cors)
     }
 
-    fn jsonReply(doc, cors) = match Canonical::serialize(doc) {
+    fn serializedReply(result, cors) = match result {
         Success { value } => replyWith(200, jsonType, value, cors)
         Error => unavailable(cors)
     }
 
-    fn catalogDocument(doc, path, cors, source) = if path == "/v1/packages" { jsonReply(doc, cors) } else if startsWith(path, HostedSource::prefix) {
-        releaseResponse(HostedSource::request(doc, path, source), endsWith(path, HostedSource::licenseSuffix), cors)
+    fn cachedSerialized(headers, result, cacheControl, cors) = match result {
+        Success { value } => cachedReply(headers, jsonType, value, cacheControl, cors)
+        Error => unavailable(cors)
+    }
+
+    fn jsonReply(doc, cors) = serializedReply(Canonical::serialize(doc), cors)
+
+    fn cachedJsonReply(headers, doc, cors) = cachedSerialized(headers, Canonical::serialize(doc), publicCache, cors)
+
+    fn catalogDocument(headers, doc, path, cors, source) = if path == "/v1/packages" { cachedJsonReply(headers, doc, cors) } else if startsWith(path, HostedSource::prefix) {
+        releaseResponse(headers, HostedSource::request(doc, path, source), endsWith(path, HostedSource::licenseSuffix), cors)
     } else if startsWith(path, publisherPrefix) {
-        publisherDocument(JsonRead::items(JsonRead::field(doc, "packages")), path, cors)
+        publisherDocument(headers, JsonRead::items(JsonRead::field(doc, "packages")), path, cors)
     } else {
         match listGet(filterList(JsonRead::items(JsonRead::field(doc, "packages")), fn(item) => "/v1/packages/" + field(item, "key") == path), 0) {
-            Success { value } => jsonReply(value, cors)
-            Error => replyWith(404, problemType, "{\"code\":\"catalog.unknown-package\",\"status\":404}", cors)
+            Success { value } => cachedJsonReply(headers, value, cors)
+            Error => problemWith(404, "catalog.unknown-package", cors)
         }
     }
 
-    fn releaseLicense(release: Release::Served, cors) = {
+    fn releaseLicense(headers, release: Release::Served, cors) = {
         let files = filterList(release.files, fn(file) => Paths::licenseDocument(file.relPath))
         if isEmpty(files) { problem(404, "release.license-unavailable") }
-        else { replyWith(200, "text/plain; charset=utf-8", join(mapList(files, fn(file) => "${file.relPath}\n\n${file.content}"), "\n\n"), cors) }
+        else { cachedReply(headers, "text/plain; charset=utf-8", join(mapList(files, fn(file) => "${file.relPath}\n\n${file.content}"), "\n\n"), immutableCache, cors) }
     }
 
-    fn releaseResponse(resolution, license, cors) = match resolution {
-        Error { message } => if message == HostedSource::unknownRelease { replyWith(404, problemType, "{\"code\":\"catalog.unknown-release\",\"status\":404}", cors)
+    fn releaseResponse(headers, resolution, license, cors) = match resolution {
+        Error { message } => if message == HostedSource::unknownRelease { problemWith(404, "catalog.unknown-release", cors)
         } else { unavailable(cors) }
-        Success { value } => if license { releaseLicense(value.release, cors) } else if value.download {
+        Success { value } => if license { releaseLicense(headers, value.release, cors) } else if value.download {
             match Bundle::encode(value.release) {
-                Success { value } => replyWith(200, jsonType, value, cors + "Content-Disposition: attachment; filename=\"osprey-source.json\"\r\n")
+                Success { value } => cachedReply(headers, jsonType, value, immutableCache, cors + "Content-Disposition: attachment; filename=\"osprey-source.json\"\r\n")
                 Error => unavailable(cors)
             }
-        } else { match Catalog::releaseJson(value.release) {
-            Success { value } => replyWith(200, jsonType, value, cors)
-            Error => unavailable(cors)
-        } }
+        } else { cachedSerialized(headers, Catalog::releaseJson(value.release), immutableCache, cors) }
     }
 
     fn credited(item, id) = filterList(JsonRead::items(JsonRead::field(item, "releases")), fn(release) => field(release, "publisherId") == id)
 
     fn publisherPackage(item, id) = Json::obj([
-        Json::member("key", JsonRead::field(item, "key")),
-        Json::member("summary", JsonRead::field(item, "summary")),
-        Json::member("keywords", JsonRead::field(item, "keywords")),
-        Json::member("warnings", JsonRead::field(item, "warnings")),
-        Json::member("releases", Json::arr(credited(item, id)))
+            Json::member("key", JsonRead::field(item, "key")),
+            Json::member("summary", JsonRead::field(item, "summary")),
+            Json::member("keywords", JsonRead::field(item, "keywords")),
+            Json::member("warnings", JsonRead::field(item, "warnings")),
+            Json::member("releases", Json::arr(credited(item, id)))
     ])
 
-    fn publisherDocument(packages, path, cors) = {
+    fn publisherDocument(headers, packages, path, cors) = {
         let parts = split(drop(path, byteLength(publisherPrefix)), "/") ?: []
         let id = listGet(parts, 0) ?: ""
         let detail = length(parts) == 1
         let releases = length(parts) == 2 && (listGet(parts, 1) ?: "") == "releases"
-        if Bytes::canonicalUuid(id) && (detail || releases) { publisherReply(packages, id, detail, cors) }
+        if Bytes::canonicalUuid(id) && (detail || releases) { publisherReply(headers, packages, id, detail, cors) }
         else { unknownPublisher(cors) }
     }
 
-    fn publisherReply(packages, id, detail, cors) = {
+    fn publisherReply(headers, packages, id, detail, cors) = {
         let publicPackages = filterList(packages, fn(item) => !isEmpty(credited(item, id)))
         let first = listGet(publicPackages, 0) ?: Json::Null
         match listGet(credited(first, id), 0) {
             Error => unknownPublisher(cors)
             Success { value } => if detail {
-                jsonReply(Json::obj([Json::member("id", Json::str(id)), Json::member("name", JsonRead::field(value, "publisherName"))]), cors)
-            } else { jsonReply(Json::obj([Json::member("packages", Json::arr(mapList(publicPackages, fn(item) => publisherPackage(item, id))))]), cors) }
+                cachedJsonReply(headers, Json::obj([Json::member("id", Json::str(id)), Json::member("name", JsonRead::field(value, "publisherName"))]), cors)
+            } else { cachedJsonReply(headers, Json::obj([Json::member("packages", Json::arr(mapList(publicPackages, fn(item) => publisherPackage(item, id))))]), cors) }
         }
     }
 
-    fn unknownPublisher(cors) = replyWith(404, problemType, "{\"code\":\"catalog.unknown-publisher\",\"status\":404}", cors)
+    fn unknownPublisher(cors) = problemWith(404, "catalog.unknown-publisher", cors)
 
-    fn unavailable(cors) = replyWith(503, problemType, "{\"code\":\"registry.not-ready\",\"status\":503}", cors)
+    fn unavailable(cors) = problemWith(503, "registry.not-ready", cors)
 
-    fn contentRequest(headers, host, method, path) = host != "" && (HostedHeaders::find(headers, "host") ?: "") == host
-        && method == "GET" && startsWith(path, HostedSource::prefix) && (endsWith(path, HostedSource::attachmentSuffix) || endsWith(path, HostedSource::licenseSuffix))
-        && !HostedHeaders::has(headers, "cookie") && !HostedHeaders::has(headers, authorizationHeader)
+    fn contentRequest(headers, host, method, path) = host != "" && (HostedRequest::publicHost(headers) ?: "") == host
+    && method == "GET" && startsWith(path, HostedSource::prefix) && (endsWith(path, HostedSource::attachmentSuffix) || endsWith(path, HostedSource::licenseSuffix))
+    && !HostedHeaders::has(headers, "cookie") && !HostedHeaders::has(headers, authorizationHeader)
 
     fn requestPolicy(policy, contentHost, method, path, fields) =
-        if contentRequest(fields, contentHost, method, path) { policy { allowedHost: contentHost } }
-        else if method == "POST" && path == logoutPath {
-            policy { csrfToken: HostedLogin::csrfToken(HostedLogin::browserToken(fields)) }
-        } else { policy }
+    if contentRequest(fields, contentHost, method, path) { policy { allowedHost: contentHost } }
+    else if method == "POST" && (path == logoutPath || startsWith(path, HostedReview::prefix) || HostedOwnership::owns(path)) {
+        policy { csrfToken: HostedLogin::csrfToken(HostedLogin::browserToken(fields)) }
+    } else if method == "POST" && (path == passkeyOptionsPath || path == passkeyVerifyPath) {
+        // Passkey sign-in is the one mutation made before a session exists: it is admitted on its exact
+        // Origin alone, so a stale session cookie cannot demand a CSRF token nobody holds.
+        policy { cookieName: HostedLogin::passkeyCookieName + "-none" }
+    } else { policy }
 
-    fn publicRequest(policy, contentHost, method, path, headers, body, catalog, source, login, callback, session) = {
+    fn publicRequest(policy, contentHost, method, path, headers, body, catalog, source, login, callback, session, passkeys, reviews) = {
         let request = HostedRequest::Incoming { method: method, uri: path, headerBlock: headers, body: body }
         let parsed = HostedHeaders::parse(headers)
         let fields = HostedHeaders::headers(parsed)
@@ -267,7 +373,8 @@ module HostedService {
         match HostedRequest::admitParsed(parsed, request, effective) {
             HostedHeaders::Reject { status, code } => problem(status, code)
             _ => if method == "POST" && path == logoutPath && body != "" { problem(400, "req.logout-body") }
-                else { dispatch(fields, policy, method, path, catalog, source, login, callback, session) }
+            else if method == "POST" && startsWith(path, HostedReview::prefix) && body != "" { problem(400, HostedReview::badRequest) }
+            else { dispatch(fields, policy, method, path, body, catalog, source, login, callback, session, passkeys, reviews) }
         }
     }
 
@@ -277,16 +384,16 @@ module HostedService {
     }
 
     fn listen(address, port, callback) = andThen(httpCreateServer(port, address), fn(server) => match httpListen(server, callback) {
-        Success => Success { value: server }
-        Error { message } => {
-            let _closed = httpStopServer(server)
-            Error { message: message }
-        }
+            Success => Success { value: server }
+            Error { message } => {
+                let _closed = httpStopServer(server)
+                Error { message: message }
+            }
     })
 
     /// Start the public listener before reporting process liveness on the management port.
-    export fn withListeners(policy, contentHost, address, publicPort, probePort, catalog, source, login, callback, session, active) = match listen(address, publicPort,
-        fn(method, path, headers, body) => publicRequest(policy, contentHost, method, path, headers, body, catalog, source, login, callback, session)) {
+    export fn withListeners(policy, contentHost, address, publicPort, probePort, catalog, source, login, callback, session, passkeys, reviews, active) = match listen(address, publicPort,
+        fn(method, path, headers, body) => publicRequest(policy, contentHost, method, path, headers, body, catalog, source, login, callback, session, passkeys, reviews)) {
         Error => Error { message: "hosted.public-listener" }
         Success { value } => {
             let publicServer = value
@@ -304,5 +411,10 @@ module HostedService {
             }
         }
     }
-    export fn serve(policy, contentHost, login, callback, session) = withListeners(policy, contentHost, "0.0.0.0", 8080, 8081, Database::publicCatalog, HostedSource::mounted, login, callback, session, waitForRequests)
+    /// Production: catalog reads go through one in-process memo of the verified row [PLAN-ROLLOUT-EDGE].
+    export fn serve(policy, contentHost, login, callback, session, passkeys, reviews) = match CatalogMemo::create() {
+        Error { message } => Error { message: message }
+        Success { value } => withListeners(policy, contentHost, "0.0.0.0", 8080, 8081, fn() => CatalogMemo::read(value, Database::timedPublicCatalog, Database::refreshPublicCatalog, Host::utcSeconds),
+            HostedSource::mounted, login, callback, session, passkeys, reviews, waitForRequests)
+    }
 }

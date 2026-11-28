@@ -12,9 +12,9 @@ module Spdx {
 
     fn idByte(b) = Bytes::isAlnumIn(b, [Bytes::dot, Bytes::hyphen, Bytes::plus])
     fn identifier(token) = byteLength(token) >= 1 && Bytes::everyByte(token, idByte)
-        && !startsWith(token, "+") && (indexOf(drop(token, 0), "+") ?: byteLength(token)) >= wrapSub(byteLength(token), 1)
+    && !startsWith(token, "+") && (indexOf(drop(token, 0), "+") ?: byteLength(token)) >= wrapSub(byteLength(token), 1)
 
-    fn spaced(text) = replace(replace(text, "(", " ( ") ?: text, ")", " ) ") ?: text
+    fn spaced(text) = Bytes::replaceBoth(text, "(", " ( ", ")", " ) ")
 
     fn tokens(text) = words(spaced(text))
 

@@ -10,22 +10,23 @@ module Bundle {
     let tooLarge = "bundle.too-large"
     let maxBytes = 134217728
 
-    fn fileValue(file) = Json::Obj { members: [
-        Json::Member { key: "path", value: Json::Str { text: file.relPath } },
-        Json::Member { key: "text", value: Json::Str { text: file.content } }
-    ] }
+    /// One file as its `{path, text}` object: the bundle file and the catalog notice share it.
+    export fn fileValue(file) = Json::obj([
+            Json::member("path", Json::str(file.relPath)),
+            Json::member("text", Json::str(file.content))
+    ])
 
     fn filesValue(files) = Json::Arr { items: mapList(files, fileValue) }
 
     // `Release::Served` is spelled out for issue #273: its `id` fields
     // (`key`, `digest`, ...) are shared with other records.
-    fn encodeValue(served: Release::Served) = Json::Obj { members: [
-        Json::Member { key: "digest", value: Json::Str { text: served.id.digest } },
-        Json::Member { key: "epoch", value: Json::Num { value: served.id.epoch } },
-        Json::Member { key: "files", value: filesValue(served.files) },
-        Json::Member { key: "key", value: Json::Str { text: Names::display(served.id.key) } },
-        Json::Member { key: "ordinal", value: Json::Num { value: served.id.ordinal } }
-    ] }
+    fn encodeValue(served: Release::Served) = Json::obj([
+            Json::member("digest", Json::str(served.id.digest)),
+            Json::member("epoch", Json::num(served.id.epoch)),
+            Json::member("files", filesValue(served.files)),
+            Json::member("key", Json::str(Names::display(served.id.key))),
+            Json::member("ordinal", Json::num(served.id.ordinal))
+    ])
 
     /// The canonical JSON text of a served release.
     export fn encode(served) = Canonical::serialize(encodeValue(served))
@@ -39,18 +40,19 @@ module Bundle {
 
     fn intField(root, field) = shaped(Json::intAt(root, field))
 
-    fn fileOf(root) = andThen(stringField(root, "path"), fn(value) => withText(root, value))
+    /// `set` of the root and the string of its `field`, or the field's failure.
+    fn reading(root, field, set) = andThen(stringField(root, field), fn(value) => set(root, value))
+
+    fn fileOf(root) = reading(root, "path", withText)
 
     fn withText(root, path) = andThen(stringField(root, "text"), fn(value) => Success { value: Release::File { relPath: path, content: value } })
 
     fn filesOf(items) = Checked::collectAll(items, fileOf)
 
-    fn filesField(root) = match Json::itemsAt(root, "files") {
-        Success { value } => filesOf(value)
-        Error => Error { message: shapeError }
-    }
+    /// The `files` of the root, every entry parsed, or `"bundle.shape"`.
+    fn filesField(root) = shaped(andThen(Json::itemsAt(root, "files"), filesOf))
 
-    fn ofValue(root) = andThen(stringField(root, "digest"), fn(value) => withEpoch(root, value))
+    fn ofValue(root) = reading(root, "digest", withEpoch)
 
     fn withEpoch(root, digest) = andThen(intField(root, "epoch"), fn(value) => withFiles(root, digest, value))
 
@@ -63,9 +65,9 @@ module Bundle {
     fn makeServed(digest, epoch, files, keyText, ordinal) = match Names::parse(keyText) {
         Error => Error { message: shapeError }
         Success { value } => Success { value: Release::Served {
-            id: Identity::ReleaseId { key: value, epoch: epoch, ordinal: ordinal, digest: digest },
-            files: files
-        } }
+                id: Identity::ReleaseId { key: value, epoch: epoch, ordinal: ordinal, digest: digest },
+                files: files
+            } }
     }
 
     /// Strictly parse a bundle; parse problems render through `Json::describe`,

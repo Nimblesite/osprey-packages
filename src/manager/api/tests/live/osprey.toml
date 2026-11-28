@@ -1,0 +1,8 @@
+[project]
+name = "registry-api-live-tests"
+source_roots = ["src", "../../../core/src", "../../../core/host", "../../lib", "../../scan/lib", "../../collect/lib", "../../../core/manifest"]
+default_namespace = "registry_live_tests"
+entry = "src/main.osp"
+
+[modules]
+allow_wildcard_imports = false

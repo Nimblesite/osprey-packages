@@ -1,0 +1,46 @@
+namespace demo_maths;
+
+/// Integer helpers served by the sample folder registry.
+module Maths {
+    /// `n` squared.
+    /// # Examples
+    /// ```osprey
+    /// let checked = handler Arith {
+    ///     overflow _op _lhs _rhs _wrapped => 0
+    ///     remainderByZero _lhs => 0
+    /// }
+    /// print(checked(fn() => "${Maths::square(3)} ${Maths::square(-4)}"))
+    /// ```
+    /// ```output
+    /// 9 16
+    /// ```
+    export fn square(n) = n * n
+
+    /// `n` cubed. Added in release 1.2, an additive change within epoch 1.
+    /// # Examples
+    /// ```osprey
+    /// let checked = handler Arith {
+    ///     overflow _op _lhs _rhs _wrapped => 0
+    ///     remainderByZero _lhs => 0
+    /// }
+    /// print(checked(fn() => "${Maths::cube(3)} ${Maths::cube(-2)}"))
+    /// ```
+    /// ```output
+    /// 27 -8
+    /// ```
+    export fn cube(n) = n * n * n
+
+    /// `n` limited to the closed range from `low` to `high`.
+    /// # Examples
+    /// ```osprey
+    /// let checked = handler Arith {
+    ///     overflow _op _lhs _rhs _wrapped => 0
+    ///     remainderByZero _lhs => 0
+    /// }
+    /// print(checked(fn() => "${Maths::clampTo(-2, 0, 9)} ${Maths::clampTo(5, 0, 9)} ${Maths::clampTo(12, 0, 9)}"))
+    /// ```
+    /// ```output
+    /// 0 5 9
+    /// ```
+    export fn clampTo(n, low, high) = if n < low { low } else if n > high { high } else { n }
+}

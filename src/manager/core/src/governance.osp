@@ -66,12 +66,11 @@ module Governance {
     /// The whole governance world as row lists; every transition takes one and answers another.
     export type Registry = { principals: List<Principal>, organizations: List<Organization>, memberships: List<Membership>, packages: List<Package>, grants: List<Grant>, transfers: List<Transfer> }
 
-
     fn firstWhere(list, predicate) = foldList(list, Maybe::none(), fn(found, item) =>
         match Maybe::isPresent(found) {
             true => found
             false => if predicate(item) { Maybe::some(item) } else { found }
-        })
+    })
 
     fn found(maybe, code) = Maybe::fold(maybe, Error { message: code }, fn(value) => Success { value: value })
 
@@ -167,35 +166,53 @@ module Governance {
     export fn livePrincipal(principal: Principal) = required(isLive(principal), principal, "governance.principal.suspended")
 
     /// The principal when it is both active and a person; the suspension refusal is reported first.
-    export fn liveHuman(principal: Principal) = andThen(livePrincipal(principal), fn(p) => humanPrincipal(p))
+    export fn liveHuman(principal: Principal) = andThen(livePrincipal(principal), humanPrincipal)
 
     /// The active membership with id `id`, or its missing or inactive refusal.
-    export fn activeMembershipOf(registry, id) = andThen(membershipOf(registry, id), fn(m) => activeMemberOf(m))
+    export fn activeMembershipOf(registry, id) = andThen(membershipOf(registry, id), activeMemberOf)
 
     /// The live human principal behind a membership: the actor every
     /// organizational decision is signed by.
-    export fn humanMemberOf(registry, m: Membership) = andThen(principalOf(registry, m.principal), fn(p) => humanPrincipal(p))
+    export fn humanMemberOf(registry, m: Membership) = andThen(principalOf(registry, m.principal), humanPrincipal)
+
+    /// The principal with id `id` when it is active, or its missing or suspended refusal.
+    export fn liveOf(registry, id) = andThen(principalOf(registry, id), livePrincipal)
+
+    /// The live human principal with id `id`: the same actor, looked up by id.
+    export fn liveHumanOf(registry, id) = andThen(liveOf(registry, id), humanPrincipal)
+
+    /// The membership `member` of `org` when it is active, else its missing,
+    /// inactive or other-org refusal.
+    export fn activeMemberOfOrg(registry, org, member) = andThen(activeMembershipOf(registry, member), fn(m) => sameOrgMember(m, org))
+
+    /// The active same-organization membership `member` of `org` once its
+    /// principal is a live human; the membership every organizational
+    /// decision is signed by.
+    export fn activeHumanMemberOf(registry, org, member) = andThen(activeMemberOfOrg(registry, org, member), fn(m) =>
+        andThen(humanMemberOf(registry, m), fn(_p) => Success { value: m }))
+
+    /// `pkg` when its lifecycle status is one of `statuses`, else the refusal naming it.
+    fn admitted(pkg: Package, statuses) = if listContains(statuses, pkg.status) {
+        Success { value: pkg }
+    } else { Error { message: refusalCode(pkg.status) } }
 
     /// Package writes need a writable lifecycle status
     /// [PACKAGE-OWNERSHIP-MAINTENANCE]; each refusal names its status.
-    export fn writable(pkg: Package) = match pkg.status {
-        Draft | Active => Success { value: pkg }
-        _ => Error { message: refusalCode(pkg.status) }
-    }
+    export fn writable(pkg: Package) = admitted(pkg, [Draft, Active])
 
     /// The package with id `id` when its status allows writes, or its missing or status refusal.
-    export fn writablePackage(registry, id) = andThen(packageOf(registry, id), fn(pkg) => writable(pkg))
+    export fn writablePackage(registry, id) = andThen(packageOf(registry, id), writable)
 
     /// Operational authorization needs an active package: a draft has no
     /// releases, and frozen, deprecated and tombstoned packages refuse
     /// operations with their own reason codes.
-    export fn operational(pkg: Package) = match pkg.status {
-        Active => Success { value: pkg }
-        _ => Error { message: refusalCode(pkg.status) }
-    }
+    export fn operational(pkg: Package) = admitted(pkg, [Active])
 
-    /// The reason code of a lifecycle status that refuses a write; both
-    /// callers above match every status they admit before asking.
+    /// The package with id `id` when it is operational, or its missing or status refusal.
+    export fn operationalPackage(registry, id) = andThen(packageOf(registry, id), operational)
+
+    /// The reason code of a lifecycle status that refuses a write; every
+    /// caller admits each status it names before asking.
     fn refusalCode(status) = match status {
         WriteFrozen => "governance.package.frozen"
         Deprecated => "governance.package.deprecated"
@@ -203,22 +220,21 @@ module Governance {
         _ => "governance.package.draft"
     }
 
+    /// `proof` once its host verification is `HostVerified`, else `governance.proof.rejected:<reason>`.
+    fn verified(proof) = match proof.verification {
+        Rejected { reason } => Error { message: "governance.proof.rejected:${reason}" }
+        HostVerified => Success { value: proof }
+    }
+
     /// Demand one exact verified proof: the host ceremony accepted it, it
     /// was performed by `membership`/`actor`, and it signs exactly
     /// `statement`. A refused proof, another actor or another statement is
     /// never authority.
-    export fn requireProof(proof, actor, membership, statement) = match proof.verification {
-        Rejected { reason } => Error { message: "governance.proof.rejected:${reason}" }
-        HostVerified => match proof.membership == membership {
-            false => Error { message: "governance.proof.wrong-membership" }
-            true => match proof.actor == actor {
-                false => Error { message: "governance.proof.wrong-actor" }
-                true => match proof.statement == statement {
-                    false => Error { message: "governance.proof.statement-mismatch" }
-                    true => Success { value: proof }
-                }
-            }
-        }
+    export fn requireProof(proof: Proof, actor, membership, statement) = {
+        use _ <- andThen(verified(proof))
+        use _ <- andThen(required(proof.membership == membership, proof, "governance.proof.wrong-membership"))
+        use _ <- andThen(required(proof.actor == actor, proof, "governance.proof.wrong-actor"))
+        required(proof.statement == statement, proof, "governance.proof.statement-mismatch")
     }
 
     /// Human control acts are signed through WebAuthn; a workflow DSSE proof
@@ -245,6 +261,16 @@ module Governance {
         }
     }
 
+    /// `<verb>|<key>|epoch:<epoch>`: the part every package statement shares,
+    /// binding the decision to one key at one authority epoch.
+    fn packageStatement(verb, key: Names::Key, epoch) = "${verb}|${Names::display(key)}|epoch:${epoch}"
+
+    /// `|to:<membership>|<permission>|expires:<expiry or 0>`: what a grant and its renewal add.
+    fn grantTail(to, permission, expiresAt) = "|to:${to}|${permissionName(permission)}|expires:${Maybe::orElse(expiresAt, 0)}"
+
+    /// `<verb>|org:<org>|principal:<principal>|membership:<membership>`: the statement of an invitation and of its acceptance.
+    fn memberStatement(verb, org, principal, membership) = "${verb}|org:${org}|principal:${principal}|membership:${membership}"
+
     /// The canonical statements every proof signs. A statement binds the
     /// whole decision — identities, epochs, permission and expiry — so a
     /// proof for one decision can never authorize another.
@@ -254,27 +280,27 @@ module Governance {
     /// The statement a revocation signs: the organization and the membership revoked.
     export fn revocationStatement(org, target) = "revoke-membership|org:${org}|membership:${target}"
     /// The statement an invitation signs: the organization, the invited principal and the new membership.
-    export fn invitationStatement(org, principal, membership) = "invite-member|org:${org}|principal:${principal}|membership:${membership}"
+    export fn invitationStatement(org, principal, membership) = memberStatement("invite-member", org, principal, membership)
     /// The statement a membership acceptance signs: the organization, the principal and the membership.
-    export fn membershipAcceptanceStatement(org, principal, membership) = "accept-membership|org:${org}|principal:${principal}|membership:${membership}"
+    export fn membershipAcceptanceStatement(org, principal, membership) = memberStatement("accept-membership", org, principal, membership)
     /// The statement a package creation signs: the package id, its canonical key and the nominated administrator.
-    export fn creationStatement(id, key: Names::Key, admin) = "create-package|${id}|${Names::display(key)}|admin:${admin}"
+    export fn creationStatement(id, key, admin) = "create-package|${id}|${Names::display(key)}|admin:${admin}"
     /// The statement a grant signs: key, package epoch, recipient membership, permission and expiry (0 when none).
-    export fn grantStatement(key: Names::Key, epoch, to, permission, expiresAt) = "grant|${Names::display(key)}|epoch:${epoch}|to:${to}|${permissionName(permission)}|expires:${Maybe::orElse(expiresAt, 0)}"
+    export fn grantStatement(key, epoch, to, permission, expiresAt) = packageStatement("grant", key, epoch) + grantTail(to, permission, expiresAt)
     /// The statement a grant revocation signs: key, package epoch and the grant revoked.
-    export fn revokeGrantStatement(key: Names::Key, epoch, grant) = "revoke-grant|${Names::display(key)}|epoch:${epoch}|grant:${grant}"
+    export fn revokeGrantStatement(key, epoch, grant) = packageStatement("revoke-grant", key, epoch) + "|grant:${grant}"
     /// The statement revoking every grant of a package signs: key and package epoch.
-    export fn revokeAllStatement(key: Names::Key, epoch) = "revoke-grants|${Names::display(key)}|epoch:${epoch}"
+    export fn revokeAllStatement(key, epoch) = packageStatement("revoke-grants", key, epoch)
     /// The statement a grant renewal signs: key, package epoch, recipient membership, permission and the new expiry (0 when none).
-    export fn renewalStatement(key: Names::Key, epoch, to, permission, expiresAt) = "renew-grant|${Names::display(key)}|epoch:${epoch}|to:${to}|${permissionName(permission)}|expires:${Maybe::orElse(expiresAt, 0)}"
+    export fn renewalStatement(key, epoch, to, permission, expiresAt) = packageStatement("renew-grant", key, epoch) + grantTail(to, permission, expiresAt)
     /// The statement deprecating a package signs: key and package epoch.
-    export fn deprecateStatement(key: Names::Key, epoch) = "deprecate|${Names::display(key)}|epoch:${epoch}"
+    export fn deprecateStatement(key, epoch) = packageStatement("deprecate", key, epoch)
     /// The statement tombstoning a package signs: key and package epoch.
-    export fn tombstoneStatement(key: Names::Key, epoch) = "tombstone|${Names::display(key)}|epoch:${epoch}"
+    export fn tombstoneStatement(key, epoch) = packageStatement("tombstone", key, epoch)
     /// The statement a handover proposal signs: key, package epoch, outgoing and proposed administrators.
-    export fn proposalStatement(key: Names::Key, epoch, current, proposed) = "handover-propose|${Names::display(key)}|epoch:${epoch}|from:${current}|to:${proposed}"
+    export fn proposalStatement(key, epoch, current, proposed) = "handover-propose|${Names::display(key)}|epoch:${epoch}|from:${current}|to:${proposed}"
     /// The statement a handover acceptance signs: proposal id, key, package epoch, outgoing and proposed administrators.
-    export fn handoverAcceptanceStatement(id, key: Names::Key, epoch, current, proposed) = "handover-accept|${id}|${Names::display(key)}|epoch:${epoch}|from:${current}|to:${proposed}"
+    export fn handoverAcceptanceStatement(id, key, epoch, current, proposed) = "handover-accept|${id}|${Names::display(key)}|epoch:${epoch}|from:${current}|to:${proposed}"
     /// The statement cancelling handover proposal `id` signs.
     export fn cancelStatement(id) = "handover-cancel|${id}"
     /// The statement declining handover proposal `id` signs.

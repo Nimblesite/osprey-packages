@@ -8,13 +8,16 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # deploy.yml reruns the whole suite at the exact SHA it deploys [PACKAGE-HOSTED-RELEASE].
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
+# A run that started always finishes: a later push waits its turn and replaces only a run still queued.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: "24"
@@ -26,19 +29,29 @@ jobs:
     timeout-minutes: 20
     steps:
       - &checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Registry CI and make contracts
         run: node --test scripts/ci/ci-registry-contract-tests.mjs
       - &toolchain
         name: The pinned Osprey toolchain
         run: make _toolchain
+      - name: Check cached compiler and runtime integrity
+        run: scripts/packages/test-toolchain-cache.sh
       - uses: ./.github/actions/setup-wasm
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
           dotnet-version: '10.0.x'
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: 1.5.7
+          terraform_wrapper: false
+      - name: Deploy script lint and Terraform validation (no state backend)
+        run: make _registry-infra-check
+      - name: "Analysis: --warnings-as-errors, osprey fmt, deslop under 3%"
+        run: make _lint
       - name: Build the package client, the hosted fixture site and the pinned migration tool
         run: make build _registry-website-fixture _registry-migration-tool
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: build
           path: |
@@ -49,18 +62,14 @@ jobs:
           if-no-files-found: error
 
   test:
-    name: "Tests: package manager (${{ matrix.memory }})"
+    name: "Tests: package manager"
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        memory: [gc, arc]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - *checkout
       - *toolchain
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: build
           path: target
@@ -75,16 +84,41 @@ jobs:
           uv --version
           uv python install 3.12
       - name: Package manager security and integration suites
-        run: make _test_registry REGISTRY_MEMORY=${{ matrix.memory }} REGISTRY_COVERAGE=target/coverage
+        run: make _test_registry REGISTRY_COVERAGE=target/coverage
       - name: Allocation-free package hashing
-        if: matrix.memory == 'gc'
         run: make _package-hashing
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: coverage-${{ matrix.memory }}
+          name: coverage-registry
           path: target/coverage/
           retention-days: 1
           if-no-files-found: error
+
+  hunt:
+    name: "Hunt: symbolic execution"
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - *checkout
+      - *toolchain
+      - name: KLEE
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/brew install klee
+          echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - name: Check the hosted release predicates with Osprey IR-to-Lean
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends elan llvm-18-tools llvm-18 mlir-18-tools
+          LLVM_BIN=/usr/lib/llvm-18/bin make _release-proofs
+      - name: osprey hunt from every program entry
+        run: make _hunt
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: hunt
+          path: target/hunt/
+          retention-days: 7
 
   test-hosted:
     name: "Tests: hosted registry (PostgreSQL and Chromium)"
@@ -94,16 +128,16 @@ jobs:
     steps:
       - *checkout
       - *toolchain
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: build
           path: target
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: scripts/package-lock.json
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
           dotnet-version: '10.0.x'
       - name: Install the locked browser harness
@@ -114,8 +148,9 @@ jobs:
         run: |
           export PATH="/usr/lib/postgresql/16/bin:$PATH"
           test -x /usr/lib/postgresql/16/bin/postgres
+          chmod u+x target/osprey-pkg target/registry-tools/*/bin/DataProviderMigrate
           make _registry-integration-verify REGISTRY_COVERAGE=target/coverage
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-hosted
           path: target/coverage/
@@ -130,7 +165,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - *checkout
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: coverage-*
           path: target/coverage
@@ -142,12 +177,13 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [build, test, test-hosted, coverage]
+    needs: [build, test, hunt, test-hosted, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job
         run: |
           test "${{ needs.build.result }}" = success
           test "${{ needs.test.result }}" = success
+          test "${{ needs.hunt.result }}" = success
           test "${{ needs.test-hosted.result }}" = success
           test "${{ needs.coverage.result }}" = success

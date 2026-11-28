@@ -1,0 +1,80 @@
+namespace registry_api_tests;
+import registry_api::HostedHeaders
+
+/// Strict header parsing and case-insensitive lookup: token grammar,
+/// whitespace/controls, size limits and duplicate sensitive headers.
+/// Implements [PACKAGE-HOSTED-EDGE] header controls.
+module HeaderTests {
+    /// The located rejection of a repeated sensitive header.
+    let duplicateHeader = "req.duplicate-header"
+
+    fn parseCode(block) = HostedHeaders::codeOf(HostedHeaders::parse(block))
+    fn parseStatus(block) = HostedHeaders::statusOf(HostedHeaders::parse(block))
+    fn rejected(c) = parseCode(c.block) == c.expected
+    fn nameOf(header) = match header { HostedHeaders::Header { name } => name }
+    fn valueOf(header) = match header { HostedHeaders::Header { value } => value }
+
+    fn flatHeaders() = {
+        let parsed = HostedHeaders::parse("X-One:one\nX-Two:two")
+        let headers = HostedHeaders::headers(parsed)
+        checkAll("headers: flat records retain wire order", [
+                HostedHeaders::isOk(parsed),
+                length(headers) == 2,
+                structuralEquals(mapList(headers, nameOf), ["X-One", "X-Two"]),
+                structuralEquals(mapList(headers, valueOf), ["one", "two"])
+        ])
+    }
+
+    fn happy() = {
+        let parsed = HostedHeaders::parse("Host: api.example.test\r\nAuthorization: Bearer t0k")
+        let headers = HostedHeaders::headers(parsed)
+        checkAll("headers: parse and case-insensitive lookup", [
+                HostedHeaders::isOk(parsed),
+                parseStatus("Host: api.example.test\r\nAuthorization: Bearer t0k") == 0,
+                (HostedHeaders::find(headers, "host") ?: "?") == "api.example.test",
+                (HostedHeaders::find(headers, "AUTHORIZATION") ?: "?") == "Bearer t0k",
+                (HostedHeaders::find(headers, "cookie") ?: "absent") == "absent",
+                HostedHeaders::has(headers, "Host")
+        ])
+    }
+
+    fn rejects() = {
+        let cases = [
+            { block: "Bad Line", expected: "req.header-colon" },
+            { block: " Host: h", expected: "req.header-whitespace" },
+            { block: "Host : h", expected: "req.header-whitespace" },
+            { block: "Host: ", expected: "req.header-value" },
+            { block: "Ho(st: v", expected: "req.header-name" },
+            { block: "Host: a\eb", expected: "req.header-value" }
+        ]
+        checkAll("headers: malformed lines rejected", [RequestTests::allHold(cases, rejected)])
+    }
+
+    fn duplicates() = {
+        let blocks = ["Authorization: a\r\nAUTHORIZATION: b", "Cookie: a=b\r\nCookie: c=d", "X-Edge-Secret: s\r\nx-edge-secret: t"]
+        checkAll("headers: duplicate sensitive headers rejected", [
+                parseStatus("Host: a\r\nhost: b") == 400,
+                HostedHeaders::isOk(HostedHeaders::parse("X-Trace-Id: a\r\nX-Trace-Id: b")),
+                foldList(blocks, true, fn(valid, block) => (parseCode(block) == duplicateHeader) && valid)
+        ])
+    }
+
+    fn lines(line, count) = repeat(line + "\r\n", count) ?: ""
+
+    fn limits() = checkAll("headers: count and line limits", [
+            parseStatus(lines("X-Pad: a", 65)) == 431,
+            parseCode("X-Pad: " + (repeat("a", 8189) ?: "")) == "req.header-line",
+            HostedHeaders::isOk(HostedHeaders::parse(lines("X-Pad: a", 64))),
+            HostedHeaders::isOk(HostedHeaders::parse(""))
+    ])
+
+    /// Strict header parsing: wire order, case-insensitive lookup, malformed
+    /// lines, duplicate sensitive headers and size limits.
+    export fn run() = {
+        test("hosted headers: flat records", flatHeaders)
+        test("hosted headers: happy path", happy)
+        test("hosted headers: malformed lines", rejects)
+        test("hosted headers: duplicate sensitive headers", duplicates)
+        test("hosted headers: size limits", limits)
+    }
+}

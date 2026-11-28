@@ -1,0 +1,147 @@
+namespace registry_tests;
+import registry_cli::Fetch
+
+/// `yank --folder` against fixture hosts, and what a yank does downstream: the
+/// marker lands beside the release directory and nothing else is written,
+/// a second yank and an unknown release write nothing, a fresh `lock` and a
+/// newest `fetch` never choose a yanked release while a lock that already holds
+/// one keeps it, and a listing status other than `Yanked` is refused rather
+/// than read as Eligible ([PACKAGE-RESOLUTION], [PACKAGE-FOLDER-REGISTRY],
+/// [PLAN-ENGINE-COMMANDS]).
+module YankTests {
+    let folder = "/reg"
+    let one2Dir = "@demo/one/1.2"
+    let one3Dir = "@demo/one/1.3"
+    let marker = "/reg/@demo/one/1.2.yanked"
+
+    fn folderWalk(entries) = Fixture::walkRoute("${folder}/@demo/one", entries)
+
+    fn released() = ["1.1/osprey.toml", "1.1/src/main.osp", "1.2/osprey.toml", "1.2/src/main.osp"]
+
+    fn yank(entries, args) = RegistryFixture::runWith([], [folderWalk(entries)], [], listConcat(["yank"], args))
+
+    fn yankOne2(entries) = yank(entries, [one2Dir, "--folder", folder])
+
+    /// The release is held: its marker is written once and the report names it.
+    fn marks() = {
+        let a = yankOne2(released())
+        checkAll("yank writes only the marker beside the release", [
+                RegistryFixture::accepted(a),
+                RegistryFixture::writtenTo(a, marker) == "yanked\n",
+                RegistryFixture::writeLogOf(a) == "${marker}=yanked\n|",
+                RegistryFixture::hasLines(a, ["yanked @demo/one/1.2", "marker: ${marker}", "restart registry-serve to serve it"])
+        ])
+    }
+
+    /// A second yank of the same release is accepted and writes nothing.
+    fn idempotent() = {
+        let a = yankOne2(listAppend(released(), "1.2.yanked"))
+        checkAll("a second yank writes nothing", [
+                RegistryFixture::accepted(a),
+                RegistryFixture::writeLogOf(a) == "",
+                RegistryFixture::hasLines(a, ["already yanked @demo/one/1.2"])
+        ])
+    }
+
+    /// A release the folder does not hold, or a package it lacks, is refused with nothing written.
+    fn unknown() = {
+        let missingOrdinal = yank(released(), [one3Dir, "--folder", folder])
+        let missingPackage = RegistryFixture::runWith([], [], [], ["yank", "@demo/none/1.1", "--folder", folder])
+        let markerOnly = yankOne2(["1.1/osprey.toml", "1.2.yanked"])
+        checkAll("an unknown release is yank.unknown-release", [
+                RegistryFixture::reported(missingOrdinal, 1, "yank.unknown-release @demo/one/1.3"),
+                RegistryFixture::writeLogOf(missingOrdinal) == "",
+                RegistryFixture::reported(missingPackage, 1, "yank.unknown-release @demo/none/1.1"),
+                RegistryFixture::writeLogOf(missingPackage) == "",
+                RegistryFixture::reported(markerOnly, 1, "yank.unknown-release @demo/one/1.2"),
+                RegistryFixture::writeLogOf(markerOnly) == ""
+        ])
+    }
+
+    /// Every malformed command line is the usage report and writes nothing.
+    fn usage() = {
+        let lines = [[one2Dir], ["--folder", folder], ["@demo/one", "--folder", folder], ["@demo/one/1.x", "--folder", folder], ["demo/one/1.2/x", "--folder", folder], [one2Dir, "--folder", folder, "--bogus"]]
+        checkAll("malformed yank command lines are yank.usage", [foldList(lines, true, fn(ok, args) => ok && {
+                        let a = yank(released(), args)
+                        RegistryFixture::reported(a, 2, "yank.usage") && RegistryFixture::writeLogOf(a) == ""
+        })])
+    }
+
+    fn served() = [RegistryFixture::one(), RegistryFixture::one2(), RegistryFixture::two()]
+
+    fn yankedOne2() = [one2Dir]
+
+    fn lockAgainst(reads, yanked) = RegistryFixture::run(reads, RegistryFixture::websYanking(served(), yanked), ["lock", "--project", RegistryFixture::project])
+
+    fn lockOf(a) = RegistryFixture::writtenTo(a, RegistryFixture::lockPath)
+
+    fn freshReads() = RegistryFixture::reads(RegistryFixture::rootManifest(1), served())
+
+    /// A fresh lock takes the newest release, unless it is yanked.
+    fn freshLock() = {
+        let control = lockAgainst(freshReads(), [])
+        let yanked = lockAgainst(freshReads(), yankedOne2())
+        checkAll("a fresh lock never chooses a yanked release", [
+                RegistryFixture::accepted(control),
+                lockOf(control) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(1), RegistryFixture::one2(), RegistryFixture::two()),
+                RegistryFixture::accepted(yanked),
+                lockOf(yanked) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(1), RegistryFixture::one(), RegistryFixture::two()),
+                RegistryFixture::hasLines(yanked, RegistryFixture::deltaLines("+", [RegistryFixture::one(), RegistryFixture::two()]))
+        ])
+    }
+
+    /// A lock that already holds the yanked release keeps it: no vanish, no change.
+    fn capturedLock() = {
+        let reads = RegistryFixture::readsWithLock(RegistryFixture::rootManifest(1), RegistryFixture::previousLock(RegistryFixture::one2(), RegistryFixture::two()), served())
+        let a = lockAgainst(reads, yankedOne2())
+        checkAll("a locked yank is kept and stays reproducible", [
+                RegistryFixture::accepted(a),
+                lockOf(a) == RegistryFixture::expectedLock(RegistryFixture::rootManifest(1), RegistryFixture::one2(), RegistryFixture::two()),
+                RegistryFixture::hasLines(a, RegistryFixture::deltaLines("=", [RegistryFixture::one2(), RegistryFixture::two()]))
+        ])
+    }
+
+    fn badStatusListing(status) = "{\"packages\":[{\"key\":\"@demo/one\",\"releases\":[{\"digest\":\"${Fixture::digestOf(RegistryFixture::one())}\",\"epoch\":1,\"ordinal\":1,\"status\":${status}}]}]}"
+
+    /// A status the client does not know is never read as Eligible.
+    fn unknownStatus() = checkAll("an unknown listing status is fetch.package-shape", [foldList(["\"Eligible\"", "\"Revoked\"", "\"yanked\"", "1", "null", "true"], true, fn(ok, status) => ok && {
+                    let webs = listPrepend(RegistryFixture::websOf(served()), RegistryFixture::webRouteAt(RegistryFixture::base, Fetch::packagesListingPath, 200, badStatusListing(status)))
+                    let a = RegistryFixture::run(freshReads(), webs, ["lock", "--project", RegistryFixture::project])
+                    RegistryFixture::reported(a, 1, "fetch.package-shape") && lockOf(a) == ""
+    })])
+
+    fn distinct() = [RegistryFixture::one(), RegistryFixture::one3(), RegistryFixture::two()]
+
+    fn oneListing(yanked) = RegistryFixture::webRouteAt(RegistryFixture::base, Fetch::listingPath(Fixture::idOf(RegistryFixture::one()).key), 200, RegistryFixture::packageListing(yanked, distinct(), "@demo/one"))
+
+    fn fetchNewest(yanked) = RegistryFixture::run([], listPrepend(RegistryFixture::websOf(distinct()), oneListing(yanked)), ["fetch", "@demo/one", "--registry", RegistryFixture::base])
+
+    /// `fetch @scope/name` takes the newest release that is not yanked; all yanked is fetch.no-release.
+    fn newestFetch() = {
+        let control = fetchNewest([])
+        let yanked = fetchNewest([one3Dir])
+        let allYanked = fetchNewest(["@demo/one/1.1", one3Dir])
+        checkAll("a newest fetch skips yanked releases", [
+                RegistryFixture::accepted(control),
+                RegistryFixture::lineOf(control, 0) == "fetched: @demo/one@e1.r3#${Fixture::digestOf(RegistryFixture::one3())}",
+                RegistryFixture::accepted(yanked),
+                RegistryFixture::lineOf(yanked, 0) == "fetched: @demo/one@e1.r1#${Fixture::digestOf(RegistryFixture::one())}",
+                !listContains(RegistryFixture::fetchedOf(yanked), RegistryFixture::sourcePath(RegistryFixture::one3())),
+                RegistryFixture::statusOf(allYanked) == 1,
+                startsWith(RegistryFixture::lineOf(allYanked, 0), "fetch.no-release"),
+                isEmpty(filterList(RegistryFixture::fetchedOf(allYanked), fn(p) => startsWith(p, "/v1/releases/")))
+        ])
+    }
+
+    /// Every yank test.
+    export fn run() = {
+        test("yank: writes the marker beside the release", marks)
+        test("yank: a second yank writes nothing", idempotent)
+        test("yank: an unknown release is refused", unknown)
+        test("yank: malformed command lines are usage", usage)
+        test("yank: a fresh lock never chooses a yanked release", freshLock)
+        test("yank: a locked yank is kept", capturedLock)
+        test("yank: an unknown listing status is refused", unknownStatus)
+        test("yank: a newest fetch skips yanked releases", newestFetch)
+    }
+}

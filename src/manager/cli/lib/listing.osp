@@ -11,24 +11,32 @@ module Listing {
     let unknownCode = "listing.unknown-package"
     let epochCode = "listing.unknown-epoch"
 
-    /// Every release the registry lists, in listing order.
-    export fn fetch(base) = andThen(Fetch::getBody(base, Fetch::packagesListingPath), fn(value) => Fetch::parsePackages(value))
+    // `Listed` shares `release` with `Lockfile::Package`; issue #273 needs the receiver spelled out.
+    fn listedRelease(l: Fetch::Listed) = l.release
+    fn listedYanked(l: Fetch::Listed) = l.yanked
+
+    /// Every release the registry lists with its yank mark, in listing order: what `lock` reads.
+    export fn fetchMarked(base) = andThen(Fetch::getBody(base, Fetch::packagesListingPath), fn(value) => Fetch::parsePackages(value))
+
+    /// Every listed release, yanked or not: a locked yank is still present.
+    export fn releasesOf(marked) = mapList(marked, listedRelease)
+
+    /// Whether the listing marks `release` yanked.
+    export fn isYanked(marked, release) = Folds::any(marked, fn(l) => listedYanked(l) && Identity::same(listedRelease(l), release))
+
+    /// The releases a fresh choice may take, in listing order: never a yanked one ([PACKAGE-RESOLUTION]).
+    export fn fetch(base) = Folds::mapped(fetchMarked(base), fn(value) => releasesOf(filterList(value, fn(l) => !listedYanked(l))))
 
     fn ofKey(listing, key) = filterList(listing, fn(r) => Names::same(Identity::keyOf(r), key))
 
-    fn largest(releases, measure) = foldList(releases, 0, fn(best, r) => if measure(r) > best { measure(r) } else { best })
+    /// The largest `measure` over `releases`, or `missing` when there are none.
+    fn newest(releases, measure, missing) = if isEmpty(releases) { Error { message: missing } } else { Success { value: Folds::largest(releases, measure) } }
 
     /// The newest epoch of `key`, or `listing.unknown-package`.
-    export fn newestEpoch(listing, key) = {
-        let releases = ofKey(listing, key)
-        if isEmpty(releases) { Error { message: "${unknownCode} ${Names::display(key)}" } } else { Success { value: largest(releases, fn(r) => Identity::epochOf(r)) } }
-    }
+    export fn newestEpoch(listing, key) = newest(ofKey(listing, key), Identity::epochOf, "${unknownCode} ${Names::display(key)}")
 
     /// The newest ordinal of `key` in `epoch`, or `listing.unknown-epoch`.
-    export fn newestOrdinal(listing, key, epoch) = {
-        let releases = filterList(ofKey(listing, key), fn(r) => Identity::epochOf(r) == epoch)
-        if isEmpty(releases) { Error { message: "${epochCode} ${Names::display(key)} e${epoch}" } } else { Success { value: largest(releases, fn(r) => Identity::ordinalOf(r)) } }
-    }
+    export fn newestOrdinal(listing, key, epoch) = newest(filterList(ofKey(listing, key), fn(r) => Identity::epochOf(r) == epoch), Identity::ordinalOf, "${epochCode} ${Names::display(key)} e${epoch}")
 
     /// The release at one exact slot, or the blank identity.
     export fn releaseIn(listing, key, epoch, ordinal) = foldList(listing, Identity::blank(), fn(found, r: Identity::ReleaseId) =>

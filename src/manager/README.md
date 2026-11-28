@@ -1,31 +1,32 @@
 # Osprey package system
 
-The registry and package client are written in Osprey and built by the existing compiler. [Plan 0020](../../docs/plans/0020-package-manager.md) tracks delivery against [specs 0029–0032](../../docs/specs/ecosystem/README.md). The folder registry, source verification, deterministic resolution, locks, local overrides, folder publication and uv integration run today. The dedicated registry website builds locally. Authenticated public publishing and trust services remain planned.
+The registry and package client are written in Osprey and built by the existing compiler. [The package-manager plan](../../docs/plans/package-manager.md) tracks delivery against [the package specs](../../docs/specs/ecosystem/PackageManagement.md). The folder registry, source verification, deterministic resolution, locks, local overrides, folder publication and uv integration run today. The dedicated registry website builds locally. Authenticated public publishing and trust services remain planned.
 
-The loopback consumer uses Default-flavor source. Real compiler checks also pass for Python-flavor packages: bare `build`, `build --run`, and relative or absolute `--project` paths from another directory. Derived compiler manifests live under the selected project's `.osprey/build/`; see the [package guide](../toolchain/website/src/docs/package-manager.md) for usage and remaining limits.
+The loopback consumer uses Default-flavor source. Real compiler checks also pass for Python-flavor packages: bare `build`, `build --run`, and relative or absolute `--project` paths from another directory. Derived compiler manifests live under the selected project's `.osprey/build/`; see the [package guide](https://www.ospreylang.dev/docs/package-manager/) for usage and remaining limits.
 
 ## Layout
 
 | Directory | Responsibility |
 | --- | --- |
-| `core/` | Names, identities, canonical JSON/source rules, SHA-256, capability surfaces and the implementation-language gate |
-| `host/` | File, tree, HTTP, process and console effects with native handlers |
-| `api/` | Startup catalog, pure HTTP router and folder-registry listener |
+| `core/src/` | Names, identities, canonical JSON/source rules, SHA-256, capability surfaces and the implementation-language gate |
+| `core/host/` | File, tree, HTTP, process and console effects with native handlers |
+| `core/manifest/` | TOML parser and manifest validation |
+| `core/resolver/` | CDCL solver and deterministic package graph/objective selection |
+| `api/` | Startup catalog, pure HTTP router and folder-registry listener; `api/tests` holds its auth, database, governance and hosted suites, `api/tests/live` the live PostgreSQL suite |
 | `cli/` | Manifest/lock commands, verified installation, local overrides, folder publication, build preparation and reports |
-| `manifest/` | TOML parser and manifest validation |
-| `resolver/` | CDCL solver and deterministic package graph/objective selection |
-| `tests/`, `cli/tests/` | Core/API and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
-| `fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
-| `sample-registry/` | Example release trees |
-| `e2e/` | Loopback server/client demo and Default-flavor consumer |
-| `blockers/` | Explicit probes for incomplete host capabilities |
-| `schemas/package-registry.td` | Canonical domain model shared with spec 0031 |
+| `web/`, `web/editor/` | The registry website and the VS Code package workspace, both WASM |
+| `core/tests/`, `cli/tests/` | Core (with manifest and resolver) and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
+| `core/fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
+| `cli/e2e/sample-registry/` | Example release trees the loopback demo serves |
+| `cli/e2e/` | Loopback server/client demo and Default-flavor consumer |
+| `core/blockers/` | Explicit probes for incomplete host capabilities |
+| `core/schemas/package-registry.td` | Canonical domain model shared with the Package Domain Model spec |
 
 These projects compose sibling modules through explicit `source_roots`. Registry suites are ordinary modules called by their project's `src/main.osp`; use the commands below rather than assuming test-file discovery selects them.
 
 ## Run a registry
 
-`make registry-serve` serves the released `@osprey` packages ([PACKAGE-LOCAL-REGISTRY](../../docs/specs/ecosystem/0029-PackageManagement.md)). It builds `target/osprey-pkg` and `target/osprey-registry`, publishes every package in `target/osprey/packages` (the release `make _toolchain` lays down) that declares a `[package]` into `target/local-registry` with `publish --folder` ([`scripts/packages/stage-local-registry.sh`](../../scripts/packages/stage-local-registry.sh)) and serves that tree on `http://127.0.0.1:8787`.
+`make registry-serve` serves the released `@osprey` packages ([PACKAGE-LOCAL-REGISTRY](../../docs/specs/ecosystem/PackageManagement.md)). It builds `target/osprey-pkg` and `target/osprey-registry`, publishes every package in `target/osprey/packages` (the release `make _toolchain` lays down) that declares a `[package]` into `target/local-registry` with `publish --folder` ([`scripts/packages/stage-local-registry.sh`](../../scripts/packages/stage-local-registry.sh)) and serves that tree on `http://127.0.0.1:8787`.
 
 All 31 released `@osprey` packages stage; staging fails on any refusal but `source.unclassified-builtin`. A package that binds a raw native function is refused while staging (`source.unclassified-builtin`), as capability confinement requires.
 
@@ -36,17 +37,17 @@ make build
 make _registry-serve-sample
 ```
 
-The server reads `sample-registry/` and listens on `http://127.0.0.1:8787`. Leave it running. In another terminal:
+The server reads `cli/e2e/sample-registry/` and listens on `http://127.0.0.1:8787`. Leave it running. In another terminal:
 
 ```sh
 curl http://127.0.0.1:8787/v1/packages
-echo "lock --project $PWD/src/manager/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
-echo "fetch --project $PWD/src/manager/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
-echo "verify --offline --project $PWD/src/manager/e2e/consumer" | ./target/osprey-pkg
-echo "build --run --compiler $PWD/target/osprey/osprey --project $PWD/src/manager/e2e/consumer" | ./target/osprey-pkg
+echo "lock --project $PWD/src/manager/cli/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
+echo "fetch --project $PWD/src/manager/cli/e2e/consumer --registry http://127.0.0.1:8787" | ./target/osprey-pkg
+echo "verify --offline --project $PWD/src/manager/cli/e2e/consumer" | ./target/osprey-pkg
+echo "build --run --compiler $PWD/target/osprey/osprey --project $PWD/src/manager/cli/e2e/consumer" | ./target/osprey-pkg
 ```
 
-Every client command prints `status: N`; require `0`. The frontend reads one command from stdin because argument-vector and process-exit-status builtins are unavailable. The stdin entry splits on whitespace, so paths containing spaces are not supported there. Prefix a command with `--json` for a structured report. The [command reference](../toolchain/website/src/docs/package-manager.md#commands) covers local overrides, publication and update behavior.
+Every client command prints `status: N`; require `0`. The frontend reads one command from stdin because argument-vector and process-exit-status builtins are unavailable. The stdin entry splits on whitespace, so paths containing spaces are not supported there. Prefix a command with `--json` for a structured report. The [command reference](https://www.ospreylang.dev/docs/package-manager/#commands) covers local overrides, publication and update behavior.
 
 A release directory is `@scope/name/<epoch>.<ordinal>/`. To serve another root, change [api/registry-server.json](api/registry-server.json), for example:
 
@@ -84,7 +85,7 @@ Verified language boundaries relevant to these suites:
 
 ## Security gates that run today
 
-The table links the implemented folder-registry checks to their tests. Runtime request bounds are separate from registry tests. These checks do not establish publisher identity or complete the hosted trust contract; [SECURITY.md](../../SECURITY.md) is the disclosure policy.
+The table links the implemented folder-registry checks to their tests. Runtime request bounds are separate from registry tests. These checks do not establish publisher identity or complete the hosted trust contract; [the disclosure policy](../../docs/specs/ecosystem/PackageManagement.md#disclosure) says how to report a hole.
 
 **Confinement gap:** the current scanner, source-bundle validator and local `publish --folder` accept raw native `extern` declarations with no ambient capability assigned. A harmless native `puts` probe writes to the terminal while its scanned surface is empty. Installed-dependency execution remains unverified; the existing ambient-builtin tests do not prove complete confinement of untrusted dependencies.
 
@@ -111,14 +112,14 @@ Named tests above cover the folder-registry subset. Python publisher-attestation
 
 ## Registry website
 
-The homepage is the catalog. Search by name or description, browse packages by publisher or tag, open a package and download a release. **Upload a package** opens `/upload/`. Hosted publishing requires the authenticated publication-intent API.
+The homepage is the catalog. Search by name or description, browse packages by publisher or tag, open a package and download a release. **Release a package** (shown once signed in) opens `/release/`. Hosted publishing requires the authenticated publication-intent API.
 
-To browse local packages, start `make registry-serve`, then run `make _registry-website-preview` with Wasmtime, jq and yq installed. Run `make _registry-website-serve` and open `http://127.0.0.1:4187/`. The upload page loads package choices from the running registry and lets you review a commit. The preview identifies its source as a local, audit-unverified folder registry.
+To browse local packages, start `make registry-serve`, then run `make _registry-website-preview` with Wasmtime, jq and yq installed. Run `make _registry-website-serve` and open `http://127.0.0.1:4187/`. The release page loads package choices from the running registry and lets you review a commit. The preview identifies its source as a local, audit-unverified folder registry.
 
 `make _registry-website` builds the separate Cloudflare Pages directory at `target/registry-site/`. Its catalog shows an unavailable state until the verified hosted projection is connected. Set `REGISTRY_API_ORIGIN` to the deployed HTTPS API origin when building to connect release preparation and GitHub sign-in. Publication requires the hosted signature and publication-intent routes.
 
 ## Hosted ownership model
 
-[Organization governance](../../docs/specs/ecosystem/0045-OrganizationPackageGovernance.md) prevents package-name sitting: `@org-a/helper-functions` and `@org-b/helper-functions` are independent valid keys. Every hosted package belongs to an organization, has one package administrator and permits multiple explicit publishing/maintenance permission holders. Personal ownership and global leaf-name reservations do not exist.
+[Organization governance](../../docs/specs/ecosystem/OrganizationPackageGovernance.md) prevents package-name sitting: `@org-a/helper-functions` and `@org-b/helper-functions` are independent valid keys. Every hosted package belongs to an organization, has one package administrator and permits multiple explicit publishing/maintenance permission holders. Personal ownership and global leaf-name reservations do not exist.
 
-The [typeDiagram](schemas/package-registry.td) defines the model and [DataProvider YAML](supabase/migrations/schema.yaml) defines ownership tables, pending GitHub logins, browser sessions and the public catalog projection. Bootstrap forces RLS and grants no runtime privileges. The public catalog has a dedicated reader policy; ownership writes remain disabled. Run `make _registry-migration-check` to build the pinned DataProvider CLI and verify the migration twice against a disposable PostgreSQL instance. The [rollout plan](../../docs/plans/0020-package-manager.md) tracks staging and authenticated writes.
+The [typeDiagram](core/schemas/package-registry.td) defines the model and [DataProvider YAML](ops/supabase/migrations/schema.yaml) defines ownership tables, pending GitHub logins, browser sessions and the public catalog projection. Bootstrap forces RLS and grants no runtime privileges. The public catalog has a dedicated reader policy; ownership writes remain disabled. Run `make _registry-migration-check` to build the pinned DataProvider CLI and verify the migration twice against a disposable PostgreSQL instance. The [rollout plan](../../docs/plans/package-manager.md) tracks the production rollout and authenticated writes.

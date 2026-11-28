@@ -1,0 +1,118 @@
+name: Deploy
+
+# [PACKAGE-HOSTED-RELEASE] One reviewed commit → one image digest + one website archive.
+# Every deploy reruns the full CI at its exact SHA first; nothing reuses another run's
+# result. GitHub OIDC federates into the environment's deploy service account (no keys).
+# Variables and the Pages token live on the `registry-<environment>` GitHub environment;
+# src/manager/ops/deploy.sh writes them from Terraform outputs.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Reviewed main commit for this release
+        type: string
+        required: true
+      environment:
+        description: Target environment
+        type: choice
+        options: [production]
+        default: production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  # Production takes main and nothing else: every other job waits on this one.
+  main-only:
+    name: Deploys run from main only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Refuse any ref but main
+        run: test "$GITHUB_REF" = refs/heads/main
+
+      - name: Verify reviewed release commit
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: test "$GITHUB_SHA" = "$EXPECTED_SHA"
+
+  ci:
+    needs: main-only
+    uses: ./.github/workflows/ci.yml
+
+  api:
+    name: API image → Cloud Run
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: registry-${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE: ${{ vars.REGISTRY_IMAGE_REPO }}/api:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Build the linux/amd64 image from this exact commit
+        run: make _registry-hosted-image REGISTRY_HOSTED_IMAGE="$IMAGE"
+      - name: Push and resolve the immutable digest
+        id: push
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker push "$IMAGE"
+          digest=$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')
+          echo "image=${{ vars.REGISTRY_IMAGE_REPO }}/api@${digest}" >> "$GITHUB_OUTPUT"
+      - name: Roll the scanner and API to the reviewed digest
+        env:
+          SERVICE: ${{ vars.REGISTRY_SERVICE }}
+          SCANNER: ${{ vars.REGISTRY_SCAN_JOB }}
+          REGION: ${{ vars.GCP_REGION }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          REVIEWED_IMAGE: ${{ steps.push.outputs.image }}
+        run: scripts/packages/roll-registry-image.sh "$SERVICE" "$REGION" "$PROJECT" "$SCANNER" "$REVIEWED_IMAGE"
+
+  website:
+    name: Website archive → Cloudflare Pages
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: registry-${{ inputs.environment }}
+    env:
+      REGISTRY_API_ORIGIN: ${{ vars.REGISTRY_API_ORIGIN }}
+      REGISTRY_CONTENT_ORIGIN: ${{ vars.REGISTRY_CONTENT_ORIGIN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: The pinned Osprey toolchain
+        run: make _toolchain
+      - uses: ./.github/actions/setup-wasm
+      - name: Build the content-addressed website archive
+        run: make _registry-website-archive
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+      - name: Install the integrity-locked Pages publisher
+        run: npm ci --prefix src/manager/ops/cloudflare --ignore-scripts --no-audit --no-fund
+      - name: Upload the archived bytes as a Direct Upload deployment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          archive=$(ls target/registry-artifacts/*.zip)
+          test "$(echo "$archive" | wc -l)" -eq 1
+          mkdir -p target/pages-upload && unzip -q "$archive" -d target/pages-upload
+          src/manager/ops/cloudflare/node_modules/.bin/wrangler pages deploy target/pages-upload \
+            --project-name="${{ vars.PAGES_PROJECT }}" --branch=main --commit-hash="${{ github.sha }}"
+      - name: Verify public website redirect and deployed archive bytes
+        env:
+          WEBSITE_ORIGIN: ${{ vars.REGISTRY_WEBSITE_ORIGIN }}
+        run: scripts/packages/check-website-release.sh "$WEBSITE_ORIGIN" target/pages-upload

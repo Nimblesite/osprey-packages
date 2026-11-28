@@ -1,0 +1,156 @@
+namespace registry_api_tests;
+import registry::Governance
+import registry::GovernanceTransitions
+import registry::Maybe
+import registry::Names
+
+/// Exactly one administrator per package [PACKAGE-OWNERSHIP-ADMIN]: creation
+/// needs the nominee's fresh acceptance, only that administrator manages
+/// grants and lifecycle, and the seat itself grants no operational
+/// capability.
+module AdminTests {
+    /// The refusal of a member who lacks the permission.
+    let permissionMissing = "governance.permission.missing"
+    /// The refusal of an administrator whose seat is stale.
+    let adminNotCurrent = "governance.admin.not-current"
+    fn key(scope, name) = Names::Key { scope: scope, name: name }
+    let ledger = Names::Key { scope: "finch", name: "ledger" }
+
+    /// The reason code of one live authorization decision, or "" when granted.
+    fn authorizeCode(world, id, member, permission, at) =
+    GrantTests::authorizeCode(world, id, member, permission, at)
+
+    /// The reason code of `member` publishing `id` at the fixture moment.
+    fn publishCode(world, id, member) = authorizeCode(world, id, member, Governance::PublishRelease, 100)
+
+    /// Whether `alice` holds no `permission` on `pkg-f1` at the fixture moment.
+    fn aliceLacks(world, permission) = authorizeCode(world, "pkg-f1", "m-alice", permission, 100) == permissionMissing
+
+    /// Custodian alice's verified proof of `signed`.
+    fn aliceProof(signed) = Fixture::verified("p-alice", "m-alice", signed)
+
+    /// `pkg-f2` created in finch with `admin` seated on `creator`'s proof and the nominee's `acceptance`.
+    fn createFinch(world, k, admin, creator, acceptance) =
+    GovernanceTransitions::createPackage(world, "o-finch", k, "pkg-f2", admin, creator, acceptance)
+
+    /// The reason code of bob's creation by custodian alice on the nominee's `acceptance`.
+    fn createAccepted(world, k, acceptance) =
+    Fixture::code(createFinch(world, k, "m-bob", aliceProof(Governance::creationStatement("pkg-f2", k, "m-bob")), acceptance))
+
+    /// `pkg-f2` with the fixture row `member` seated on `signed`: `member` names
+    /// one fixture row, whose principal `p-<member>` accepts with membership
+    /// `m-<member>` while custodian alice creates.
+    fn createSeated(world, k, member, signed) =
+    createFinch(world, k, "m-" + member, aliceProof(signed), Fixture::verified("p-" + member, "m-" + member, signed))
+
+    fn withCreationFixture(run) = {
+        let world = Fixture::world()
+        let k = key("finch", "toolkit")
+        let statement = Governance::creationStatement("pkg-f2", k, "m-bob")
+        run(world, k, statement)
+    }
+
+    /// Creation needs the nominee's own fresh credential-backed acceptance
+    /// plus a custodian creator; nobody installs an admin unilaterally.
+    fn creationCases(world, k, statement) = {
+        let bobStatement = Governance::creationStatement("pkg-f2", k, "m-bot")
+        let bobAcceptance = Fixture::verified("p-bob", "m-bob", statement)
+        let acceptedAs = fn(proof, code) => createAccepted(world, k, proof) == code
+        checkAll("creation binds the admin to the nominee's fresh acceptance", [
+                createAccepted(world, k, bobAcceptance) == "",
+                acceptedAs(Fixture::verified("p-erin", "m-bob", statement), "governance.proof.wrong-actor"),
+                acceptedAs(Fixture::verified("p-bob", "m-erin", statement), "governance.proof.wrong-membership"),
+                acceptedAs(Fixture::refused("p-bob", "m-bob", statement), "governance.proof.rejected:ceremony-failed"),
+                acceptedAs(Fixture::verified("p-bob", "m-bob", "another-statement"), "governance.proof.statement-mismatch"),
+                Fixture::code(createFinch(world, k, "m-bob", bobAcceptance, bobAcceptance)) == "governance.custodian.required",
+                Fixture::code(createSeated(world, k, "dave", statement)) == "governance.membership.other-org",
+                Fixture::code(createSeated(world, k, "bot", bobStatement)) == "governance.principal.workflow"
+        ])
+    }
+
+    fn creationAcceptance() = withCreationFixture(creationCases)
+
+    /// A fresh package is a draft with one admin and no releases; the
+    /// publication path activates it.
+    fn draftLifecycle() = withCreationFixture(fn(world, k, statement) => {
+            let draft = Fixture::orKeep(world, fn(w) => createSeated(w, k, "bob", statement))
+            let active = Fixture::orKeep(draft, fn(w) => GovernanceTransitions::activatePackage(w, "pkg-f2"))
+            checkAll("creation records one administrator and no operational state", [
+                    match Governance::packageOf(draft, "pkg-f2") {
+                        Success { value } => value.admin == "m-bob" && value.authorityEpoch == 1
+                        Error => false
+                    },
+                    publishCode(draft, "pkg-f2", "m-bob") == "governance.package.draft",
+                    Fixture::code(GovernanceTransitions::activatePackage(draft, "pkg-f2")) == "",
+                    Fixture::code(GovernanceTransitions::activatePackage(active, "pkg-f2")) == "governance.package.not-draft",
+                    publishCode(active, "pkg-f2", "m-bob") == permissionMissing
+            ])
+    })
+
+    /// The administrator seat is not a permission [PACKAGE-OWNERSHIP-ADMIN]:
+    /// without an explicit grant even the admin cannot publish, and with one
+    /// they can like anyone else.
+    fn adminIsNotAPermission() = {
+        let world = Fixture::world()
+        let withSelfGrant = Fixture::standingGrant(world, "pkg-f1", "g-alice", "m-alice", Governance::PublishRelease)
+        checkAll("the administrator has no implicit operational capability", [
+                publishCode(world, "pkg-f1", "m-alice") == permissionMissing,
+                aliceLacks(world, Governance::YankRelease),
+                aliceLacks(world, Governance::ManageSecurity),
+                publishCode(withSelfGrant, "pkg-f1", "m-alice") == "",
+                join(mapList([Governance::PublishRelease, Governance::YankRelease, Governance::EditMetadata,
+                            Governance::ManageMaintenance, Governance::ManageSecurity], Governance::permissionName), ",") == "publish-release,yank-release,edit-metadata,manage-maintenance,manage-security"
+        ])
+    }
+
+    /// The reason code of `actor`'s grant of `EditMetadata` to carol in `pkg-f1`;
+    /// `actor` names one fixture row, whose principal `p-<actor>` signs with membership `m-<actor>`.
+    fn grantAs(world, actor) =
+    Fixture::code(GovernanceTransitions::grantPermission(world, "pkg-f1", "g-x",
+            Fixture::verified("p-" + actor, "m-" + actor, Fixture::grantStatementFor(world, "pkg-f1", "m-carol", Governance::EditMetadata, Maybe::none())),
+            "m-carol", Governance::EditMetadata, Maybe::none(), 100))
+
+    /// Only the exact current administrator manages grants; custodians,
+    /// members, other organizations' custodians and workflows cannot.
+    fn grantControlIsAdminOnly() = {
+        let world = Fixture::world()
+        checkAll("grant control belongs to the current administrator alone", [
+                grantAs(world, "alice") == "",
+                grantAs(world, "erin") == adminNotCurrent,
+                grantAs(world, "bob") == adminNotCurrent,
+                grantAs(world, "dave") == adminNotCurrent,
+                grantAs(world, "bot") == adminNotCurrent,
+                Fixture::code(GovernanceTransitions::grantPermission(world, "pkg-f1", "g-y",
+                        Fixture::workflow("p-alice", "m-alice", Fixture::grantStatementFor(world, "pkg-f1", "m-carol", Governance::EditMetadata, Maybe::none())),
+                        "m-carol", Governance::EditMetadata, Maybe::none(), 100)) == "governance.proof.ceremony"
+        ])
+    }
+
+    /// The prover's signed deprecation of `pkg-f1` at `epoch`.
+    fn deprecate(world, prover, membership, epoch) =
+    GovernanceTransitions::deprecate(world, "pkg-f1", Fixture::verified(prover, membership, Governance::deprecateStatement(ledger, epoch)))
+
+    /// Deprecation and tombstoning are the administrator's signed decisions.
+    fn lifecycleDecisions() = {
+        let world = Fixture::world()
+        let deprecated = Fixture::orKeep(world, fn(w) => deprecate(w, "p-alice", "m-alice", 1))
+        let deprecationCode = fn(prover, membership, epoch) => Fixture::code(deprecate(world, prover, membership, epoch))
+        checkAll("lifecycle decisions need the administrator's exact proof", [
+                deprecationCode("p-alice", "m-alice", 1) == "",
+                deprecationCode("p-erin", "m-erin", 1) == adminNotCurrent,
+                deprecationCode("p-alice", "m-alice", 2) == "governance.proof.statement-mismatch",
+                Fixture::code(GovernanceTransitions::tombstone(deprecated, "pkg-f1", aliceProof(Governance::tombstoneStatement(ledger, 1)))) == "governance.package.deprecated",
+                publishCode(deprecated, "pkg-f1", "m-alice") == "governance.package.deprecated"
+        ])
+    }
+
+    /// The administrator suite: creation acceptance, the draft lifecycle, the
+    /// seat as a non-permission, admin-only grant control and lifecycle decisions.
+    export fn run() = {
+        test("governance admin: creation acceptance", creationAcceptance)
+        test("governance admin: draft lifecycle", draftLifecycle)
+        test("governance admin: the seat is not a permission", adminIsNotAPermission)
+        test("governance admin: grant control is admin-only", grantControlIsAdminOnly)
+        test("governance admin: lifecycle decisions", lifecycleDecisions)
+    }
+}

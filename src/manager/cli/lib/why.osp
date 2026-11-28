@@ -1,5 +1,4 @@
 namespace registry_cli;
-import registry::Identity
 import registry::ManifestModel
 import registry::Names
 
@@ -20,20 +19,18 @@ module Why {
     /// The labels and keys of the chain walked so far.
     type Chain = { labels: List<string>, keys: List<Names::Key> }
 
-    fn extended(chain: Chain, pkg) = Chain { labels: listAppend(chain.labels, Lockfile::compact(Lockfile::releaseOf(pkg))), keys: listAppend(chain.keys, Identity::keyOf(Lockfile::releaseOf(pkg))) }
+    fn extended(chain: Chain, pkg) = Chain { labels: listAppend(chain.labels, Lockfile::compact(Lockfile::releaseOf(pkg))), keys: listAppend(chain.keys, Lockfile::keyOf(pkg)) }
     fn walked(chain: Chain, key) = Names::includes(chain.keys, key)
     fn lineOf(chain: Chain) = join(chain.labels, arrow)
 
     /// Every chain through `edges` that ends at `target`.
-    fn pathsFrom(lock, target, chain, edges) = foldList(edges, [], fn(acc, edge) => listConcat(acc, pathsVia(lock, target, chain, edge)))
+    fn pathsFrom(lock, target, chain, edges) = Folds::flatMap(edges, fn(edge) => pathsVia(lock, target, chain, edge))
 
-    fn pathsVia(lock, target, chain, edge) = match Lockfile::packageFor(Lockfile::packagesOf(lock), ManifestModel::requirementKey(edge)) {
-        Error => []
-        Success { value } => pathsThrough(lock, target, chain, value)
-    }
+    fn pathsVia(lock, target, chain, edge) = Tree::withPackage(lock, ManifestModel::requirementKey(edge),
+        fn() => [], fn(value) => pathsThrough(lock, target, chain, value))
 
     fn pathsThrough(lock, target, chain, pkg) = {
-        let key = Identity::keyOf(Lockfile::releaseOf(pkg))
+        let key = Lockfile::keyOf(pkg)
         let next = extended(chain, pkg)
         if Names::same(key, target) { [lineOf(next)] }
         else if walked(chain, key) { [] }
@@ -45,21 +42,17 @@ module Why {
         if isEmpty(lines) { Reports::failure(["${noPathCode} ${Names::display(key)}"]) } else { Reports::success(lines) }
     }
 
-    fn pinned(manifest, lock, key) = match Lockfile::packageFor(Lockfile::packagesOf(lock), key) {
+    fn pinned(manifest, lock, key) = match Lockfile::packageIn(lock, key) {
         Error => Reports::failure(["${notLockedCode} ${Names::display(key)}"])
         Success => chains(manifest, lock, key)
     }
 
-    fn withLock(project, lock, key) = Reports::checked(Project::readAt(project), fn(value) => pinned(value, lock, key))
-
-    fn at(project, key) = Reports::checkedWith(Project::readLockAt(project), noLockCode, fn(value) => withLock(project, value, key))
+    /// The chains to `key` in the project at `project`, or `why.no-lock` with the reason.
+    fn at(project, key) = Project::withLockAt(project, noLockCode, fn(manifest, lock) => pinned(manifest, lock, key))
 
     fn withKey(key, flags) = Flags::dispatch(flags, [Flags::projectFlag], [], usageCode, usageText,
         fn(parsed) => at(Flags::project(parsed), key))
 
     /// The whole command: the key word first, then `[--project <dir>]`.
-    export fn run(args) = match Names::parse(listGet(args, 0) ?: "") {
-        Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => withKey(value, Flags::tail(args))
-    }
+    export fn run(args) = Flags::keyed(args, usageCode, usageText, withKey)
 }

@@ -2,25 +2,14 @@ namespace registry_cli;
 
 /// Command routing for the Osprey package frontend. Implements the command
 /// surface of [PACKAGE-API] one command at a time: a command the
-/// specification lists but this build lacks says so with its own status,
-/// which is different from a command the specification does not know.
+/// specification does not know is a usage error.
 module Dispatch {
-    let notImplementedStatus = 3
-    let planned = ["login", "audit", "yank"]
     let usage = [
         "usage: osprey-pkg [--json] <command>",
-        "commands: help, doctor, package init, add, remove, update, use, lock, fetch, verify, build, docs, tree, why, publish --folder",
-        "specified, not yet implemented: login, audit, yank"
+        "commands: help, doctor, package init, add, remove, update, use, lock, fetch, verify, audit, build, run, test, docs, tree, why, publish --folder, yank --folder, login"
     ]
 
     fn unknown(command) = Reports::usage(listPrepend(usage, "unknown command: ${command}"))
-
-    fn notImplemented(command) = Reports::Report {
-        status: notImplementedStatus,
-        lines: ["not implemented: ${command} (plan 0020, Milestone A)"]
-    }
-
-    fn other(command) = if listContains(planned, command) { notImplemented(command) } else { unknown(command) }
 
     /// A target-less `fetch` (no positional target word) installs the lock.
     fn fetchIsInstall(args) = isEmpty(args) || startsWith(listGet(args, 0) ?: "", "--")
@@ -36,24 +25,38 @@ module Dispatch {
     /// The same report as one canonical JSON line (`--json <command> …`).
     fn jsonOf(report) = Reports::Report { status: report.status, lines: [Reports::json(report)] }
 
-    /// Route one argument vector to its command.
-    export fn run(args) -> Reports::Report = match listGet(args, 0) ?: "help" {
-        "--json" => jsonOf(run(Flags::tail(args)))
-        "help" => Reports::success(usage)
-        "doctor" => Doctor::report()
-        "package" => packageCommand(Flags::tail(args))
-        "add" => Add::run(Flags::tail(args))
-        "remove" => Remove::run(Flags::tail(args))
-        "update" => Update::run(Flags::tail(args))
-        "use" => Use::run(Flags::tail(args))
-        "publish" => Publish::run(Flags::tail(args))
-        "fetch" => fetchOrInstall(Flags::tail(args))
-        "lock" => Lock::run(Flags::tail(args))
-        "verify" => Verify::run(Flags::tail(args))
-        "docs" => Build::docs(Flags::tail(args))
-        "build" => Build::run(Flags::tail(args))
-        "tree" => Tree::run(Flags::tail(args))
-        "why" => Why::run(Flags::tail(args))
-        command => other(command)
+    fn help(_rest) = Reports::success(usage)
+
+    fn doctor(_rest) = Doctor::report()
+
+    /// The routing table: the function each command word hands the rest of
+    /// the command line to; a word it does not know is the usage report.
+    fn handlerOf(command) = match command {
+        "--json" => fn(rest) => jsonOf(run(rest))
+        "help" => help
+        "doctor" => doctor
+        "package" => packageCommand
+        "add" => Add::run
+        "remove" => Remove::run
+        "update" => Update::run
+        "use" => Use::run
+        "publish" => Publish::run
+        "yank" => Yank::run
+        "login" => Login::run
+        "fetch" => fetchOrInstall
+        "lock" => Lock::run
+        "verify" => Verify::run
+        "audit" => Audit::run
+        "docs" => Build::docs
+        "build" => Build::run
+        "run" => Build::exec
+        "test" => Build::runTest
+        "tree" => Tree::run
+        "why" => Why::run
+        word => fn(_rest) => unknown(word)
     }
+
+    /// Route one argument vector to its command: the first word names the
+    /// command, the words after it are that command's own arguments.
+    export fn run(args) = handlerOf(listGet(args, 0) ?: "help")(Flags::tail(args))
 }

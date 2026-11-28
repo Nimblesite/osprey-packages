@@ -16,7 +16,7 @@ import registry::Release
 /// registry. The transport is never trusted — the source bundle is decoded
 /// and its digest recomputed from the files before anything is written — and
 /// every failure is a stable dotted reason code. Implements the client half
-/// of [PACKAGE-FOLDER-REGISTRY] (plan 0020, Milestone 0 Phase F3).
+/// of [PACKAGE-FOLDER-REGISTRY] ([PLAN-STANDUP]).
 module Fetch {
     /// The folder-registry base URL when no `--registry` flag is given.
     export let defaultRegistry = "http://127.0.0.1:8787"
@@ -29,6 +29,7 @@ module Fetch {
     export let packagesListingPath = "/v1/packages"
     let sourcePrefix = "/v1/releases/"
     let sourceSuffix = "/source"
+    let bundleFlag = "--bundle"
     let okStatus = 200
     let notFoundStatus = 404
     let anyEpoch = -1
@@ -39,33 +40,42 @@ module Fetch {
     let statusPrefix = "fetch.registry-status"
     let noReleaseCode = "fetch.no-release"
     let shapeCode = "fetch.package-shape"
+    let yankedStatus = "Yanked"
     let writePrefix = "fetch.write"
     let usageText = [
         "usage: osprey-pkg fetch <target> [--registry <base-url>]",
         "target: @scope/name[@e<epoch>] or sha256:<64 hex>; offline: fetch <digest> --bundle <file>"
     ]
 
-    /// One `{"digest","epoch","ordinal"}` row of a package listing.
-    export type Row = { digest: string, epoch: int, ordinal: int }
+    /// One `{"digest","epoch","ordinal"[,"status"]}` row of a package listing;
+    /// `yanked` when its status is `Yanked` ([PACKAGE-RESOLUTION]).
+    export type Row = { digest: string, epoch: int, ordinal: int, yanked: bool }
+
+    /// One listed release and whether the registry marks it yanked.
+    export type Listed = { release: Identity::ReleaseId, yanked: bool }
 
     /// What the target word asks for: the newest release, the newest ordinal
     /// of one epoch, or the release of one digest.
     type Ask = Newest { key: Names::Key } | InEpoch { key: Names::Key, epoch: int } | ByDigest { digest: string }
 
-    /// A parsed command line: the target word and the registry base URL.
-    type CommandLine = { target: string, base: string }
+    /// A parsed command line: a target to fetch from a registry, or a digest
+    /// to take from an offline bundle.
+    type CommandLine = FromRegistry { target: string, base: string } | FromBundle { digest: string, path: string }
 
-    fn withBase(target, base) = Success { value: CommandLine { target: target, base: base } }
+    fn wordAt(args, i) = listGet(args, i) ?: ""
 
-    /// `<target> [--registry <base-url>]`, the flag only after the target.
+    /// `<target> [--registry <base-url>]` or `<digest> --bundle <file>`: a
+    /// flag, when given, only after the target.
     fn commandLine(args) = match length(args) {
-        1 => withBase(listGet(args, 0) ?: "", defaultRegistry)
-        3 => match (listGet(args, 1) ?: "") == registryFlag {
-            true => withBase(listGet(args, 0) ?: "", listGet(args, 2) ?: "")
-            false => Error { message: usageCode }
-        }
+        1 => Success { value: FromRegistry { target: wordAt(args, 0), base: defaultRegistry } }
+        3 => flagged(wordAt(args, 0), wordAt(args, 1), wordAt(args, 2))
         _ => Error { message: usageCode }
     }
+
+    /// The command line `target <flag> word` makes: the flag in the middle decides.
+    fn flagged(target, flag, word) = if flag == registryFlag { Success { value: FromRegistry { target: target, base: word } } }
+    else if flag == bundleFlag { Success { value: FromBundle { digest: target, path: word } } }
+    else { Error { message: usageCode } }
 
     /// One argument parsed as a release selector, or `fetch.usage`.
     fn ask(parsed, make) = match parsed {
@@ -122,62 +132,73 @@ module Fetch {
 
     fn sourcePath(digest) = "${sourcePrefix}${digest}${sourceSuffix}"
 
-    fn rowWith(item, digest, epoch) = andThen(JsonRead::requiredInt(item, "ordinal", shapeCode), fn(value) => Success { value: Row { digest: digest, epoch: epoch, ordinal: value } })
-
-    fn rowFrom(item, digest) = andThen(JsonRead::requiredInt(item, "epoch", shapeCode), fn(value) => rowWith(item, digest, value))
-
-    fn rowOf(item) = andThen(JsonRead::requiredText(item, "digest", shapeCode), fn(value) => rowFrom(item, value))
-
-    fn rowsOf(items) = Checked::collectAll(items, fn(item) => rowOf(item))
-
-    fn releasesOf(root) = match JsonRead::field(root, "releases") {
-        Json::Arr { items } => rowsOf(items)
-        _ => Error { message: shapeCode }
-    }
-
-    /// `{"key":"@s/n","releases":[{"digest","epoch","ordinal"}]}`; any other
-    /// shape is `"fetch.package-shape"`.
-    export fn parseListing(text) = Checked::orElseCode(Json::parse(text), shapeCode, releasesOf)
-
-    fn releaseOf(key, row: Row) = Identity::ReleaseId { key: key, epoch: row.epoch, ordinal: row.ordinal, digest: row.digest }
-
-    fn keyedRows(key, rows) = andThen(rows, fn(value) => Success { value: mapList(value, fn(row) => releaseOf(key, row)) })
-
-    fn keyOfItem(item) = match JsonRead::requiredText(item, "key", shapeCode) {
-        Error { message } => Error { message: message }
-        Success { value } => match Names::parse(value) {
-            Error => Error { message: shapeCode }
-            Success { value } => Success { value: value }
-        }
-    }
-
-    /// The releases of one `{"key","releases"}` package item as identities.
-    fn packageReleases(item) = andThen(keyOfItem(item), fn(value) => keyedRows(value, releasesOf(item)))
-
-    fn appendPackage(acc, item) = andThen(acc, fn(done) => andThen(packageReleases(item), fn(value) => Success { value: listConcat(done, value) }))
-
-    /// Every release of `{"packages":[{"key","releases":[…]}]}` as identities
-    /// in listing order, so `lock` reads the whole registry in one request;
-    /// any other shape is `"fetch.package-shape"`.
-    export fn parsePackages(text) = match Json::parse(text) {
-        Error => Error { message: shapeCode }
-        Success { value } => match JsonRead::field(value, "packages") {
-            Json::Arr { items } => foldList(items, Success { value: [] }, appendPackage)
+    /// The optional `status`: absent is Eligible, `Yanked` is yanked, and any
+    /// other value is `fetch.package-shape`, so an unknown state never reads as Eligible.
+    fn yankedOf(item) = match Json::get(item, "status") {
+        Error => Success { value: false }
+        Success { value } => match value {
+            Json::Str { text } => if text == yankedStatus { Success { value: true } } else { Error { message: shapeCode } }
             _ => Error { message: shapeCode }
         }
     }
 
+    /// One `{"digest","epoch","ordinal"[,"status"]}` row; any member missing or
+    /// of another kind is `fetch.package-shape`.
+    fn rowOf(item) = andThen(JsonRead::requiredText(item, "digest", shapeCode), fn(digest) =>
+        andThen(JsonRead::requiredInt(item, "epoch", shapeCode), fn(epoch) =>
+            andThen(JsonRead::requiredInt(item, "ordinal", shapeCode), fn(ordinal) =>
+                Folds::mapped(yankedOf(item), fn(yanked) => Row { digest: digest, epoch: epoch, ordinal: ordinal, yanked: yanked }))))
+
+    fn rowsOf(items) = Checked::collectAll(items, rowOf)
+
+    /// `releases` of a package document: its rows, or `fetch.package-shape` when it is not an array.
+    fn releasesOf(root) = andThen(JsonRead::requiredItems(root, "releases", shapeCode), rowsOf)
+
+    /// A parsed JSON document handed to `ofRoot`; a document that is not
+    /// JSON, or of any other shape, is `"fetch.package-shape"`.
+    fn parsedDocument(text, ofRoot) = Checked::orElseCode(Json::parse(text), shapeCode, ofRoot)
+
+    /// `{"key":"@s/n","releases":[{"digest","epoch","ordinal"}]}`.
+    export fn parseListing(text) = parsedDocument(text, releasesOf)
+
+    fn releaseOf(key, row: Row) = Identity::ReleaseId { key: key, epoch: row.epoch, ordinal: row.ordinal, digest: row.digest }
+
+    fn listedOf(key, row) = Listed { release: releaseOf(key, row), yanked: row.yanked }
+
+    fn keyedRows(key, rows) = Folds::mapped(rows, fn(value) => mapList(value, fn(row) => listedOf(key, row)))
+
+    /// The `key` member as a package key; one that does not parse is `fetch.package-shape`.
+    fn keyOfItem(item) = andThen(JsonRead::requiredText(item, "key", shapeCode), fn(value) => Checked::mapError(Names::parse(value), fn(_reason) => shapeCode))
+
+    /// The releases of one `{"key","releases"}` package item, each with its yank mark.
+    fn packageReleases(item) = andThen(keyOfItem(item), fn(value) => keyedRows(value, releasesOf(item)))
+
+    /// The `packages` array of the listing document, every item's releases in order.
+    fn packagesOf(root) = andThen(JsonRead::requiredItems(root, "packages", shapeCode), fn(items) =>
+        Folds::collect(items, Success { value: [] }, fn(done, item) => Folds::mapped(packageReleases(item), fn(value) => listConcat(done, value))))
+
+    /// Every release of `{"packages":[{"key","releases":[…]}]}` with its yank
+    /// mark, in listing order, so `lock` reads the whole registry in one
+    /// request; any other shape is `"fetch.package-shape"`.
+    export fn parsePackages(text) = parsedDocument(text, packagesOf)
+
     // `Row` shares `digest`/`epoch`/`ordinal` with `Identity::ReleaseId`;
     // issue #273 needs the receivers spelled out.
-    fn missingRow() = Row { digest: "", epoch: 0, ordinal: 0 }
+    fn missingRow() = Row { digest: "", epoch: 0, ordinal: 0, yanked: false }
 
     fn later(a: Row, b: Row) = Order::compareSpots(a.epoch, a.ordinal, b.epoch, b.ordinal) > 0
 
     fn keepBest(best, row) = if later(row, best) { row } else { best }
 
-    fn bestRow(rows) = match isEmpty(rows) {
-        true => Error { message: noReleaseCode }
-        false => Success { value: foldList(rows, listGet(rows, 0) ?: missingRow(), keepBest) }
+    fn eligibleRows(rows) = filterList(rows, fn(row: Row) => !row.yanked)
+
+    /// The newest row a fresh fetch may choose: never a yanked one.
+    fn bestRow(all) = {
+        let rows = eligibleRows(all)
+        match isEmpty(rows) {
+            true => Error { message: noReleaseCode }
+            false => Success { value: foldList(rows, listGet(rows, 0) ?: missingRow(), keepBest) }
+        }
     }
 
     fn rowsOfEpoch(rows, epoch) = filterList(rows, fn(row: Row) => row.epoch == epoch)
@@ -194,7 +215,7 @@ module Fetch {
 
     /// `installDir` under `project`, or the bare cwd path when `project` is
     /// `""` or `"."` ([PACKAGE-HARDENING] C2).
-    export fn installDirAt(project, id) = if isEmpty(project) || project == "." { installDir(id) } else { "${project}/${installDir(id)}" }
+    export fn installDirAt(project, id) = Project::pathAt(project, installDir(id))
 
     // Reading builds `Release::File` (whose fields no other record shares),
     // then `Source::entryOf` maps them non-recursively exactly as
@@ -212,8 +233,8 @@ module Fetch {
     fn entriesOf(files) = mapList(files, fn(file: Release::File) => Source::entryOf(file.relPath, Bytes::ofString(file.content)))
 
     fn kindOf(walk: Host::Walk) = if !isEmpty(walk.executable) { Source::kindCode("executable") }
-        else if !isEmpty(walk.special) { Source::kindCode("special") }
-        else { "" }
+    else if !isEmpty(walk.special) { Source::kindCode("special") }
+    else { "" }
 
     /// The files a walk found, read in walk order; a non-regular entry or an
     /// unreadable file is its stable code.
@@ -240,37 +261,25 @@ module Fetch {
         }
     }
 
-    fn put(path, content) = match perform Host::Files.write(path, content) {
-        Error { message } => Error { message: message }
-        Success { value } => if value == byteLength(content) { Success { value: 0 } }
-            else { Error { message: "short write ${path}" } }
-    }
+    fn put(path, content) = andThen(perform Host::Files.write(path, content), fn(written) => if written == byteLength(content) { Success { value: 0 } }
+        else { Error { message: "short write ${path}" } })
 
-    fn writeOne(dir, file) = match ensureParent(dir, file.relPath) {
-        Error { message } => Error { message: message }
-        Success => put("${dir}/${file.relPath}", file.content)
-    }
+    fn writeOne(dir, file) = andThen(ensureParent(dir, file.relPath), fn(_made) => put("${dir}/${file.relPath}", file.content))
 
-    fn writeFileList(dir, files) = foldList(files, Success { value: 0 }, fn(acc, file) => match acc {
-        Error => acc
-        Success => writeOne(dir, file)
-    })
+    fn writeFileList(dir, files) = Folds::collect(files, Success { value: 0 }, fn(_written, file) => writeOne(dir, file))
 
     /// Write every file of a tree under `dir`, creating directories first;
     /// Publication uses this writer; installation also checks the disk layout and digest.
-    export fn writeFiles(dir, files) = match perform Host::Tree.ensure(dir) {
-        Error { message } => Error { message: message }
-        Success => writeFileList(dir, files)
-    }
+    export fn writeFiles(dir, files) = andThen(perform Host::Tree.ensure(dir), fn(_made) => writeFileList(dir, files))
 
     fn unexpected(walk: Host::Walk, fileList) = {
         let expected = mapList(fileList, fn(file: Release::File) => file.relPath)
         !isEmpty(walk.executable) || !isEmpty(walk.special)
-            || foldList(walk.regular, false, fn(found, path) => found || !listContains(expected, path))
+        || Folds::any(walk.regular, fn(path) => !listContains(expected, path))
     }
 
     fn checkedDigest(served: Release::Served, digest) = if digest == served.id.digest { Success { value: served } }
-        else { Error { message: "fetch.install-integrity" } }
+    else { Error { message: "fetch.install-integrity" } }
 
     fn checkedTree(dir, served) = match installedFiles(dir) {
         Error { message } => Error { message: "fetch.install-integrity ${message}" }
@@ -280,25 +289,22 @@ module Fetch {
         }
     }
 
-    fn writtenTree(dir, served) = match writeFileList(dir, served.files) {
-        Error { message } => Error { message: "${writePrefix}: ${message}" }
-        Success => checkedTree(dir, served)
-    }
+    /// The write step's failure spelling: `fetch.write` and the OS reason.
+    fn writeFailed(message) = "${writePrefix}: ${message}"
+
+    fn writtenTree(dir, served) = andThen(Checked::mapError(writeFileList(dir, served.files), writeFailed), fn(_written) => checkedTree(dir, served))
 
     // A refetch must never claim success from the served bytes alone. Reject
     // conflicting entries before writes, then verify the actual installed tree.
     fn installInto(dir, served) = match perform Host::Tree.walk(dir) {
         Error { message } => Error { message: "fetch.install-integrity ${message}" }
         Success { value } => if unexpected(value, served.files) { Error { message: "fetch.install-integrity" } }
-            else { writtenTree(dir, served) }
+        else { writtenTree(dir, served) }
     }
 
     fn written(project, served) = {
         let dir = installDirAt(project, served.id)
-        match perform Host::Tree.ensure(dir) {
-            Error { message } => Error { message: "${writePrefix}: ${message}" }
-            Success => installInto(dir, served)
-        }
+        andThen(Checked::mapError(perform Host::Tree.ensure(dir), writeFailed), fn(_made) => installInto(dir, served))
     }
 
     fn verifiedAt(project, body, digest) = andThen(Bundle::verify(body, digest), fn(value) => written(project, value))
@@ -310,9 +316,9 @@ module Fetch {
     export fn fetched(project, base, digest) = andThen(getBody(base, sourcePath(digest)), fn(value) => verifiedAt(project, value, digest))
 
     fn fetchedReport(project, served: Release::Served) = Reports::success([
-        Reports::field("fetched", Identity::display(served.id)),
-        Reports::field("into", installDirAt(project, served.id)),
-        Reports::field("files", "${length(served.files)}")
+            Reports::field("fetched", Identity::display(served.id)),
+            Reports::field("into", installDirAt(project, served.id)),
+            Reports::field("files", "${length(served.files)}")
     ])
 
     /// Download, verify and install one release by digest under `.osprey/packages`.
@@ -335,16 +341,13 @@ module Fetch {
         InEpoch { key, epoch } => installKey(base, key, epoch)
     }
 
-    fn asked(cmd) = match parseTarget(cmd.target) {
+    fn asked(target, base) = match parseTarget(target) {
         Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => runFetch(cmd.base, value)
+        Success { value } => runFetch(base, value)
     }
 
-    /// The whole command: parse `<target> [--registry <base-url>]`, choose
-    /// the release — newest, newest of one epoch, or the digest's own —
-    /// download and verify its source bundle, and write the tree under
-    /// `.osprey/packages/@scope/name/<digest>/`. Implements
-    /// [PACKAGE-FOLDER-REGISTRY].
+    /// The offline bundle's tree: its manifest must parse, then it is written
+    /// and verified like a fetched one.
     fn offlineTree(served) = andThen(Install::manifestDigestOf(Release::filesOf(served)), fn(_valid) => written("", served))
 
     fn fromBundle(digest, path) = match Digests::parse(digest) {
@@ -352,10 +355,16 @@ module Fetch {
         Success => Reports::checked(andThen(perform Host::Files.read(path), fn(body) => andThen(Bundle::verify(body, digest), offlineTree)), fn(served) => fetchedReport("", served))
     }
 
-    export fn run(args) = if length(args) == 3 && (listGet(args, 1) ?: "") == "--bundle" {
-        fromBundle(listGet(args, 0) ?: "", listGet(args, 2) ?: "")
-    } else { match commandLine(args) {
+    /// The whole command: parse `<target> [--registry <base-url>]` or
+    /// `<digest> --bundle <file>`, choose the release — newest, newest of one
+    /// epoch, or the digest's own — download and verify its source bundle,
+    /// and write the tree under `.osprey/packages/@scope/name/<digest>/`.
+    /// Implements [PACKAGE-FOLDER-REGISTRY].
+    export fn run(args) = match commandLine(args) {
         Error => Reports::usageFor(usageCode, usageText)
-        Success { value } => asked(value)
-    } }
+        Success { value } => match value {
+            FromBundle { digest, path } => fromBundle(digest, path)
+            FromRegistry { target, base } => asked(target, base)
+        }
+    }
 }

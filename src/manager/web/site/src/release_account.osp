@@ -1,0 +1,49 @@
+namespace registry_web;
+import registry::Bytes
+import registry::Json
+import registry::JsonRead
+
+/// A returning publisher's choices on the release page [PACKAGE-HOSTED-PUBLISH-FLOW]: the
+/// `GET /v1/account` reply becomes one line per choice,
+/// `pick\t<label>\t<organization id>\t<package id>\t<version>\t<message>`, for the bridge to offer;
+/// any other reply is `error\t<message>`. Only well-formed ids are offered.
+module ReleaseAccount {
+    let unreadable = "Your organizations and packages could not be loaded. Reload to retry."
+
+    fn line(parts) = join(parts, "\t")
+
+    fn text(value, key) = JsonRead::text(JsonRead::field(value, key))
+
+    fn organization(value) = if Bytes::canonicalUuid(text(value, "id")) {
+        [line(["pick", "@${text(value, "handle")} (organization)", text(value, "id"), "", "", "@${text(value, "handle")} chosen. Create its package in step 2."])]
+    } else { [] }
+
+    fn bound(value) = match JsonRead::field(value, "bound") {
+        Json::Bool { flag } => flag
+        _ => false
+    }
+
+    fn version(value) = {
+        let epoch = JsonRead::number(JsonRead::field(value, "epoch"))
+        let ordinal = JsonRead::number(JsonRead::field(value, "nextOrdinal"))
+        if epoch > 0 && ordinal > 0 { "e${epoch}.r${ordinal}" } else { "" }
+    }
+
+    fn chosen(value) = if bound(value) { "${text(value, "key")} chosen. Its repository is linked: request the release in step 4." }
+    else { "${text(value, "key")} chosen. Link its GitHub repository in step 3." }
+
+    fn package(value) = if Bytes::canonicalUuid(text(value, "id")) && Bytes::canonicalUuid(text(value, "organizationId")) {
+        [line(["pick", text(value, "key"), text(value, "organizationId"), text(value, "id"), version(value), chosen(value)])]
+    } else { [] }
+
+    fn picks(doc) = listConcat(foldList(JsonRead::items(JsonRead::field(doc, "organizations")), [], fn(acc, o) => listConcat(acc, organization(o))),
+        foldList(JsonRead::items(JsonRead::field(doc, "packages")), [], fn(acc, p) => listConcat(acc, package(p))))
+
+    /// The choices one account reply offers, or the line saying why there are none.
+    export fn choices(code, body) = if code != 200 { line(["error", unreadable]) } else {
+        match Json::parse(body) {
+            Success { value } => join(picks(value), "\n")
+            Error => line(["error", unreadable])
+        }
+    }
+}

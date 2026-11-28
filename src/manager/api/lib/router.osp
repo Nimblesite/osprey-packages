@@ -30,7 +30,6 @@ module Router {
     let noCache = "Cache-Control: no-cache"
     let allowGet = "Allow: GET"
 
-
     fn okResponse(body) = Response { status: okStatus, contentType: jsonType, etag: "", body: body }
 
     fn problemResponse(code, status, title) = Response {
@@ -38,10 +37,10 @@ module Router {
         contentType: problemType,
         etag: "",
         body: Canonical::serialize(Json::Obj { members: [
-            Json::member("code", Json::str(code)),
-            Json::member("status", Json::num(status)),
-            Json::member("title", Json::str(title))
-        ] }) ?: ""
+                    Json::member("code", Json::str(code)),
+                    Json::member("status", Json::num(status)),
+                    Json::member("title", Json::str(title))
+                ] }) ?: ""
     }
 
     fn notFound() = problemResponse(notFoundCode, notFoundStatus, "Not found")

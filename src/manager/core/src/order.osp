@@ -7,16 +7,21 @@ namespace registry;
 /// Every export is monomorphic. An exported generic function is instantiated
 /// at one type per program when it is called from another file (the cross-file
 /// form of issue #277), so the sorts here return a permutation of indexes and
-/// each caller gathers its own elements.
+/// each caller gathers its own elements; `sortedBy` is the one generic gather,
+/// shared by the hex-keyed sorts of canonical JSON, release files and source
+/// entries.
 module Order {
     let indexWidth = 10
 
+    /// Negative, zero or positive as `a` orders before, equal to or after `b`.
+    fn sign(a, b) = if a == b { 0 } else if a < b { -1 } else { 1 }
+
     /// Unsigned lexicographic byte comparison: negative, zero or positive.
     /// Annotated so the export stays at `string` (issue #277).
-    export fn compareStrings(a: string, b: string) = if a == b { 0 } else if a < b { -1 } else { 1 }
+    export fn compareStrings(a: string, b: string) = sign(a, b)
 
     /// Integer comparison: negative, zero or positive.
-    export fn compareInts(a: int, b: int) = if a == b { 0 } else if a < b { -1 } else { 1 }
+    export fn compareInts(a: int, b: int) = sign(a, b)
 
     /// The first non-zero comparison, so tuple orders compose.
     export fn thenCompare(first, next) = if first == 0 { next } else { first }
@@ -65,9 +70,19 @@ module Order {
     /// hold only bytes above space. Built on the builtin `listSort`.
     export fn sortedIndexes(keys) = mapList(listSort(tagged(keys)), tagIndex)
 
+    /// The elements of `items` in the unsigned byte order of the keys
+    /// `keyOf` gives them; an index that is somehow missing answers `blank()`.
+    export fn sortedBy(items, keyOf, blank) = mapList(sortedIndexes(mapList(items, keyOf)), fn(i) => listGet(items, i) ?: blank())
+
     /// True when every adjacent pair of a sorted string list is strictly ascending.
     export fn strictlyAscending(sorted) = fold(range(1, length(sorted)), true, fn(ok, i) =>
         ok && compareStrings(listGet(sorted, wrapSub(i, 1)) ?: "", listGet(sorted, i) ?: "") < 0)
+
+    /// The first non-empty text of `texts`, or `""` when every one is empty.
+    export fn firstText(texts) = foldList(texts, "", fn(found, c) => if found == "" { c } else { found })
+
+    /// True when any text of `texts` satisfies `ok`.
+    export fn anyString(texts, ok) = foldList(texts, false, fn(found, t) => found || ok(t))
 
     /// Sorted and duplicate-free, or `"list.duplicate"`, for a set of strings.
     export fn canonicalSet(xs) = {
@@ -80,8 +95,11 @@ module Order {
 
     /// The distinct strings in first-seen order. Monomorphic: a shared generic
     /// reader would sit at one instantiation per program (issue #277).
-    export fn distinctStrings(xs) = foldList(xs, [], fn(acc, x) => if listContains(acc, x) { acc } else { listAppend(acc, x) })
+    export fn distinctStrings(xs) = distinctBy(xs)
 
     /// The distinct integers in first-seen order; monomorphic for the same reason.
-    export fn distinctInts(xs) = foldList(xs, [], fn(acc, x) => if listContains(acc, x) { acc } else { listAppend(acc, x) })
+    export fn distinctInts(xs) = distinctBy(xs)
+
+    /// The elements of `xs` without repeats, in first-seen order; each export fixes one element type.
+    fn distinctBy(xs) = foldList(xs, [], fn(acc, x) => if listContains(acc, x) { acc } else { listAppend(acc, x) })
 }

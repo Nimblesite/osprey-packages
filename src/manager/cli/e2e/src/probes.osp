@@ -1,0 +1,379 @@
+namespace registry_e2e;
+import registry::Digests
+import registry::Identity
+import registry::Json
+import registry::JsonRead
+import registry::Names
+import registry::Manifest
+import registry::ManifestJson
+import registry::Release
+import registry::Paths
+import registry_api::Loader
+import registry_api::Router
+import registry_cli::Dispatch
+import registry_cli::Build
+import registry_cli::Fetch
+import registry_cli::Lockfile
+import registry_cli::Install
+import registry_host::Host
+
+/// What the end-to-end run observes, as expected/actual pairs: the live
+/// server's reply to every endpoint against the pure router's answer for the
+/// same catalog, the client's fetches and the bytes they installed, and the
+/// output of a consumer project built against the fetched sources.
+/// Implements the exit criterion of [PACKAGE-FOLDER-REGISTRY].
+module Probes {
+    /// One observation; the run passes when `actual` equals `expected`.
+    export type Probe = { label: string, expected: string, actual: string }
+
+    fn observation(label, expected, actual) = Probe { label: label, expected: expected, actual: actual }
+
+    let port = 18797
+    let base = "http://127.0.0.1:18797"
+    let work = ".osprey/e2e"
+    /// The package system's folder, relative to the repository root: the one
+    /// path every fixture, sample registry and server build below is found by.
+    let managerDir = "src/manager"
+    let consumerLine = "Hello, Ada! 3 squared is 9, cubed is 27."
+
+    fn sh(command) = perform Host::Process.run(command)
+
+    /// The client against the served registry for the project at `dir`, with `words` before the flags.
+    fn against(dir, words) = Dispatch::run(listConcat(words, ["--registry", base, "--project", dir]))
+
+    /// `verify --offline` of the project at `dir`, against the installed trees only.
+    fn verifyOffline(dir) = Dispatch::run(["verify", "--offline", "--project", dir])
+
+    fn configured(key, fallback) = {
+        let value = trim(sh("printenv ${Host::shellWord(key)}").stdout)
+        if value == "" { fallback } else { value }
+    }
+
+    fn compiler(cwd) = configured("OSPREY_E2E_COMPILER", configured("OSPREY_TEST_COMPILER", "${cwd}/target/osprey/osprey"))
+    fn memory() = configured("OSPREY_E2E_MEMORY", configured("OSPREY_TEST_MEMORY", "gc"))
+
+    fn compilerCommand(command, selected) = if startsWith(command, "'osprey' ") {
+        Host::shellWord(selected) + (substring(command, 8, byteLength(command)) ?: "")
+    } else { command }
+
+    fn buildProcess(cwd) = {
+        let selected = compiler(cwd)
+        let mode = memory()
+        handler Host::Process {
+            run command => {
+                let selectedCommand = compilerCommand(command, selected)
+                perform Host::Process.run(if startsWith(selectedCommand, Host::shellWord(selected) + " ") {
+                        selectedCommand + " --memory=" + Host::shellWord(mode)
+                    } else { selectedCommand })
+            }
+        }
+    }
+
+    fn runBuild(cwd, args) = buildProcess(cwd)(fn() => Build::run(args))
+
+    fn configText(cwd) = "{\"address\":\"127.0.0.1\",\"port\":${port},\"root\":\"${cwd}/${managerDir}/cli/e2e/sample-registry\"}"
+
+    /// Build the server binary and start it in the work directory, where it
+    /// reads `registry-server.json`; `exec` keeps the recorded PID the server's.
+    fn start(cwd) = {
+        let _made = perform Host::Tree.ensure(work)
+        let _written = perform Host::Files.write("${work}/registry-server.json", configText(cwd))
+        let built = sh("${Host::shellWord(compiler(cwd))} build ${Host::shellWord(cwd + "/" + managerDir + "/api")} --no-warnings -o ${Host::shellWord(work + "/registry-server")} --memory=${Host::shellWord(memory())}")
+        let _started = sh("(cd ${work} && exec ./registry-server > server.log 2>&1) & echo $! > ${work}/server.pid")
+        built.status
+    }
+
+    fn healthy() = match perform Host::Web.get(base, "/v1/health") {
+        Success { value } => value.status == 200
+        Error => false
+    }
+
+    fn retry(attempt) = {
+        let _slept = sh("sleep 0.2")
+        awaitServer(attempt + 1)
+    }
+
+    fn awaitServer(attempt) = if attempt >= 100 { false } else if healthy() { true } else { retry(attempt) }
+
+    fn replyText(r) = "${r.status} ${r.etag} ${r.body}"
+
+    fn exchange(catalog, path) = observation("GET ${path} equals the router byte for byte",
+        replyText(Router::respond(catalog, "GET", path)),
+        match perform Host::Web.get(base, path) {
+            Success { value } => replyText(value)
+            Error { message } => message
+    })
+
+    fn paths(catalog) = listConcat(
+        ["/v1/health", "/v1/packages", "/v1/packages/demo/maths", "/v1/packages/@demo/report", "/v1/packages/demo/missing", "/v1/nowhere",
+            "/v1/releases/sha256:0000000000000000000000000000000000000000000000000000000000000000"],
+        foldList(Release::servedOf(catalog), [], fn(out, s) => listConcat(out, ["/v1/releases/${Release::digestOf(s)}", "/v1/releases/${Release::digestOf(s)}/source"])))
+
+    fn fetched(target) = observation("fetch ${target}", "0", "${Fetch::run([target, "--registry", base]).status}")
+
+    fn installedDir(s: Release::Served) = ".osprey/packages/${Names::display(s.id.key)}/${Digests::hexOf(s.id.digest)}"
+
+    fn fileTexts(s: Release::Served, read) = join(mapList(s.files, fn(f) => read(f)), "\n--\n")
+
+    fn installed(s) = observation("installed ${installedDir(s)} is byte-identical to the served release",
+        fileTexts(s, fn(f) => f.content),
+        fileTexts(s, fn(f) => readFile("${installedDir(s)}/${f.relPath}") ?: "<missing ${f.relPath}>"))
+
+    fn consumerDir(cwd) = "${cwd}/${work}/consumer"
+
+    /// An empty consumer tree at `dir`: the directory removed, `src` recreated.
+    fn freshProject(dir) = {
+        let _reset = sh("rm -rf ${Host::shellWord(dir)}")
+        let _made = perform Host::Tree.ensure("${dir}/src")
+        dir
+    }
+
+    fn rooted(dir, path) = if startsWith(path, "/") { path } else { "${dir}/${path}" }
+
+    /// Forward real filesystem operations as though invoked in the consumer.
+    fn consumerFiles(dir) = handler Host::Files {
+        read path => perform Host::Files.read(rooted(dir, path))
+        exists path => perform Host::Files.exists(rooted(dir, path))
+        remove path => perform Host::Files.remove(rooted(dir, path))
+        write path text => perform Host::Files.write(rooted(dir, path), text)
+    }
+
+    fn consumerTree(dir) = handler Host::Tree {
+        walk path => perform Host::Tree.walk(rooted(dir, path))
+        ensure path => perform Host::Tree.ensure(rooted(dir, path))
+    }
+
+    fn consumerProcess(dir) = handler Host::Process {
+        run command => perform Host::Process.run("cd ${Host::shellWord(dir)} && ${command}")
+    }
+
+    fn defaultBuildAt(cwd, dir, args) = {
+        consumerFiles(dir)(fn() => consumerTree(dir)(fn() => consumerProcess(dir)(fn() => runBuild(cwd, args))))
+    }
+
+    /// `build --run` of the project at `dir` through the selected compiler.
+    fn runProject(cwd, dir) = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", dir])
+
+    fn buildProbes(cwd, dir, relativeDir, absoluteDir, labels, output) = {
+        let bare = defaultBuildAt(cwd, dir, [])
+        let run = defaultBuildAt(cwd, dir, ["--run"])
+        let relative = runProject(cwd, relativeDir)
+        let absolute = runProject(cwd, absoluteDir)
+        [
+            observation(labels.bare, "0", "${bare.status}"),
+            observation(labels.run, output, firstLine(run)),
+            observation(labels.relative, output, firstLine(relative)),
+            observation(labels.absolute, output, firstLine(absolute))
+        ]
+    }
+
+    /// Actual compiler invocations cover both default forms and both project forms.
+    export fn buildPaths(cwd) = buildProbes(cwd, consumerDir(cwd), "${work}/consumer", consumerDir(cwd),
+        { bare: "bare build compiles the consumer", run: "bare build --run executes the consumer",
+            relative: "relative --project executes the consumer", absolute: "absolute --project executes the consumer" }, consumerLine)
+
+    let pythonBuildLine = "Python build paths"
+    let pythonBuildDir = ".osprey/e2e/python-paths"
+    let pythonBuildManifest = "[project]\nname = \"python-paths\"\nsource_roots = [\"src\"]\npython_sources = [\"src/main.py\"]\ndefault_namespace = \"python_paths\"\nentry = \"src/main.py\"\n"
+    let pythonBuildMain = "# osprey: flavor=python\ndef main():\n    return print(\"Python build paths\")\n"
+
+    fn pythonBuildLock() = {
+        use manifest <- andThen(Manifest::accepted(Manifest::parse(pythonBuildManifest)))
+        use digest <- andThen(ManifestJson::digest(manifest))
+        Lockfile::encode(Lockfile::release(Lockfile::Root { manifestDigest: digest, dependencies: [] }, []))
+    }
+
+    fn pythonBuildFiles(lock) = [
+        Release::File { relPath: "osprey.toml", content: pythonBuildManifest },
+        Release::File { relPath: "osprey.lock", content: lock },
+        Release::File { relPath: "src/main.py", content: pythonBuildMain }
+    ]
+
+    fn writePythonBuild(dir, lock) = foldList(pythonBuildFiles(lock), Success { value: 0 }, fn(acc, f) => match acc {
+            Error => acc
+            Success => perform Host::Files.write("${dir}/${f.relPath}", f.content)
+    })
+
+    fn preparePythonBuild(dir) = {
+        use _ <- andThen(perform Host::Tree.ensure("${dir}/src"))
+        use lock <- andThen(pythonBuildLock())
+        writePythonBuild(dir, lock)
+    }
+
+    fn setupResult(result) = match result { Success => "0" Error { message } => message }
+
+    fn pythonBuildRuns(cwd, outside) = {
+        let local = "${cwd}/${pythonBuildDir}"
+        let prepared = preparePythonBuild(local)
+        let external = preparePythonBuild(outside)
+        let variants = buildProbes(cwd, local, pythonBuildDir, outside,
+            { bare: "bare Python build", run: "bare Python build --run",
+                relative: "relative Python --project", absolute: "absolute Python project outside cwd" }, pythonBuildLine)
+        let cleaned = sh("rm -rf ${Host::shellWord(outside)}")
+        listConcat(
+            [observation("Python project setup", "0 0", "${setupResult(prepared)} ${setupResult(external)}")],
+            listConcat(variants, [observation("temporary Python project cleanup", "0", "${cleaned.status}")]))
+    }
+
+    /// Compile Python entries through every project form, including a fresh external directory.
+    export fn pythonBuildPaths(cwd) = {
+        let created = sh("mktemp -d")
+        if created.status == 0 && startsWith(trim(created.stdout), "/") && trim(created.stdout) != "/" {
+            pythonBuildRuns(cwd, trim(created.stdout))
+        } else { [observation("temporary Python project", "0", "${created.status}: ${created.stderr}")] }
+    }
+
+    /// The consumer flow of [PACKAGE-FOLDER-REGISTRY]: `lock` writes the
+    /// folder lock, `fetch` installs it, `verify --offline` audits it and
+    /// `build --run` compiles and runs the consumer against the locked trees.
+    /// The consumer fixture file `rel`, copied into the project at `dir`.
+    fn copyConsumerFile(dir, rel) = perform Host::Files.write("${dir}/${rel}", readFile("${managerDir}/cli/e2e/consumer/${rel}") ?: "")
+
+    fn consumer(cwd, catalog) = {
+        let dir = freshProject(consumerDir(cwd))
+        let _manifest = copyConsumerFile(dir, "osprey.toml")
+        let _main = copyConsumerFile(dir, "src/main.osp")
+        let locked = against(dir, ["lock"])
+        let _fetched = against(dir, ["fetch"])
+        let verified = verifyOffline(dir)
+        let built = buildProcess(cwd)(fn() => Dispatch::run(["build", "--compiler", compiler(cwd), "--run", "--project", dir]))
+        [
+            observation("consumer lock bytes match the fixture", fixtureLockText(), readFile("${dir}/osprey.lock") ?: ""),
+            observation("consumer lock prints + lines", expectedPlus(newest(catalog)), joinedPlus(locked)),
+            observation("consumer verify reports the package count", "verified 3 packages", firstLine(verified)),
+            observation("consumer project builds and runs", consumerLine, firstLine(built))
+        ]
+    }
+
+    fn fixtureLockText() = JsonRead::text(JsonRead::field(Json::parse(readFile("${managerDir}/core/tests/fixtures/lock/consumer.json") ?: "") ?: Json::Null, "text"))
+
+    fn plusLines(report) = filterList(report.lines, fn(l) => startsWith(l, "+ "))
+    fn joinedPlus(report) = join(plusLines(report), "\n")
+    fn firstLine(report) = listGet(report.lines, 0) ?: ""
+
+    /// The closure of `@demo/report`: what the consumer's lock selects.
+    let consumerClosure = ["@demo/greeting", "@demo/maths", "@demo/report"]
+
+    fn expectedPlus(catalog) = join(mapList(filterList(Release::servedOf(newest(catalog)), fn(s) => listContains(consumerClosure, keyOf(s))), fn(s) => "+ ${Names::display(s.id.key)} e${s.id.epoch}.r${s.id.ordinal} ${s.id.digest}"), "\n")
+
+    fn keyOf(s: Release::Served) = Names::display(s.id.key)
+
+    fn ordinalOf(s) = Identity::ordinalOf(Release::idOf(s))
+
+    // ---- the Python plane at the real boundary ([PACKAGE-PYTHON-UV]) ----
+
+    let pyConsumerManifest = "[project]\nname = \"pyconsumer\"\nsource_roots = [\"src\"]\n\n[dependencies]\n\"@demo/pyadd\" = { epoch = 1, min_release = 1 }\n"
+    let consumerPyproject = "[project]\nname = \"osprey-consumer-probe\"\nversion = \"0.1.0\"\nrequires-python = \">=3.12\"\n[build-system]\nrequires = [\"setuptools\"]\nbuild-backend = \"setuptools.build_meta\"\n[tool.setuptools]\npy-modules = [\"osprey_consumer_probe\"]\n"
+    let consumerPython = "def answer():\n    return 42\n"
+    let pyConsumerPlane = "\n[system.python]\ncapability = \"python/interop\"\nmin_revision = 31200\n"
+    let uvGuidance = "uv: missing (python/uv: needed only by packages declaring python/interop)"
+
+    fn uvFound() = sh("command -v uv")
+
+    fn lastLine(report) = listGet(report.lines, length(report.lines) - 1) ?: ""
+
+    fn pythonPinned(dir) = contains(readFile("${dir}/osprey.lock") ?: "", "\"python\":{\"pyprojectDigest\":\"sha256:")
+
+    fn rootPythonFiles(dir) = andThen(perform Host::Tree.walk(dir), fn(value) => {
+            let kept = fn(paths) => filterList(paths, fn(path) => !Paths::excluded(path))
+            Install::filesOfWalked(Host::Walk { regular: kept(value.regular), executable: kept(value.executable), special: kept(value.special) }, dir)
+    })
+
+    fn pythonFiles(dir) = andThen(perform Host::Tree.walk("${dir}/.osprey/packages"), fn(value) =>
+        Install::filesOfWalked(value, "${dir}/.osprey/packages"))
+
+    fn samePythonFiles(before, after) = match before {
+        Error => false
+        Success { value: original } => match after {
+            Error => false
+            Success { value } => structuralEquals(original, value)
+        }
+    }
+
+    fn rejectedPythonLink(dir) = {
+        let link = "${dir}/untrusted-link"
+        let made = sh("ln -s ${Host::shellWord(dir + "/osprey_consumer_probe.py")} ${Host::shellWord(link)}")
+        let rejected = against(dir, ["fetch"])
+        let removed = sh("rm -f ${Host::shellWord(link)}")
+        observation("Python mirror rejects symbolic links", "0 1 0", "${made.status} ${rejected.status} ${removed.status}")
+    }
+
+    /// With uv on the host: sync preserves every installed source byte and verifies offline.
+    fn withUv(dir, locked, original) = {
+        let before = pythonFiles(dir)
+        let fetched = against(dir, ["fetch"])
+        let unchanged = samePythonFiles(before, pythonFiles(dir))
+        let verified = verifyOffline(dir)
+        let imported = sh("${Host::shellWord(dir + "/.osprey/python/.venv/bin/python")} -c ${Host::shellWord("import osprey_consumer_probe; print(osprey_consumer_probe.answer())")}")
+        [
+            observation("python consumer lock pins the uv plane", "python: locked ${dir}/.osprey/python", lastLine(locked)),
+            observation("python consumer lock carries root.python", "true", "${pythonPinned(dir)}"),
+            observation("python consumer fetch succeeds", "0", "${fetched.status}"),
+            observation("python build preserves canonical source files", "true", "${unchanged}"),
+            observation("python build preserves root source files", "true", "${samePythonFiles(original, rootPythonFiles(dir))}"),
+            observation("Python import survives mirror cleanup", "0 42", "${imported.status} ${trim(imported.stdout)}"),
+            observation("python consumer verifies offline", "verified 1 packages", firstLine(verified)),
+            rejectedPythonLink(dir)
+        ]
+    }
+
+    /// Without uv: `lock` refuses with the shell's status for a missing command and writes no lock.
+    fn withoutUv(dir, locked) = [
+        observation("python consumer lock without uv is python.uv-lock-failed", "python.uv-lock-failed status 127", firstLine(locked)),
+        observation("python consumer lock without uv writes no lock", "<none>", readFile("${dir}/osprey.lock") ?: "<none>")
+    ]
+
+    /// A consumer of `@demo/pyadd`, which declares `python/interop`: the outcome
+    /// depends on whether the host has uv, and both outcomes are asserted.
+    fn pythonConsumer(cwd) = {
+        let dir = freshProject("${cwd}/${work}/consumer-py space's \\path")
+        let _manifest = perform Host::Files.write("${dir}/osprey.toml", pyConsumerManifest + pyConsumerPlane)
+        let _python = perform Host::Files.write("${dir}/osprey_consumer_probe.py", consumerPython)
+        let _pyproject = perform Host::Files.write("${dir}/pyproject.toml", consumerPyproject)
+        let original = rootPythonFiles(dir)
+        let locked = against(dir, ["lock"])
+        if uvFound().status == 0 { withUv(dir, locked, original) } else { withoutUv(dir, locked) }
+    }
+
+    /// `doctor` names uv's path, or says it is missing and who needs it.
+    fn doctorUv() = {
+        let found = uvFound()
+        observation("doctor reports uv as a path or as guidance", if found.status == 0 { "uv: ${trim(found.stdout)}" } else { uvGuidance }, listGet(Dispatch::run(["doctor"]).lines, 3) ?: "")
+    }
+
+    /// The newest release of each package: the ones `fetch @scope/name` installs.
+    fn newest(catalog) = Release::Catalog { served: filterList(Release::servedOf(catalog), fn(s) =>
+            !foldList(Release::servedOf(catalog), false, fn(newer, o) => newer || (keyOf(o) == keyOf(s) && ordinalOf(o) > ordinalOf(s)))), refused: [], yanked: [] }
+
+    fn stop() = {
+        let _killed = sh("kill $(cat ${work}/server.pid)")
+        let _slept = sh("sleep 0.5")
+        observation("server stops", "false", "${healthy()}")
+    }
+
+    fn concatAll(groups) = foldList(groups, [], fn(out, group) => listConcat(out, group))
+
+    fn projects(cwd, catalog) = concatAll([consumer(cwd, catalog), buildPaths(cwd), pythonBuildPaths(cwd), pythonConsumer(cwd), [doctorUv(), stop()]])
+
+    fn running(cwd, catalog) = {
+        let endpoints = mapList(paths(catalog), fn(p) => exchange(catalog, p))
+        let fetches = listConcat(mapList(["@demo/greeting", "@demo/maths@e1", "@demo/report", "@demo/pyadd"], fetched), mapList(Release::servedOf(catalog), fn(s) => fetched(Release::digestOf(s))))
+        let files = mapList(Release::servedOf(catalog), installed)
+        concatAll([endpoints, fetches, files, projects(cwd, catalog)])
+    }
+
+    fn catalogOf(cwd) = match Loader::load("${cwd}/${managerDir}/cli/e2e/sample-registry") {
+        Success { value } => value
+        Error { message } => Release::Catalog { served: [], refused: [Release::Refused { dir: cwd, code: message }], yanked: [] }
+    }
+
+    /// Every observation, in order; a server that never answers is one probe.
+    export fn observe() = {
+        let cwd = trim(sh("pwd").stdout)
+        let catalog = catalogOf(cwd)
+        let built = start(cwd)
+        let up = awaitServer(0)
+        let header = [observation("server binary builds", "0", "${built}"), observation("server answers on loopback", "true", "${up}")]
+        if up { listConcat(header, running(cwd, catalog)) } else { listConcat(header, [stop()]) }
+    }
+}

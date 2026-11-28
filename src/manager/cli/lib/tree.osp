@@ -1,5 +1,4 @@
 namespace registry_cli;
-import registry::Identity
 import registry::ManifestModel
 import registry::Names
 
@@ -38,14 +37,18 @@ module Tree {
     fn withVisited(w: Walk, key) = Walk { printed: w.printed, visited: listAppend(w.visited, key) }
     fn seen(w: Walk, key) = Names::includes(w.visited, key)
 
-    /// One edge: the pinned package's line and, the first time, its subtree.
-    fn edgeLines(lock, depth, w, edge) = match Lockfile::packageFor(Lockfile::packagesOf(lock), ManifestModel::requirementKey(edge)) {
-        Error => withLine(w, unlockedLine(depth, edge))
-        Success { value } => packageLines(lock, depth, w, edge, value)
+    /// Resolve one required key, continuing through the matching lock state.
+    export fn withPackage(lock, key, missing, found) = match Lockfile::packageIn(lock, key) {
+        Error => missing()
+        Success { value } => found(value)
     }
 
+    /// One edge: the pinned package's line and, the first time, its subtree.
+    fn edgeLines(lock, depth, w, edge) = withPackage(lock, ManifestModel::requirementKey(edge),
+        fn() => withLine(w, unlockedLine(depth, edge)), fn(value) => packageLines(lock, depth, w, edge, value))
+
     fn packageLines(lock, depth, w, edge, pkg) -> Walk = {
-        let key = Identity::keyOf(Lockfile::releaseOf(pkg))
+        let key = Lockfile::keyOf(pkg)
         let repeated = seen(w, key)
         let printed = withLine(w, lineOf(depth, pkg, edge, repeated))
         if repeated { printed } else { childLines(lock, depth + 1, withVisited(printed, key), Lockfile::edgesOf(pkg)) }
@@ -58,16 +61,14 @@ module Tree {
     /// The tree: the project name, then the root edges and their subtrees.
     fn treeOf(manifest, lock) = Reports::success(listPrepend(printedOf(childLines(lock, 1, Walk { printed: [], visited: [] }, Lockfile::rootEdges(lock))), ManifestModel::nameOf(manifest)))
 
-    fn withLock(project, lock) = Reports::checked(Project::readAt(project), fn(value) => treeOf(value, lock))
-
     /// The tree of the project at `project`, or `tree.no-lock` with the reason.
-    fn at(project) = Reports::checkedWith(Project::readLockAt(project), noLockCode, fn(value) => withLock(project, value))
+    fn at(project) = Project::withLockAt(project, noLockCode, treeOf)
 
     fn directNames(manifest: ManifestModel::Manifest) = Names::distinct(mapList(manifest.dependencies, ManifestModel::requirementKey))
 
     // Implements [PACKAGE-API]: the editor asks the canonical manifest parser;
     // no lock, registry connection or editor-side TOML parser is needed.
-    fn directAt(project) = Reports::checked(Project::readAt(project), fn(value) => Reports::success(mapList(directNames(value), Names::display)))
+    fn directAt(project) = Project::withManifestAt(project, fn(value) => Reports::success(mapList(directNames(value), Names::display)))
 
     fn selected(parsed) = if Flags::has(parsed, "--graph") {
         TreeGraph::reportAt(Flags::project(parsed))

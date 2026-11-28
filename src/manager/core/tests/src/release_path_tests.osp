@@ -1,0 +1,76 @@
+namespace registry_tests;
+import registry::ReleasePath
+
+/// [PACKAGE-FOLDER-REGISTRY] release directory path grammar.
+module ReleasePathTests {
+    /// The release the release-path cases locate.
+    let ledgerRelease = "@finch/ledger/3.42"
+    /// The refusal of a release path with the wrong segment count.
+    let segmentsCode = "release-path.segments"
+    /// The refusal of a release path whose version is malformed.
+    let versionCode = "release-path.version"
+    /// The refusal of a release epoch that is not a positive integer.
+    let epochCode = "release.epoch"
+    /// The refusal of a release ordinal that is not a positive integer.
+    let ordinalCode = "release.ordinal"
+
+    fn code(text) = Fixtures::code(ReleasePath::parse(text))
+
+    fn digestOf(text) = match ReleasePath::parse(text) {
+        Success { value } => value.digest
+        Error => "error"
+    }
+
+    fn fields() = match ReleasePath::parse(ledgerRelease) {
+        Success { value } => checkAll("parse splits key, epoch and ordinal", [
+                structuralEquals([value.key.scope, value.key.name, value.digest], ["finch", "ledger", ""]),
+                structuralEquals([value.epoch, value.ordinal], [3, 42])
+        ])
+        Error => checkAll("parse splits key, epoch and ordinal", [false])
+    }
+
+    fn accepts() = checkAll("release paths parse and round-trip", [
+            Fixtures::mapsTo([
+                    ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
+                ], [
+                    ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
+                ], fn(text) => Fixtures::shown(ReleasePath::parse, ReleasePath::format, text)),
+            digestOf(ledgerRelease) == ""
+    ])
+
+    fn rejectsSegmentsAndNames() = checkAll("path and name rejections", [
+            Fixtures::mapsTo([
+                    "", "@finch/ledger", "@finch/ledger/3.42/extra", "/ledger/3.42", "finch/ledger/3.42",
+                    "@Finch/ledger/3.42", "@finch/Ledger/3.42", "@/ledger/3.42", "@finch//3.42"
+                ], [
+                    segmentsCode, segmentsCode, segmentsCode, "name.missing-at", "name.missing-at",
+                    "name.scope.chars", "name.name.chars", "name.scope.length", "name.name.length"
+                ], code)
+    ])
+
+    fn rejectsVersions() = checkAll("version segment rejections", [
+            Fixtures::mapsTo([
+                    "@finch/ledger/3", "@finch/ledger/3.42.1", "@finch/ledger/03.42",
+                    "@finch/ledger/3.042", "@finch/ledger/.42", "@finch/ledger/3.", "@finch/ledger/",
+                    "@finch/ledger/-3.42", "@finch/ledger/+3.42", "@finch/ledger/3.4a",
+                    "@finch/ledger/0.1", "@finch/ledger/1.0", "@finch/ledger/9223372036854775808"
+                ], [
+                    versionCode, versionCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode,
+                    epochCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode
+                ], code)
+    ])
+
+    fn formatsWithDigest() = checkAll("format ignores the digest and renders the directory", [
+            ReleasePath::format(Fixtures::releaseId("@finch/ledger", 3, 42, "sha256:aa")) == ledgerRelease
+    ])
+
+    /// The release-path suite: parsed fields, canonical round-trips, path,
+    /// name and version rejections, and `format`.
+    export fn run() = {
+        test("release paths: parse fields", fields)
+        test("release paths: canonical round-trip", accepts)
+        test("release paths: path and name rejections", rejectsSegmentsAndNames)
+        test("release paths: version rejections", rejectsVersions)
+        test("release paths: format", formatsWithDigest)
+    }
+}

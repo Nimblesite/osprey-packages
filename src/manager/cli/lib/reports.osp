@@ -1,6 +1,7 @@
 namespace registry_cli;
 import registry::Bytes
 import registry::Canonical
+import registry::Checked
 import registry::Json
 
 /// What a command answers: a process status and the lines to show. Rendering
@@ -50,22 +51,18 @@ module Reports {
     }
 
     /// `onSuccess` of a valid result, else the failure naming `code` and the message.
-    export fn checkedWith(result, code, onSuccess) = match result {
-        Error { message } => failure(["${code} ${message}"])
-        Success { value } => onSuccess(value)
-    }
+    export fn checkedWith(result, code, onSuccess) = checked(Checked::mapError(result, fn(message) => "${code} ${message}"), onSuccess)
 
     /// One line per entry of `label: value`.
     export fn field(label, value) = "${label}: ${value}"
-
 
     /// The report as one canonical JSON line, `{"lines":[…],"status":N}`, for
     /// editors and automation ([PACKAGE-API]): the very value the terminal
     /// rendering shows, so there is no second semantic API to keep in step.
     export fn json(report: Report) = Canonical::serialize(Json::Obj { members: [
-        Json::member("lines", Json::Arr { items: mapList(report.lines, fn(text) => Json::Str { text: text }) }),
-        Json::member("status", Json::Num { value: report.status })
-    ] }) ?: "{}"
+                Json::member("lines", Json::Arr { items: mapList(report.lines, fn(text) => Json::Str { text: text }) }),
+                Json::member("status", Json::Num { value: report.status })
+            ] }) ?: "{}"
 
     let replacement = "?"
     let space = 32

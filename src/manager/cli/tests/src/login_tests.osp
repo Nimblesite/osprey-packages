@@ -1,0 +1,192 @@
+namespace registry_tests;
+import registry_host::Host
+import registry_cli::Login
+import registry_cli::Reports
+import registry::Bytes
+import registry_cli::Folds
+import registry::Dsse
+
+/// `login` against fixture hosts ([PACKAGE-HOSTED-CLI-LOGIN]): the RFC 7636
+/// S256 vector, the exact start URL (challenge only, never the verifier), the
+/// canonical token request, the credential-store command that keeps the
+/// token off every argument vector, and every refusal: a foreign or missing
+/// state, a provider error, a malformed code or path, a server problem code, a
+/// partial or non-JSON token reply, failed entropy, browser, listener and
+/// store. A refusal never posts after a bad callback and never stores.
+module LoginTests {
+    let origin = "https://api.example.test"
+    let token = "opaque-token_1.2~x"
+    let expiry = "2026-11-28T10:00:00Z"
+    let mac = "Darwin"
+    let linux = "Linux"
+    let stateRefused = "auth.cli-state"
+    let replyRefused = "auth.cli-reply"
+
+    /// What one run did: its report, the commands it ran and the requests it posted.
+    type Run = { report: Reports::Report, ran: List<string>, posted: List<string> }
+
+    /// The host one run sees: the kernel name, the entropy command's reply,
+    /// the browser's and the store's exit status, and the callback and token replies.
+    type Scene = { system: string, entropy: Host::Run, browser: int, store: int, callback: Result<string, string>, reply: Host::Reply }
+
+    /// Bytes 0..49, as `od -An -v -tx1` prints them, sixteen to a line.
+    fn odText() = join(mapList(range(0, 4) |> toList, fn(row) => join(mapList(range(row * 16, if row == 3 { 50 } else { row * 16 + 16 }) |> toList, fn(b) => " ${Bytes::hexByte(b)}"), "")), "\n") + "\n"
+
+    fn bytesFrom(from, count) = range(from, from + count) |> toList
+
+    fn verifier() = Dsse::base64Url(bytesFrom(0, 32))
+    fn stateToken() = Dsse::base64Url(bytesFrom(32, 16))
+    /// 49152 + (48 * 256 + 49) % 16384.
+    let port = 61489
+    let code = "one-use_code.7"
+
+    fn callbackWith(query) = Success { value: "/callback?${query}" }
+    fn goodCallback() = callbackWith("code=${code}&state=${stateToken()}")
+    fn okReply(body) = Host::Reply { status: 200, etag: "", body: body }
+    fn goodReply() = okReply("{\"accessToken\":\"${token}\",\"expiresAt\":\"${expiry}\"}")
+
+    fn healthy() = Scene { system: mac, entropy: Host::Run { status: 0, stdout: odText(), stderr: "" }, browser: 0, store: 0, callback: goodCallback(), reply: goodReply() }
+
+    fn answer(h: Scene, command) = if startsWith(command, "od ") { h.entropy }
+    else if command == "uname -s" { Host::Run { status: 0, stdout: "${h.system}\n", stderr: "" } }
+    else if startsWith(command, "open ") || startsWith(command, "xdg-open ") { Host::Run { status: h.browser, stdout: "", stderr: "" } }
+    else { Host::Run { status: h.store, stdout: "", stderr: "" } }
+
+    fn runOn(h, args) = {
+        mut ran: List<string> = []
+        mut posted: List<string> = []
+        let process = handler Host::Process {
+            run command => {
+                ran = listAppend(ran, command)
+                answer(h, command)
+            }
+        }
+        let auth = handler Host::Auth {
+            post base path body headers => {
+                posted = listAppend(posted, "${base}${path}|${body}|${headers}")
+                Success { value: h.reply }
+            }
+            callback p => if p == port { h.callback } else { Error { message: "fixture: wrong port ${p}" } }
+        }
+        let report = process(fn() => auth(fn() => Login::run(args)))
+        Run { report: report, ran: ran, posted: posted }
+    }
+
+    fn login(h) = runOn(h, ["--registry", origin])
+
+    fn line(r: Run, i) = Fixture::line(r.report, i)
+    fn stores(r: Run) = filterList(r.ran, fn(c) => contains(c, "security -i") || contains(c, "secret-tool"))
+    fn refusedWith(r, code) = r.report.status == 1 && line(r, 0) == code && isEmpty(stores(r))
+
+    /// The RFC 7636 appendix B vector.
+    fn challenge() = check("login: S256 challenge of the RFC 7636 vector", "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", Login::challengeOf("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
+
+    fn startUrl() = "${origin}/v1/auth/cli/start?code_challenge=${Login::challengeOf(verifier())}&code_challenge_method=S256&state=${stateToken()}&redirect_uri=http%3A%2F%2F127.0.0.1%3A${port}%2Fcallback"
+
+    fn tokenBody() = "{\"code\":\"${code}\",\"code_verifier\":\"${verifier()}\",\"redirect_uri\":\"http://127.0.0.1:${port}/callback\"}"
+
+    /// The whole flow on macOS: the browser, the callback, the exchange and the keychain.
+    fn signsIn() = {
+        let r = login(healthy())
+        checkAll("login signs in and files only the token in the keychain", [
+                r.report.status == 0,
+                structuralEquals(r.report.lines, ["logged in to ${origin}", "expires: ${expiry}", "credential: ${Login::service} in the OS credential store"]),
+                byteLength(verifier()) == 43 && byteLength(stateToken()) == 22,
+                listContains(r.ran, "open ${Host::shellWord(startUrl())}"),
+                !Folds::any(r.ran, fn(c) => contains(c, verifier()) && !contains(c, "security")),
+                structuralEquals(r.posted, ["${origin}/v1/auth/cli/token|${tokenBody()}|Content-Type: application/json\r\nAccept: application/json\r\n"]),
+                structuralEquals(stores(r), [Login::storeCommand(true, origin, token)]),
+                startsWith(Login::storeCommand(true, origin, token), "printf '%s\\n' 'add-generic-password -U -s ${Login::service} -a ${origin} -w ${token}' | security -i"),
+                !Folds::any(r.report.lines, fn(l) => contains(l, token))
+        ])
+    }
+
+    /// Linux opens with xdg-open and files the token through secret-tool on standard input.
+    fn linuxStore() = {
+        let r = login(Scene { system: linux, entropy: healthy().entropy, browser: 0, store: 0, callback: goodCallback(), reply: goodReply() })
+        checkAll("login on Linux uses xdg-open and the Secret Service", [
+                r.report.status == 0,
+                listContains(r.ran, "xdg-open ${Host::shellWord(startUrl())}"),
+                structuralEquals(stores(r), ["printf '%s' '${token}' | secret-tool store --label='Osprey packages ${origin}' service ${Login::service} origin '${origin}'"])
+        ])
+    }
+
+    fn withCallback(callback) = login(Scene { system: mac, entropy: healthy().entropy, browser: 0, store: 0, callback: callback, reply: goodReply() })
+
+    /// A callback this attempt did not start never reaches the token endpoint.
+    fn badCallbacks() = {
+        let cases = [
+            ["code=${code}&state=forged", stateRefused],
+            ["code=${code}", stateRefused],
+            ["state=${stateToken()}", stateRefused],
+            ["code=a%20b&state=${stateToken()}", stateRefused],
+            ["code=a b&state=${stateToken()}", stateRefused],
+            ["error=access_denied&state=${stateToken()}", "auth.cli-denied"],
+            ["state=${stateToken()}x&code=${code}", stateRefused]
+        ]
+        let elsewhere = withCallback(Success { value: "/other?code=${code}&state=${stateToken()}" })
+        let bare = withCallback(Success { value: "/callback" })
+        let timeout = withCallback(Error { message: "auth.cli-timeout" })
+        checkAll("a foreign, malformed or refused callback posts nothing", [
+                foldList(cases, true, fn(ok, c) => ok && {
+                        let r = withCallback(callbackWith(listGet(c, 0) ?: ""))
+                        refusedWith(r, listGet(c, 1) ?: "") && isEmpty(r.posted)
+                }),
+                refusedWith(elsewhere, stateRefused) && isEmpty(elsewhere.posted),
+                refusedWith(bare, stateRefused) && isEmpty(bare.posted),
+                refusedWith(timeout, "auth.cli-timeout") && isEmpty(timeout.posted)
+        ])
+    }
+
+    fn withReply(reply) = login(Scene { system: mac, entropy: healthy().entropy, browser: 0, store: 0, callback: goodCallback(), reply: reply })
+
+    /// A refused or partial token reply stores nothing.
+    fn badReplies() = checkAll("a refused or partial token reply stores nothing", [
+            refusedWith(withReply(Host::Reply { status: 400, etag: "", body: "{\"code\":\"auth.cli-code-used\",\"status\":400}" }), "auth.cli-code-used"),
+            refusedWith(withReply(Host::Reply { status: 400, etag: "", body: "{\"code\":\"req.other\"}" }), "auth.cli-reply 400"),
+            refusedWith(withReply(Host::Reply { status: 500, etag: "", body: "oops" }), "auth.cli-reply 500"),
+            refusedWith(withReply(okReply("not json")), replyRefused),
+            refusedWith(withReply(okReply("{\"accessToken\":\"${token}\"}")), replyRefused),
+            refusedWith(withReply(okReply("{\"expiresAt\":\"${expiry}\"}")), replyRefused),
+            refusedWith(withReply(okReply("{\"accessToken\":\"a b\",\"expiresAt\":\"${expiry}\"}")), replyRefused),
+            refusedWith(withReply(okReply("{\"accessToken\":\"\",\"expiresAt\":\"${expiry}\"}")), replyRefused),
+            refusedWith(withReply(okReply("{\"accessToken\":\"${token}\",\"expiresAt\":\"\"}")), replyRefused)
+    ])
+
+    /// Failed entropy opens nothing; a failed browser waits for nothing; a failed store reports it.
+    fn hostFailures() = {
+        let noEntropy = login(Scene { system: mac, entropy: Host::Run { status: 1, stdout: "", stderr: "denied" }, browser: 0, store: 0, callback: goodCallback(), reply: goodReply() })
+        let short = login(Scene { system: mac, entropy: Host::Run { status: 0, stdout: " 00 01\n", stderr: "" }, browser: 0, store: 0, callback: goodCallback(), reply: goodReply() })
+        let noBrowser = login(Scene { system: mac, entropy: healthy().entropy, browser: 1, store: 0, callback: goodCallback(), reply: goodReply() })
+        let noStore = login(Scene { system: mac, entropy: healthy().entropy, browser: 0, store: 1, callback: goodCallback(), reply: goodReply() })
+        checkAll("host failures fail closed", [
+                noEntropy.report.status == 1 && line(noEntropy, 0) == "auth.cli-entropy" && length(noEntropy.ran) == 1,
+                short.report.status == 1 && line(short, 0) == "auth.cli-entropy" && isEmpty(short.posted),
+                refusedWith(noBrowser, "auth.cli-browser") && isEmpty(noBrowser.posted),
+                noStore.report.status == 1 && line(noStore, 0) == "auth.cli-store" && length(noStore.posted) == 1
+        ])
+    }
+
+    /// The default origin, an unknown flag, and dispatch routing.
+    fn commandLine() = {
+        let fallback = runOn(healthy(), [])
+        let bogus = runOn(healthy(), ["--bogus"])
+        checkAll("login's command line", [
+                fallback.report.status == 0,
+                line(fallback, 0) == "logged in to ${Login::defaultOrigin}",
+                startsWith(listGet(fallback.posted, 0) ?: "", "${Login::defaultOrigin}/v1/auth/cli/token|"),
+                bogus.report.status == 2 && line(bogus, 0) == "login.usage" && isEmpty(bogus.ran)
+        ])
+    }
+
+    /// Every login test.
+    export fn run() = {
+        test("login: S256 vector", challenge)
+        test("login: signs in on macOS", signsIn)
+        test("login: signs in on Linux", linuxStore)
+        test("login: bad callbacks post nothing", badCallbacks)
+        test("login: bad token replies store nothing", badReplies)
+        test("login: host failures fail closed", hostFailures)
+        test("login: command line", commandLine)
+    }
+}

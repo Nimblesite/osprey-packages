@@ -12,24 +12,19 @@ import registry_cli::Lockfile
 /// its stable code, and the edge projection is byte-identical to
 /// `ManifestJson`. Implements [PACKAGE-FOLDER-REGISTRY] and [PACKAGE-MANIFEST].
 module LockfileTests {
-    let fixtureRoot = "src/manager/tests/fixtures/lock"
+    let fixtureRoot = "src/manager/core/tests/fixtures/lock"
 
-    fn load(name) = match Json::parse(readFile("${fixtureRoot}/${name}.json") ?: "") {
-        Success { value } => value
-        Error { message } => Json::Str { text: "fixture ${name} unreadable: ${message}" }
-    }
+    /// The fixture `name` decoded; an unreadable or malformed file becomes a
+    /// string value naming the problem, so every assertion over it fails visibly.
+    fn load(name) = Fixture::decoded(name, readFile("${fixtureRoot}/${name}.json") ?: "")
 
-    fn textOf(value) = JsonRead::text(JsonRead::field(value, "text"))
-    fn nameOf(value) = JsonRead::text(JsonRead::field(value, "name"))
-    fn codeOf(value) = JsonRead::text(JsonRead::field(value, "code"))
+    /// The text of member `key` of `value`, or "".
+    fn textOf(value, key) = Json::textAt(value, key) ?: ""
 
     fn roundtrip() = {
-        let text = textOf(load("roundtrip"))
+        let text = textOf(load("roundtrip"), "text")
         let decoded = Lockfile::decode(text)
-        let reencoded = match decoded {
-            Success { value } => Lockfile::encode(value)
-            Error { message } => Error { message: message }
-        }
+        let reencoded = andThen(decoded, Lockfile::encode)
         let decodedOk = match decoded {
             Success => true
             Error => false
@@ -42,8 +37,8 @@ module LockfileTests {
     }
 
     fn rejected(case) = {
-        let expected = codeOf(case)
-        let actual = Lockfile::decode(textOf(case))
+        let expected = textOf(case, "code")
+        let actual = Lockfile::decode(textOf(case, "text"))
         match actual {
             Error { message } => message == expected
             Success => false
@@ -52,7 +47,7 @@ module LockfileTests {
 
     fn rejections() = {
         let cases = JsonRead::items(JsonRead::field(load("rejections"), "cases"))
-        let bad = foldList(cases, [], fn(acc, case) => if rejected(case) { acc } else { listAppend(acc, nameOf(case)) })
+        let bad = foldList(cases, [], fn(acc, case) => if rejected(case) { acc } else { listAppend(acc, textOf(case, "name")) })
         check("lockfile rejection codes: ${length(bad)} of ${length(cases)} failed", 0, length(bad))
     }
 
@@ -70,7 +65,7 @@ module LockfileTests {
         let requirement = ManifestModel::Requirement { package: Names::Key { scope: "finch", name: "http" }, epoch: 2, minimumOrdinal: 17 }
         let edge = ManifestModel::Runtime { requirement: requirement }
         checkAll("lockfile edge JSON is byte-identical to ManifestJson's projection", [
-            Lockfile::dependenciesCanonical([edge]) == dependenciesText(manifestWith([edge]))
+                Lockfile::dependenciesCanonical([edge]) == dependenciesText(manifestWith([edge]))
         ])
     }
 
