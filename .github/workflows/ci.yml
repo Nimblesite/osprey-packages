@@ -15,8 +15,9 @@ permissions:
   contents: read
 
 concurrency:
+# A run that started always finishes: a later push waits its turn and replaces only a run still queued.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   NODE_VERSION: "24"
