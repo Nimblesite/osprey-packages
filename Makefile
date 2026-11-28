@@ -309,7 +309,7 @@ _registry-website _registry-website-fixture _registry-website-archive: $(TOOLCHA
 	  printf "%s\n" home "$$origin" "$$catalog" "$$host" "$$guest" "$$content" | wasmtime target/registry-site-build/site.wasm > "$$out/index.html"; \
 	  printf "%s\n" hosted-package "$$origin" "$$catalog" "$$host" "$$guest" "$$content" | wasmtime target/registry-site-build/site.wasm > "$$out/package.html"; \
 	  printf '/packages/* /package 200\n/publishers/* /package 200\n/tags/* /package 200\n' > "$$out/_redirects"; \
-	  printf "%s\n" release "$$origin" "$$adapter" | wasmtime target/registry-site-build/site.wasm > "$$out/release/index.html"; \
+	  printf "%s\n" release "$$origin" "$$adapter" "$$host" "$$guest" | wasmtime target/registry-site-build/site.wasm > "$$out/release/index.html"; \
 	  for page in signin register recover; do mkdir "$$out/$$page"; printf "%s\n" "$$page" "$$origin" "$$adapter" | wasmtime target/registry-site-build/site.wasm > "$$out/$$page/index.html"; done; \
 	  nav="nav.$$(shasum -a 256 $(REGISTRY_WEB)/assets/registry-nav.mjs | cut -c1-12).mjs"; grep -Fq "src=\"/$$nav\"" "$$out/index.html"; cp $(REGISTRY_WEB)/assets/registry-nav.mjs "$$out/$$nav"; \
 	  digest=$$(shasum -a 256 $(REGISTRY_WEB)/assets/registry.css | cut -c1-12); \

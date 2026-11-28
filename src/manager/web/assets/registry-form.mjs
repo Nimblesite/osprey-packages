@@ -20,6 +20,7 @@ function signedOut(parts) {
   report(parts, false);
   parts.csrfToken = '';
   parts.receipts?.close();
+  parts.steps?.close();
   parts.signOut.hidden = true;
   parts.passkey.hidden = !passkeySupported();
   parts.login.hidden = false;
@@ -33,6 +34,7 @@ function signedIn(parts, csrfToken) {
   parts.signOut.hidden = false;
   parts.csrfToken = csrfToken;
   parts.receipts?.open();
+  parts.steps?.open();
 }
 
 async function postJson(url, body) {
@@ -175,39 +177,47 @@ const account = document.querySelector('[data-session-url]');
 if (account) {
   const parts = accountParts(account);
   parts.receipts = bindReceipts(parts);
+  parts.steps = bindReleaseSteps(parts);
   bindPasskey(parts);
   bindLogout(parts);
   void showSession(parts);
 }
-const form = document.querySelector('[data-collection-form]');
-if (form) {
-  const select = form.querySelector('select');
-  const review = document.getElementById(form.dataset.review);
-  const message = form.querySelector('[role=status]');
-  try {
-    const response = await fetch(form.dataset.collection, {credentials: 'omit', signal: AbortSignal.timeout(10000)});
-    if (!response.ok) throw Error('Collection unavailable');
-    const items = (await response.json())[select.dataset.collectionKey];
-    if (!Array.isArray(items)) throw Error('Invalid collection');
-    for (const item of items) {
-      const name = item[select.dataset.valueKey];
-      if (typeof name !== 'string') throw Error('Invalid entry');
-      select.add(new Option(name, name));
-    }
-    if (items.length) {
-      form.querySelector('fieldset').disabled = false;
-      message.textContent = '';
-    } else message.textContent = form.dataset.empty;
-  } catch {
-    message.textContent = form.dataset.error;
+// The release steps [PACKAGE-HOSTED-PUBLISH-FLOW]: the Osprey guest (ReleaseSteps) builds each request
+// and words each reply; this bridge only collects the fields, POSTs and writes the answer.
+function bindReleaseSteps(parts) {
+  const section = document.querySelector('[data-release-steps]');
+  const script = document.querySelector('script[data-guest]');
+  if (!section || !script) return {open() {}, close() {}};
+  const oneLine = text => text.replace(/[\r\n\t]/gu, ' ');
+  const loaded = Promise.all([fetch(script.dataset.guest).then(r => r.ok ? r.arrayBuffer() : Promise.reject(Error())), import(script.dataset.host)]);
+  loaded.catch(() => {});
+  async function guest(lines) {
+    const [wasm, {runModule}] = await loaded;
+    let out = '';
+    await runModule(wasm, part => { out += part; }, lines.join('\n') + '\n');
+    return out.split('\n');
   }
-  form.addEventListener('submit', event => {
-    event.preventDefault();
-    for (const output of review.querySelectorAll('[data-field]')) {
-      output.textContent = form.elements.namedItem(output.dataset.field).value;
-    }
-    review.hidden = false;
-    review.focus();
-  });
-  form.addEventListener('input', () => { review.hidden = true; });
+  async function submit(form) {
+    const status = form.querySelector('[role=status]');
+    const fields = [...(form.dataset.needs ? [section.dataset[form.dataset.needs] ?? ''] : []),
+      ...[...form.elements].filter(e => e.name).map(e => oneLine(e.value))];
+    const [path, body] = await guest(['release-request', form.dataset.releaseStep, fields.join('\t')]);
+    if (path === 'invalid') { status.textContent = body; return; }
+    let code = '0', text = '';
+    try {
+      const response = await accountRequest(section.dataset.api + path, {method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': parts.csrfToken}, body});
+      [code, text] = [String(response.status), oneLine(await response.text())];
+    } catch { /* the guest words a request that never completed */ }
+    const [outcome, ...rest] = await guest(['release-reply', form.dataset.releaseStep, code, text]);
+    if (outcome === 'ok' && form.dataset.creates) section.dataset[form.dataset.creates] = rest[0];
+    status.textContent = outcome === 'ok' ? `${rest[1]}${form.dataset.creates === 'submission' ? ' ' + rest[0] : ''}` : rest[0];
+  }
+  for (const form of section.querySelectorAll('form')) {
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      submit(form).catch(() => { form.querySelector('[role=status]').textContent = 'The registry is unavailable. Try again shortly.'; });
+    });
+  }
+  return {open() { section.hidden = false; }, close() { section.hidden = true; }};
 }

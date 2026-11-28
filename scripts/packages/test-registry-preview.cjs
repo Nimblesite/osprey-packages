@@ -283,12 +283,7 @@ async function checkMobileMenu(browser) {
       assert.ok(bundle.files.some(file => file.path === 'osprey.toml'));
       await page.goto(new URL('/release/', page.url()).href);
       await page.getByRole('heading', { name: 'Release a package' }).waitFor();
-      await page.getByLabel('Package', {exact:true}).selectOption('@osprey/fastapi');
-      const commit = 'a'.repeat(40);
-      await page.getByLabel('Git commit').fill(commit);
-      await page.getByRole('button', {name:'Review release'}).click();
-      assert.equal(await page.locator('#review code').innerText(), commit);
-      assert.equal(await page.locator('#review strong').innerText(), '@osprey/fastapi');
+      assert.equal(await page.locator('[data-release-steps]').count(), 0, 'a folder preview has no hosted release steps');
       assert.equal(await page.getByText('Hosted releases are unavailable.').count(), 1);
       await page.getByRole('link', { name: 'Browse packages' }).click();
       await page.getByRole('heading', { name: 'Browse packages' }).waitFor();

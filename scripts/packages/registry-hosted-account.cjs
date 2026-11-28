@@ -3,10 +3,14 @@ const assert = require('node:assert/strict');
 const { withHostedPage } = require('./registry-browser-fixture.cjs');
 const { checkHostedPasskey } = require('./registry-hosted-passkey.cjs');
 const { checkHostedCatalog } = require('./registry-hosted-catalog.cjs');
+const { checkHostedRelease } = require('./registry-hosted-release.cjs');
 const checkHostedAccount = async (browser, livePort) => {
   await withHostedPage(browser, fixture => checkPackagedAccount(fixture, livePort));
   if (!livePort) await checkHostedPasskey(browser);
-  if (!livePort) await checkHostedCatalog(browser);
+  if (!livePort) {
+    await checkHostedCatalog(browser);
+    await checkHostedRelease(browser);
+  }
 };
 async function checkPackagedAccount({page, website, api, failures}, livePort) {
   await page.route('https://www.ospreylang.dev/**', route => route.abort('blockedbyclient'));

@@ -81,18 +81,31 @@ fn receiptForm() = join([
 fn releasePage() = {
     let origin = trim(input())
     let adapter = trim(input())
-    let form = if origin != "" { releaseForm(origin, adapter) } else { "" }
+    let host = trim(input())
+    let guest = trim(input())
+    let form = if origin != "" { releaseForm(origin, adapter, host, guest) } else { "" }
     let cover = "<header class=\"prose-cover\"><a href=\"/\">Browse packages</a><h1>Release a package</h1><p>Publish a release from a commit in your package’s linked repository.</p></header>"
     let steps = "<section class=\"prose-releases\"><h2>Publisher account</h2><p>Use the account with publishing permission for this package.</p>${publisherAccount(origin)}</section><aside class=\"prose-facts\"><h2>What you’ll need</h2><ol><li>A package with a linked repository</li><li>The commit you want to release</li><li>Your signing credential to authorize the submission</li></ol></aside>"
     let receipt = if origin == "" { "" } else { receiptForm() }
     Shell::withEscapedTitle("Release a package · Osprey Packages", "<main>${cover}${form}<div class=\"prose-columns\">${steps}</div>${receipt}</main>")
 }
 
-fn releaseForm(origin, adapter) = join([
-        "<section><h2>Prepare a release</h2><form data-collection-form data-review=\"review\" data-collection=\"${origin}/v1/packages\" data-empty=\"The registry has no packages.\" data-error=\"Could not load packages from the registry. Reload to retry.\">",
-        "<fieldset disabled><label for=\"package\">Package</label><select id=\"package\" name=\"package\" data-collection-key=\"packages\" data-value-key=\"key\" required><option value=\"\">Choose a package</option></select>",
-        "<label for=\"commit\">Git commit</label><input id=\"commit\" name=\"commit\" required pattern=\"[a-fA-F0-9]{40}\" maxlength=\"40\" title=\"Enter the full 40-character Git commit hash\"><button class=\"prose-download\">Review release</button></fieldset><p role=\"status\">Loading packages…</p></form>",
-        "<article id=\"review\" tabindex=\"-1\" hidden><h3>Review release</h3><p>Package <strong data-field=\"package\"></strong><br>Commit <code data-field=\"commit\"></code></p><p>Publication requires an authorized account and a signature.</p></article></section><script type=\"module\" src=\"/${adapter}\"></script>"
+let organization = "organization"
+let package = "package"
+
+fn textField(name, label, rules) = "<label>${label} <input name=\"${name}\" ${rules} autocomplete=\"off\"></label>"
+
+/// One publisher step: `needs` names the id an earlier step created, `creates` the id this one does.
+fn step(name, needs, creates, title, fields, action) = "<form data-release-step=\"${name}\" data-needs=\"${needs}\" data-creates=\"${creates}\"><h3>${title}</h3>${fields}<button>${action}</button><p role=\"status\"></p></form>"
+
+/// The four steps of [PACKAGE-HOSTED-PUBLISH-FLOW], shown once the account panel verifies a session.
+fn releaseForm(origin, adapter, host, guest) = join([
+        "<section data-release-steps data-api=\"${origin}\" hidden><h2>Release from GitHub</h2>",
+        step(organization, "", organization, "1. Found an organization", textField("handle", "Handle", "required maxlength=\"39\"") + textField("name", "Name", "required maxlength=\"128\""), "Create organization"),
+        step(package, organization, package, "2. Create its package", textField("name", "Package name", "required maxlength=\"64\""), "Create package"),
+        step("repository", package, "", "3. Link its GitHub repository", textField("repositoryId", "GitHub repository ID", "required inputmode=\"numeric\" maxlength=\"19\"") + textField("branch", "Branch", "required maxlength=\"255\" value=\"main\"") + textField("subdirectory", "Subdirectory (blank for the repository root)", "maxlength=\"255\""), "Link repository"),
+        step("release", package, "submission", "4. Release a commit", textField("commit", "Git commit", "required maxlength=\"40\"") + textField("version", "Version", "required maxlength=\"21\" placeholder=\"e1.r1\""), "Request release"),
+        "</section><script type=\"module\" src=\"/${adapter}\" data-host=\"/${host}\" data-guest=\"/${guest}\"></script>"
     ], "")
 
 fn browseNav() = "<nav class=\"prose-browse\" aria-label=\"Browse packages\"><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a></nav>"
@@ -118,6 +131,15 @@ fn main() = print(match trim(input()) {
             let code = parseInt(trim(input())) ?: 0
             let retryAfter = input()
             CatalogReply::reply(path, query, content, detail, code, retryAfter, input())
+        }
+        "release-request" => {
+            let name = trim(input())
+            ReleaseSteps::request(name, split(input(), "\t") ?: [])
+        }
+        "release-reply" => {
+            let name = trim(input())
+            let code = parseInt(trim(input())) ?: 0
+            ReleaseSteps::reply(name, code, input())
         }
         _ => catalog(trim(input()))
 })
