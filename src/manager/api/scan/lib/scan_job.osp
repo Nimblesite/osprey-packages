@@ -1,0 +1,56 @@
+namespace registry_scan;
+import registry::Bytes
+import registry::Digests
+import registry::Json
+import registry::JsonRead
+import registry_host::Database
+
+/// Process one frozen scan job by UUID. A retry reads the same immutable job.
+module ScanJob {
+    export effect Inputs {
+        query: fn(string) -> Result<string, string>
+        bundle: fn(string, string) -> Result<string, string>
+        settings: fn() -> Result<string, string>
+    }
+
+    fn query(statement, values) = perform Inputs.query(Database::scanScript(statement, values))
+    fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
+    fn byId(routine, id) = query("SELECT registry." + routine + "(" + Database::decoded(1) + "::uuid)", [id])
+    fn receipt(id, ticket, revision, result) = andThen(query("SELECT registry.record_scan(" +
+        Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid," + Database::decoded(3) + "," + Database::decoded(4) + ")",
+        [id, ticket, revision, result]), fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.scan-lease" } })
+
+    fn review(id, ticket, doc, config) = {
+        let revision = field(config, "agentRevision")
+        let configId = field(config, "configId")
+        if !Bytes::canonicalUuid(configId) || trim(revision) == "" || byteLength(revision) > 200 { Error { message: "publication.scan-config" } }
+        else { andThen(Digests::parse(field(doc, "digest")), fn(digest) =>
+                andThen(perform Inputs.bundle(id, digest), fn(bytes) => PublicationScan::run(field(doc, "dir"), digest, bytes,
+                        fn(source) => PublicationScan::nap(configId, field(config, "apiKey"), source),
+                        fn(result) => receipt(id, ticket, configId + "@" + revision, result)))) }
+    }
+
+    fn document(raw) = match Json::parse(raw) {
+        Success { value } => Success { value: value }
+        Error => Error { message: "publication.scan-input" }
+    }
+
+    fn process(id, ticket) = andThen(byId("frozen_scan_job", id), fn(raw) =>
+        andThen(document(raw), fn(doc) => andThen(perform Inputs.settings(), fn(settings) =>
+                andThen(document(settings), fn(config) => review(id, ticket, doc, config)))))
+
+    fn claimed(raw) = andThen(document(raw), fn(claim) => {
+        let id = field(claim, "id")
+        let ticket = field(claim, "ticket")
+        if !Bytes::canonicalUuid(id) || !Bytes::canonicalUuid(ticket) { Error { message: "publication.scan-lease" } }
+        else { process(id, ticket) }
+    })
+
+    /// With empty input, take one waiting job. A keyed retry of a committed receipt does no remote work.
+    export fn run(id) = if id != "" && !Bytes::canonicalUuid(id) { Error { message: "publication.scan-job" } }
+    else { andThen(query("SELECT registry.claim_pending_scan(NULLIF(" + Database::decoded(1) + ",'')::uuid)", [id]),
+        fn(raw) => if raw != "" { claimed(raw) } else if id == "" { Success { value: "idle" } }
+        else { andThen(byId("completed_scan", id), fn(done) => if done == id { Success { value: done } }
+            else { Error { message: "publication.scan-pending" } }) }) }
+
+}

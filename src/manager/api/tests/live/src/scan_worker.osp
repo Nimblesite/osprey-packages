@@ -1,0 +1,67 @@
+namespace registry_live_tests;
+import registry::Bundle
+import registry::Canonical
+import registry::Json
+import registry::Release
+import registry::ReleaseFiles
+import registry_host::Database
+import registry_scan::ScanJob
+import registry_api::Supabase
+
+/// Real restricted collector and scanner connections, with local quarantine and NAP fixtures.
+module ScanWorkerTests {
+    let session = "11111111-1111-4111-8111-111111111111"
+    let manifest = "[project]\nname = \"audio\"\nsource_roots = [\"src\"]\n[package]\nname = \"@org-1/audio\"\nlicense = \"MIT\"\nsummary = \"Audio fixture\"\nkeywords = [\"test\"]\n"
+    fn job(n) = "22222222-2222-4222-8222-22222222222${n}"
+    fn release(n) = ReleaseFiles::assemble("@org-1/audio/1.${n}", [
+        Release::File { relPath: "osprey.toml", content: manifest },
+        Release::File { relPath: "src/main.osp", content: "// scan fixture\nfn main() = ${n}\n" }
+    ])
+
+    fn response(status, body) = Success { value: Supabase::Reply { status: status, body: body } }
+    fn verdictReply(verdict) = {
+        let text = Canonical::serialize(Json::str(verdict)) ?: ""
+        response(200, "{\"stopReason\":\"end_turn\",\"_meta\":{\"nap\":{\"sessionId\":\"${session}\"}},\"updates\":[{\"sessionUpdate\":\"agent_message_chunk\",\"content\":{\"type\":\"text\",\"text\":${text}}}]}")
+    }
+    fn agent(verdict) = handler Supabase::Provider {
+        request _method _base path _headers body =>
+        if verdict == "unavailable" { Error { message: "fixture.provider-unavailable" } }
+        else if endsWith(path, "/new") { response(200, "{\"sessionId\":\"${session}\"}") }
+        else if contains(body, "scan fixture") {
+            verdictReply(verdict)
+        } else { response(400, "") }
+    }
+
+    fn mounts(id, digest, bytes) = handler ScanJob::Inputs {
+        query script => Database::completed(CatalogWriter::piped("registry_scan_worker", script), "fixture.pg")
+        bundle requested pinned => if requested == id && pinned == digest { Success { value: bytes } } else { Error { message: "fixture.missing-bundle" } }
+        settings => Success { value: "{\"configId\":\"${session}\",\"apiKey\":\"test\",\"agentRevision\":\"fixture-v1\"}" }
+    }
+
+    fn scanned(id, digest, bytes, verdict) = mounts(id, digest, bytes)(fn() => agent(verdict)(fn() => ScanJob::run(id)))
+
+    fn submit(n, digest) = CatalogWriter::piped("registry_publication_collector",
+        "SELECT registry.submit_frozen_version('${job(n)}',md5('package1')::uuid,1,${n},'${digest}',md5('person1')::uuid);").status == 0
+
+    fn scenario(n, verdict, expected) = match release(n) {
+        Error => false
+        Success { value } => {
+            let digest = Release::digestOf(value)
+            let bytes = Bundle::encode(value) ?: ""
+            let payload = if n == 5 { bytes + " " } else { bytes }
+            submit(n, digest) && (scanned(job(n), digest, payload, verdict) ?: "pending") == expected
+        }
+    }
+
+    export fn run(seed) = {
+        let setup = CatalogWriter::sql("SET search_path=registry,pg_catalog;" + seed).status == 0
+        checkAll("frozen collector jobs reach the real scanner and preserve publisher standing", [
+            setup, scenario(1, "accepted", job(1)), scenario(2, "[\"blocked capability\"]", job(2)),
+            scenario(3, "invalid", "pending"), scenario(4, "unavailable", "pending"), scenario(5, "accepted", "pending"),
+            (scanned(job(1), "", "", "unavailable") ?: "") == job(1),
+            CatalogWriter::answers("SELECT count(*)=2 AND count(*) FILTER(WHERE verdict='accepted')=1 AND count(*) FILTER(WHERE verdict='[\"blocked capability\"]')=1 FROM registry.review_scans", "t"),
+            CatalogWriter::answers("SELECT (SELECT count(*) FROM registry.releases)=0 AND (SELECT count(*) FROM registry.release_approvals)=0 AND (SELECT count(*) FROM registry.package_permissions WHERE state='active')=2 AND (SELECT count(*) FROM registry.principals WHERE state='active')=3", "t")
+        ])
+        checkAll("scan scenario cleanup", [CatalogWriter::sql("SET search_path=registry; DELETE FROM review_scans; DELETE FROM scan_claims; DELETE FROM review_submissions; DELETE FROM package_permissions; DELETE FROM packages; DELETE FROM memberships; DELETE FROM organizations; DELETE FROM principals;").status == 0])
+    }
+}

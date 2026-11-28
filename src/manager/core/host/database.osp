@@ -114,11 +114,12 @@ module Database {
 
     export fn sessionRevoker(source) = executed(mountedConnection("session-revoker"), source)
 
+    export fn scanScript(statement, values) = preAuthScript("registry_scan_worker", ["scan_job"], [listGet(values, 0) ?: ""], statement, values)
+
     /// Dedicated service mount, with no browser-session credentials.
-    export fn scan(statement, values) = {
+    export fn scan(source) = {
         let connection = Connection { service: "scan", serviceFile: "/run/registry-scan-db/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
-        let sql = preAuthScript("registry_scan_worker", ["scan_job"], [listGet(values, 0) ?: ""], statement, values)
-        executed(connection, sql)
+        executed(connection, source)
     }
 
     fn run(config, ctx, statement, values) = match script(ctx, statement, values) {

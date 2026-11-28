@@ -15,7 +15,7 @@ module CatalogWriter {
     let writer = "registry_catalog_writer"
     let reader = "registry_catalog_reader"
     fn onFixture(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
-    fn piped(role, script) = onFixture("printf '%s' " + Host::shellWord(script) + " | psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1")
+    export fn piped(role, script) = onFixture("printf '%s' " + Host::shellWord(script) + " | psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1")
     fn asRole(role, statement) = onFixture("psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1 -c " + Host::shellWord(statement))
     export fn sql(statement) = onFixture(owner + "-c " + Host::shellWord(statement))
     export fn answers(statement, expected) = {
