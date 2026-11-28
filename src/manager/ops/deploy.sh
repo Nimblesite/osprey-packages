@@ -304,8 +304,6 @@ dispatch() {
 # --- Database: schema, migration, restricted logins [PACKAGE-OWNERSHIP-RLS] -------------------
 step_database() {
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
-  local password; password="$(owner_password)"
-  export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGPASSWORD="$password"
   log "applying src/manager/ops/supabase/migrations/schema.yaml in Cloud Build"
   gcloud secrets add-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None >/dev/null \
     --member="serviceAccount:$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
@@ -317,13 +315,16 @@ step_database() {
     --substitutions="_HOST=$pooler,_USER=postgres.$ref,_SECRET=$NAME-db-owner" >&2
   # The migration owns every role and grant; a password is the one thing schema.yaml cannot declare.
   # Each travels through the environment and \getenv, never argv.
-  local role secret
+  local role secret logins password
+  logins="$(tf output -json database_logins | jq -er 'select(type == "object" and length > 0) | to_entries[] | "\(.key) \(.value)"')"
+  password="$(owner_password)"
   while read -r role secret; do
-    ROLE_PASSWORD="$secret" psql -X -q -v ON_ERROR_STOP=1 -v role="$role" <<'PSQL'
+    PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" \
+      PGPASSWORD="$password" ROLE_PASSWORD="$secret" psql -X -q -v ON_ERROR_STOP=1 -v role="$role" <<'PSQL'
 \getenv secret ROLE_PASSWORD
 ALTER ROLE :"role" PASSWORD :'secret';
 PSQL
-  done < <(tf output -json database_logins | jq -r 'to_entries[] | "\(.key) \(.value)"')
+  done <<< "$logins"
   log "schema migrated and restricted logins converged"
 }
 

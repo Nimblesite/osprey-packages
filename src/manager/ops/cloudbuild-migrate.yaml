@@ -5,15 +5,27 @@
 steps:
   - name: mcr.microsoft.com/dotnet/sdk:10.0@sha256:8c6edfb26c85153f236d26efebd9ad349aec403583f343f201ee67838b23658d
     entrypoint: bash
-    secretEnv: [PGPASSWORD]
     args:
-      - -euc
+      - -euo
+      - pipefail
+      - -c
       - |
         apt-get update -qq
         apt-get install -y -qq --no-install-recommends clang libdigest-sha-perl make zlib1g-dev >/dev/null
         migrator="$$(make -s _registry-migration-tool | tail -1)"
-        "$$migrator" migrate --provider postgres --schema src/manager/ops/supabase/migrations/schema.yaml \
-          --output "Host=$_HOST;Port=5432;Username=$_USER;Database=postgres;SSL Mode=VerifyFull;Root Certificate=src/manager/ops/supabase/supabase-root-2021.crt"
+        test -x "$$migrator"
+        ln -s "$$migrator" /workspace/target/apply-registry-schema
+  - name: mcr.microsoft.com/dotnet/sdk:10.0@sha256:8c6edfb26c85153f236d26efebd9ad349aec403583f343f201ee67838b23658d
+    entrypoint: /workspace/target/apply-registry-schema
+    secretEnv: [PGPASSWORD]
+    args:
+      - migrate
+      - --provider
+      - postgres
+      - --schema
+      - src/manager/ops/supabase/migrations/schema.yaml
+      - --output
+      - Host=$_HOST;Port=5432;Username=$_USER;Database=postgres;SSL Mode=VerifyFull;Root Certificate=src/manager/ops/supabase/supabase-root-2021.crt
 availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/$_SECRET/versions/latest
