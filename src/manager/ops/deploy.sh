@@ -96,7 +96,7 @@ CAP_REGION=australia-southeast1
 # Both environments share the project, so the cap is one project singleton, not per-environment Terraform.
 ensure_spend_cap() {
   gcloud services enable billingbudgets.googleapis.com cloudbilling.googleapis.com pubsub.googleapis.com \
-    storage.googleapis.com secretmanager.googleapis.com \
+    storage.googleapis.com secretmanager.googleapis.com cloudresourcemanager.googleapis.com serviceusage.googleapis.com iam.googleapis.com \
     workflows.googleapis.com eventarc.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
   gcloud pubsub topics describe "$CAP_NAME" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
     || gcloud pubsub topics create "$CAP_NAME" --project="$GCP_PROJECT_ID" >/dev/null
