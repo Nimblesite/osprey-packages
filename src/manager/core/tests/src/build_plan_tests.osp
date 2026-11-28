@@ -19,6 +19,8 @@ module BuildPlanTests {
         inferredCapabilities: caps
     }
 
+    fn httpPlan() = samplePlan(["net.http"])
+
     fn sampleEnvelope() = BuildPlan::ReleaseEnvelope {
         scope: "demo",
         name: "maths",
@@ -30,8 +32,8 @@ module BuildPlanTests {
 
     fn planVector() = {
         let expected = "sha256:d1afda20893f49e392dd51488f49bd1ea3bc77a89b11ec662c76d39343ed095a"
-        let canonical = BuildPlan::canonicalPlan(samplePlan(["net.http"])) ?: ""
-        let digest = BuildPlan::digest(samplePlan(["net.http"])) ?: ""
+        let canonical = BuildPlan::canonicalPlan(httpPlan()) ?: ""
+        let digest = BuildPlan::digest(httpPlan()) ?: ""
         let dedupDigest = BuildPlan::digest(samplePlan(["net.http", "net.http"])) ?: ""
         checkAll("BuildPlan canonical bytes and digest match build-plan.json golden vector", [
                 byteLength(canonical) == 880,
@@ -56,7 +58,7 @@ module BuildPlanTests {
     }
 
     fn refusals() = {
-        let badPlan = samplePlan(["net.http"])
+        let badPlan = httpPlan()
         let badEnv = sampleEnvelope()
         checkAll("malformed BuildPlan and ReleaseIdentityEnvelope are refused", [
                 refused(BuildPlan::digest(badPlan { format: 2 }), "build-plan.format"),
