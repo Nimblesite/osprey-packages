@@ -115,8 +115,17 @@ function withRegistryFixture(body) {
     assert.match(hosted, /needs: build/)
     assert.match(hosted, /registry-integration-verify/)
     assert.doesNotMatch(hosted, /registry-website-fixture|_registry-migration-tool/)
-    assert.match(job('ci'), /needs: \[build, test, test-hosted, coverage\]/)
+    assert.match(job('ci'), /needs: \[build, test, hunt, test-hosted, coverage\]/)
     assert.match(job('ci'), /if: always\(\)/)
+  })
+
+  test('osprey hunt runs from every program entry under GC and ARC in phase 2', () => {
+    const hunt = job('hunt')
+    assert.match(hunt, /needs: build/)
+    assert.match(hunt, /memory: \[gc, arc\]/)
+    assert.ok(hunt.includes('make _hunt HUNT_MEMORY=${{ matrix.memory }}'))
+    assert.match(job('ci'), /needs\.hunt\.result/)
+    assert.ok(makeRecipe('_hunt').some((line) => line.includes('$(OSPREY) hunt src/manager/$$p --memory=$(HUNT_MEMORY)')))
   })
 
   test('every suite\'s coverage reaches the gate, and the gate reads reports only', () => {

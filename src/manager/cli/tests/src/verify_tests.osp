@@ -3,7 +3,6 @@ import registry_cli::Lockfile
 import registry_cli::Fetch
 import registry_cli::Reports
 import registry::ManifestJson
-import registry::Release
 
 /// `verify --offline` against fixture hosts: the manifest and lock are read
 /// through the files fixture, installed trees through the tree fixture, and
@@ -23,10 +22,7 @@ module VerifyTests {
     /// The current manifest the project reads.
     fn manifest() = Fixture::manifestOf(manifestText())
 
-    fn pkgFiles() = [
-        Release::File { relPath: "osprey.toml", content: "key = http\n" },
-        Release::File { relPath: "src/main.osp", content: "fn get() = 1\n" }
-    ]
+    fn pkgFiles() = InstallTests::releaseFiles("key = http\n", "fn get() = 1\n")
 
     fn pkg() = Fixture::served("@finch/http/2.17", pkgFiles())
 
@@ -45,9 +41,9 @@ module VerifyTests {
 
     fn installDir() = Fetch::installDir(pkg().id)
 
-    fn readsForPkg() = mapList(pkg().files, fn(f) => Fixture::readRoute("${installDir()}/${f.relPath}", f.content))
+    fn readsForPkg() = RegistryFixture::readRoutesAt(installDir(), pkg().files)
 
-    fn walkForPkg() = Fixture::walkRoute(installDir(), mapList(pkg().files, fn(f) => f.relPath))
+    fn walkForPkg() = InstallTests::installedWalk(installDir(), pkg())
 
     fn lockRead(text) = Fixture::readRoute("osprey.lock", text)
     fn manifestRead() = Fixture::readRoute("osprey.toml", manifestText())

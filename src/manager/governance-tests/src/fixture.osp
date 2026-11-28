@@ -98,7 +98,7 @@ module Fixture {
     }
 
     /// The statement one grant decision signs for this package and subject.
-    fn grantStatementFor(world, id, membership, permission, expiresAt) = match Governance::packageOf(world, id) {
+    export fn grantStatementFor(world, id, membership, permission, expiresAt) = match Governance::packageOf(world, id) {
         Success { value } => Governance::grantStatement(value.key, value.authorityEpoch, membership, permission, expiresAt)
         Error => ""
     }

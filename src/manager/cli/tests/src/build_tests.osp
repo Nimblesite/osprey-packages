@@ -2,6 +2,7 @@ namespace registry_tests;
 import registry_host::Host
 import registry_cli::Build
 import registry_cli::Fetch
+import registry_cli::Folds
 import registry_cli::Lockfile
 import registry_cli::Reports
 import registry_cli::Project
@@ -87,12 +88,12 @@ module BuildTests {
 
     fn readsFor(s) = RegistryFixture::readRoutesAt(installDir(s), Fixture::filesOf(s))
 
-    fn walkOf(s) = Fixture::walkRoute(installDir(s), mapList(Fixture::filesOf(s), fn(f) => f.relPath))
+    fn walkOf(s) = InstallTests::installedWalk(installDir(s), s)
 
     /// The project's manifest and lock, then every package's installed files.
     fn readsOf(lock, packages) = listConcat(
         RegistryFixture::readsWithLock(manifestText(), lock, []),
-        foldList(packages, [], fn(acc, s) => listConcat(acc, readsFor(s))))
+        Folds::flatMap(packages, readsFor))
 
     fn walksOf(packages) = mapList(packages, walkOf)
 

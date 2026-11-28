@@ -94,6 +94,31 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  hunt:
+    name: "Hunt: symbolic execution (${{ matrix.memory }})"
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        memory: [gc, arc]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - *checkout
+      - *toolchain
+      - name: KLEE
+        run: |
+          /home/linuxbrew/.linuxbrew/bin/brew install klee
+          echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
+      - name: osprey hunt from every program entry
+        run: make _hunt HUNT_MEMORY=${{ matrix.memory }}
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: hunt-${{ matrix.memory }}
+          path: target/hunt/
+          retention-days: 7
+
   test-hosted:
     name: "Tests: hosted registry (PostgreSQL and Chromium)"
     needs: build
@@ -150,12 +175,13 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [build, test, test-hosted, coverage]
+    needs: [build, test, hunt, test-hosted, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Require every job
         run: |
           test "${{ needs.build.result }}" = success
           test "${{ needs.test.result }}" = success
+          test "${{ needs.hunt.result }}" = success
           test "${{ needs.test-hosted.result }}" = success
           test "${{ needs.coverage.result }}" = success

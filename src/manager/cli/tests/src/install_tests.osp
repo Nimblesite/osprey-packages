@@ -12,7 +12,7 @@ import registry::Release
 /// fetched through the web fixture, and every line is exact. Implements
 /// [PACKAGE-FOLDER-REGISTRY] client tests.
 module InstallTests {
-    let localBase = "http://127.0.0.1:8787"
+    let localBase = RegistryFixture::base
     let rootDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
     type Attempt = { report: Reports::Report, writes: string, ensures: string, fetched: string }
@@ -54,10 +54,11 @@ module InstallTests {
         Attempt { report: report, writes: writes, ensures: ensures, fetched: fetched }
     }
 
-    fn filesOf(text) = [
-        Release::File { relPath: "osprey.toml", content: "key = one\n" },
-        Release::File { relPath: "src/main.osp", content: text }
-    ]
+    /// A release of `manifest` and the entry source `main`: the two files
+    /// every fixture release carries.
+    export fn releaseFiles(manifest, main) = [Fixture::file("osprey.toml", manifest), Fixture::file("src/main.osp", main)]
+
+    fn filesOf(text) = releaseFiles("key = one\n", text)
 
     fn served(dir, text) = Fixture::served(dir, filesOf(text))
 
@@ -65,6 +66,12 @@ module InstallTests {
     fn two() = served("@demo/two/1.1", "fn two() = 2\n")
 
     fn both() = [one(), two()]
+
+    /// The lock's first package, `@demo/one`.
+    fn first() = Fixture::at(both(), 0)
+
+    /// The lock's second package, `@demo/two`.
+    fn second() = Fixture::at(both(), 1)
 
     fn accepted(a) = a.report.status == 0
 
@@ -82,7 +89,10 @@ module InstallTests {
 
     fn lockRead(served) = Fixture::readRoute("osprey.lock", lockText(served))
 
-    fn walkOf(s) = Fixture::walkRoute(installDir(s), mapList(s.files, fn(f) => f.relPath))
+    /// The walk of `s` installed at `dir`: the directory and its files' paths.
+    export fn installedWalk(dir, s) = Fixture::walkRoute(dir, mapList(s.files, fn(f) => f.relPath))
+
+    fn walkOf(s) = installedWalk(installDir(s), s)
 
     fn sourcePath(s: Release::Served) = "/v1/releases/${s.id.digest}/source"
 
@@ -96,8 +106,8 @@ module InstallTests {
     /// Both trees installed and matching: two `=` lines, no fetch, nothing written.
     fn allPresent() = {
         let os = both()
-        let a = runInstall(listConcat([lockRead(os)], listConcat(readsOf(Fixture::at(os, 0)), readsOf(Fixture::at(os, 1)))),
-            [walkOf(Fixture::at(os, 0)), walkOf(Fixture::at(os, 1))], [], [])
+        let a = runInstall(listConcat([lockRead(os)], listConcat(readsOf(first()), readsOf(second()))),
+            [walkOf(first()), walkOf(second())], [], [])
         checkAll("installed trees are skipped with = lines and no writes", [
             reportedPair(a, "= @demo/two"),
             structuralEquals([a.writes, a.ensures, a.fetched], ["", "", ""])
@@ -106,50 +116,40 @@ module InstallTests {
 
     /// One installed, one missing: the missing one is fetched through the web fixture.
     fn oneMissing() = {
-        let os = both()
-        let first = Fixture::at(os, 0)
-        let second = Fixture::at(os, 1)
         let a = runInstall(
-            listConcat([lockRead(os)], readsOf(first)),
-            [walkOf(first)],
-            [sourceWeb(second)],
+            listConcat([lockRead(both())], readsOf(first())),
+            [walkOf(first())],
+            [sourceWeb(second())],
             [])
         checkAll("a missing tree is fetched with a + line", [
             reportedPair(a, "+ @demo/two"),
-            a.fetched == "${sourcePath(second)}|"
+            a.fetched == "${sourcePath(second())}|"
         ])
     }
 
     /// An installed tree whose bytes differ is re-fetched, not trusted.
     fn corrupt() = {
-        let os = both()
-        let first = Fixture::at(os, 0)
-        let second = Fixture::at(os, 1)
-        let corruptReads = tamperedReads(installDir(second), second)
         let a = runInstall(
-            listConcat([lockRead(os)], listConcat(readsOf(first), corruptReads)),
-            [walkOf(first), walkOf(second)],
-            [sourceWeb(second)],
+            listConcat([lockRead(both())], listConcat(readsOf(first()), tamperedReads(installDir(second()), second()))),
+            [walkOf(first()), walkOf(second())],
+            [sourceWeb(second())],
             [])
         checkAll("a corrupt installed tree is re-fetched", [
             structuralEquals([accepted(a), startsWith(Fixture::line(a.report, 0), "= @demo/one")], [true, true]),
             startsWith(Fixture::line(a.report, 1), "+ @demo/two"),
-            a.fetched == "${sourcePath(second)}|"
+            a.fetched == "${sourcePath(second())}|"
         ])
     }
 
     /// A failed fetch is that package's code line; the next package still runs.
     fn fetchFailure() = {
-        let os = both()
-        let first = Fixture::at(os, 0)
-        let second = Fixture::at(os, 1)
-        let broken = RegistryFixture::webRouteAt(localBase, sourcePath(first), 404, "")
-        let a = runInstall([lockRead(os)], [], [broken, sourceWeb(second)], [])
+        let broken = RegistryFixture::webRouteAt(localBase, sourcePath(first()), 404, "")
+        let a = runInstall([lockRead(both())], [], [broken, sourceWeb(second())], [])
         checkAll("one failed fetch keeps the run going and ends status 1", [
             structuralEquals([a.report.status, length(a.report.lines)], [1, 2]),
             Fixture::line(a.report, 0) == "fetch.not-found",
             startsWith(Fixture::line(a.report, 1), "+ @demo/two"),
-            a.fetched == "${sourcePath(first)}|${sourcePath(second)}|"
+            a.fetched == "${sourcePath(first())}|${sourcePath(second())}|"
         ])
     }
 

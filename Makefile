@@ -46,7 +46,21 @@ ci: build
 	$(MAKE) _test_registry REGISTRY_MEMORY=arc REGISTRY_COVERAGE=target/coverage
 	$(MAKE) _package-hashing
 	$(MAKE) _registry-website-check
+	$(MAKE) _hunt HUNT_MEMORY=gc
+	$(MAKE) _hunt HUNT_MEMORY=arc
 	node scripts/coverage.mjs . target/coverage/*.json
+
+# _hunt: KLEE symbolic execution from every shipped program entry (the client, the folder registry and
+#        the hosted API). Each crash it finds is replayed natively; a reproduced crash or a compile
+#        failure exits 1. Reports land in target/hunt/<memory>-<program>.
+HUNT_MEMORY ?= gc
+HUNT_PROGRAMS = cli api api/hosted
+.PHONY: _hunt
+_hunt: $(TOOLCHAIN)
+	set -e; for p in $(HUNT_PROGRAMS); do \
+	  nice $(OSPREY) hunt src/manager/$$p --memory=$(HUNT_MEMORY) --max-time 120 --input-bytes 8 --quiet \
+	    --out target/hunt/$(HUNT_MEMORY)-$$(echo $$p | tr / -); \
+	done
 
 # _package-hashing: The package hash rotates machine words with no allocation (the emitted IR of
 #                  bytes.osp, sha256.osp and policy.osp). Expect every unittest to pass.

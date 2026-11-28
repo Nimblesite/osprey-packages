@@ -24,6 +24,7 @@
 - 1️⃣ Memory safety + security first. 0️⃣ tolerance. Attack first
 - 🛑 Osprey never panics, aborts or exits: every failure is `Result` or a handled effect. ❌ fake zero/empty values
 - 🟥 Red = fail: every tracked program compiles
+- ✅ Can be [formally verified](https://www.ospreylang.dev/docs/proofs/formal-verification/) → MUST be. Every program entry runs [`osprey hunt`](https://www.ospreylang.dev/docs/hunt/) in CI (`make _hunt`)
 
 ## 🧪 Tests
 - ✅ E2E use-case tests: many inputs, many interactions, many assertions. Unit tests only when isolation is needed

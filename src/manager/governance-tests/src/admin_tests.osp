@@ -102,17 +102,11 @@ module AdminTests {
         ])
     }
 
-    /// The statement the current `pkg-f1` authority signs for one grant.
-    fn grantStatementFor(world, to, permission) = match Governance::packageOf(world, "pkg-f1") {
-        Success { value } => Governance::grantStatement(value.key, value.authorityEpoch, to, permission, Maybe::none())
-        Error => ""
-    }
-
     /// The reason code of `actor`'s grant of `EditMetadata` to carol in `pkg-f1`;
     /// `actor` names one fixture row, whose principal `p-<actor>` signs with membership `m-<actor>`.
     fn grantAs(world, actor) =
         Fixture::code(GovernanceTransitions::grantPermission(world, "pkg-f1", "g-x",
-            Fixture::verified("p-" + actor, "m-" + actor, grantStatementFor(world, "m-carol", Governance::EditMetadata)),
+            Fixture::verified("p-" + actor, "m-" + actor, Fixture::grantStatementFor(world, "pkg-f1", "m-carol", Governance::EditMetadata, Maybe::none())),
             "m-carol", Governance::EditMetadata, Maybe::none(), 100))
 
     /// Only the exact current administrator manages grants; custodians,
@@ -126,7 +120,7 @@ module AdminTests {
             grantAs(world, "dave") == adminNotCurrent,
             grantAs(world, "bot") == adminNotCurrent,
             Fixture::code(GovernanceTransitions::grantPermission(world, "pkg-f1", "g-y",
-                Fixture::workflow("p-alice", "m-alice", grantStatementFor(world, "m-carol", Governance::EditMetadata)),
+                Fixture::workflow("p-alice", "m-alice", Fixture::grantStatementFor(world, "pkg-f1", "m-carol", Governance::EditMetadata, Maybe::none())),
                 "m-carol", Governance::EditMetadata, Maybe::none(), 100)) == "governance.proof.ceremony"
         ])
     }
