@@ -178,3 +178,8 @@ resource "google_service_account_iam_member" "deploy_scanner" {
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.deploy.email}"
 }
+
+# Deployment reads exactly the same Secret Manager version as the job mount.
+output "scan_agent_version" {
+  value = var.scan_agent_secret_version == "" ? "disabled" : var.scan_agent_secret_version
+}

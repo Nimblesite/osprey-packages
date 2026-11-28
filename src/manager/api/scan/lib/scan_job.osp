@@ -26,7 +26,7 @@ module ScanJob {
         if !Bytes::canonicalUuid(configId) || trim(revision) == "" || byteLength(revision) > 200 { Error { message: "publication.scan-config" } }
         else { andThen(Digests::parse(field(doc, "digest")), fn(digest) =>
                 andThen(perform Inputs.bundle(id, digest), fn(bytes) => PublicationScan::run(field(doc, "dir"), digest, bytes,
-                        fn(source) => PublicationScan::nap(configId, field(config, "apiKey"), source),
+                        fn(source) => PublicationScan::nap(configId, revision, field(config, "apiKey"), source),
                         fn(result) => receipt(id, ticket, configId + "@" + revision, result)))) }
     }
 

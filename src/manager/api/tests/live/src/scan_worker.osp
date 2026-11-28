@@ -10,8 +10,17 @@ import registry_api::Supabase
 
 /// Real restricted collector and scanner connections, with local quarantine and NAP fixtures.
 module ScanWorkerTests {
+    let configBody = "{\"id\":\"11111111-1111-4111-8111-111111111111\",\"agent_type\":\"disembodied\",\"tools_config\":[]}"
     let session = "11111111-1111-4111-8111-111111111111"
     let manifest = "[project]\nname = \"audio\"\nsource_roots = [\"src\"]\n[package]\nname = \"@org-1/audio\"\nlicense = \"MIT\"\nsummary = \"Audio fixture\"\nkeywords = [\"test\"]\n"
+    export fn withScanPolicy(work) = {
+        let configured = CatalogWriter::sql("INSERT INTO registry.scan_configuration VALUES (1,'11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765')").status == 0
+        let result = work()
+        let cleared = CatalogWriter::sql("DELETE FROM registry.scan_configuration").status == 0
+        checkAll("operator scanner configuration fixture", [configured, cleared])
+        result
+    }
+
     fn job(n) = "22222222-2222-4222-8222-22222222222${n}"
     fn release(n) = ReleaseFiles::assemble("@org-1/audio/1.${n}", [
             Release::File { relPath: "osprey.toml", content: manifest },
@@ -26,6 +35,7 @@ module ScanWorkerTests {
     export fn agent(verdict) = handler Supabase::Provider {
         request _method _base path _headers body =>
         if verdict == "unavailable" { Error { message: "fixture.provider-unavailable" } }
+        else if path == "/api/v1/configs/" + session { response(200, configBody) }
         else if endsWith(path, "/new") { response(200, "{\"sessionId\":\"${session}\"}") }
         else if contains(body, "scan fixture") {
             verdictReply(verdict)
@@ -35,7 +45,7 @@ module ScanWorkerTests {
     export fn mounts(id, digest, bytes) = handler ScanJob::Inputs {
         query script => Database::completed(CatalogWriter::piped("registry_scan_worker", script), "fixture.pg")
         bundle requested pinned => if requested == id && pinned == digest { Success { value: bytes } } else { Error { message: "fixture.missing-bundle" } }
-        settings => Success { value: "{\"configId\":\"${session}\",\"apiKey\":\"test\",\"agentRevision\":\"fixture-v1\"}" }
+        settings => Success { value: "{\"configId\":\"${session}\",\"apiKey\":\"test\",\"agentRevision\":\"sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765\"}" }
     }
 
     export fn scanned(id, digest, bytes, verdict) = mounts(id, digest, bytes)(fn() => agent(verdict)(fn() => ScanJob::run(id)))

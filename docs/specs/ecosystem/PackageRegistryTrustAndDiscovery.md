@@ -468,6 +468,8 @@ Both responses carry `Cache-Control: no-store`.
 
 ### Verdict `[PACKAGE-SECURITY-SCAN-VERDICT]`
 
+Forced RLS on scan receipts requires the exact configuration UUID and digest selected by the migration operator. The scanner has read-only access to that selection. With scanning disabled, the table has no selection and no worker can record a new verdict.
+
 The worker must compare the SHA-256 of the NAP configuration response with the reviewed revision before opening a session and again before recording a verdict. A failed read or a changed revision leaves the version pending.
 
 Every source-carrying prompt must pin NAP’s empty tool manifest through `_meta.nap.toolManifestSha256`. A changed tool contract leaves the job pending.

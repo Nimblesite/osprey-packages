@@ -25,3 +25,22 @@ for scanner in '' other-job; do
 done
 if roll registry-scan ok registry.example/repo/api:latest; then exit 1; fi
 [[ ! -s "$ROLLOUT_LOG" ]]
+
+# The database and scanner mount must consume the same numeric secret version.
+(
+  source "$root/src/manager/ops/deploy.sh" production database
+  GCP_PROJECT_ID=project
+  tf() { [[ "$*" == "output -raw scan_agent_version" ]] && echo "$VERSION"; }
+  gcloud() {
+    [[ "$*" == "secrets versions access 7 --secret=osprey-registry-production-scan-agent --project=project" ]] || return 1
+    echo "$SECRET_JSON"
+  }
+  config_id=11111111-1111-4111-8111-111111111111
+  digest="sha256:$(printf '%064d' 1)"
+  SECRET_JSON=$(jq -nc --arg id "$config_id" --arg digest "$digest" '{configId:$id,agentRevision:$digest,apiKey:"private-fixture"}')
+  [[ "$(VERSION=7 scan_revision)" == "$config_id@$digest" ]]
+  [[ -z "$(VERSION=disabled scan_revision)" ]]
+  if (VERSION=latest scan_revision); then exit 1; fi
+  if VERSION=7 SECRET_JSON='{}' scan_revision; then exit 1; fi
+  if VERSION=8 scan_revision; then exit 1; fi
+)

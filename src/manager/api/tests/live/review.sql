@@ -93,17 +93,34 @@ SELECT registry.claim_pending_scan(md5('1')::uuid)::jsonb->>'ticket' AS ticket_o
 SELECT registry.claim_pending_scan(md5('2')::uuid)::jsonb->>'ticket' AS ticket_two \gset
 DO $$ BEGIN
   IF registry.claim_pending_scan(md5('1')::uuid) IS NOT NULL OR
-     registry.record_scan(md5('1')::uuid,gen_random_uuid(),'fixture-v1','accepted') IS NOT NULL
+     registry.record_scan(md5('1')::uuid,gen_random_uuid(),'11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','accepted') IS NOT NULL
   THEN RAISE EXCEPTION 'duplicate scan claim or stale writer'; END IF;
 END $$;
-SELECT registry.record_scan(md5('1')::uuid,:'ticket_one','fixture-v1','accepted'), registry.record_scan(md5('2')::uuid,:'ticket_two','fixture-v1','["blocked capability"]');
+-- Even a valid live lease cannot attest under a revision the operator has not enabled.
+SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('1')::uuid,:'ticket_one','unconfigured','accepted'));
+SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('1')::uuid,:'ticket_one','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','accepted'));
+RESET SESSION AUTHORIZATION;
+SELECT registry.configure_scan_revision('11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765');
+GRANT INSERT,UPDATE,DELETE ON scan_configuration TO registry_scan_worker;
+SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
+SELECT pg_temp.require_denied($cmd$SELECT registry.configure_scan_revision(NULL)$cmd$);
+SELECT pg_temp.require_denied('INSERT INTO scan_configuration VALUES (1,''11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765'')');
+SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('1')::uuid,:'ticket_one',replace('11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','11111111-','22222222-'),'accepted'));
+SELECT registry.record_scan(md5('1')::uuid,:'ticket_one','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','accepted'), registry.record_scan(md5('2')::uuid,:'ticket_two','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','["blocked capability"]');
 DO $$ BEGIN
   IF registry.frozen_scan_job(md5('1')::uuid)::jsonb ->> 'dir' IS DISTINCT FROM '@team/one/1.1'
     OR registry.completed_scan(md5('1')::uuid) IS DISTINCT FROM md5('1')::uuid
     OR registry.completed_scan(md5('3')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'incorrect durable scan status'; END IF;
 END $$;
 SELECT registry.claim_pending_scan(NULL)::jsonb->>'ticket' AS ticket_three \gset
-SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('3')::uuid,:'ticket_three','fixture-v1',invalid))
+SAVEPOINT disable_scan;
+RESET SESSION AUTHORIZATION;
+SELECT registry.configure_scan_revision(NULL);
+SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
+SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('3')::uuid,:'ticket_three','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','accepted'));
+ROLLBACK TO disable_scan;
+RELEASE SAVEPOINT disable_scan;
+SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('3')::uuid,:'ticket_three','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765',invalid))
 FROM unnest(ARRAY['[]','[" "]','[1]','[["nested"]]']) invalid;
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
 SET LOCAL registry.session_issuer = 'issuer';

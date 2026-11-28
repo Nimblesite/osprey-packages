@@ -545,6 +545,19 @@ tables:
         - { name: scan_claim_insert, permissive: true, operations: [Insert], roles: [registry_scan_worker], withCheck: &lease_deadline "expires_at = statement_timestamp() + interval '5 minutes'" }
         - { name: scan_claim_retry, permissive: true, operations: [Update], roles: [registry_scan_worker], using: "expires_at <= statement_timestamp()", withCheck: *lease_deadline }
 
+  # [PACKAGE-SECURITY-SCAN-VERDICT] Only the migration operator may select the active scanner revision.
+  - name: scan_configuration
+    schema: registry
+    columns:
+      - { name: id, type: Int, isNullable: false, checkConstraint: "id = 1" }
+      - { name: agent_revision, type: Text, isNullable: false, checkConstraint: "agent_revision ~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}@sha256:[0-9a-f]{64}$'" }
+    primaryKey: { columns: [id] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: scanner_active_config, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
+
   - name: review_scans
     schema: registry
     columns:
@@ -567,6 +580,7 @@ tables:
           roles: [registry_scan_worker]
           withCheck: >-
             current_setting('session_authorization') = 'registry_scan_worker' AND decided_at = statement_timestamp()
+            AND EXISTS (SELECT 1 FROM registry.scan_configuration c WHERE c.agent_revision = review_scans.agent_revision)
             AND EXISTS (SELECT 1 FROM registry.scan_claims c WHERE c.submission_id = review_scans.submission_id AND c.ticket = review_scans.claim_ticket AND c.expires_at > statement_timestamp())
             AND CASE WHEN verdict = 'accepted' THEN true
             ELSE jsonb_path_match(verdict::jsonb,
@@ -689,6 +703,7 @@ grants:
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT, INSERT], roles: [registry_publication_collector] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_scan_worker, registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: scan_configuration, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: scan_claims, privileges: [SELECT, INSERT, UPDATE], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: review_scans, privileges: [INSERT, SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: review_scans, privileges: [SELECT], roles: [registry_session_runtime] }
@@ -926,6 +941,17 @@ functions:
       ON CONFLICT (submission_id) DO UPDATE SET ticket=excluded.ticket,expires_at=excluded.expires_at
       WHERE c.expires_at<=statement_timestamp() RETURNING submission_id,ticket)
       SELECT json_build_object('id',submission_id,'ticket',ticket)::text FROM claimed
+
+  - schema: registry
+    name: configure_scan_revision
+    arguments: [{ name: revision, type: text }]
+    returns: void
+    volatility: volatile
+    executeRoles: []
+    body: >-
+      WITH disabled AS (DELETE FROM registry.scan_configuration WHERE revision IS NULL)
+      INSERT INTO registry.scan_configuration(id,agent_revision) SELECT 1,revision WHERE revision IS NOT NULL
+      ON CONFLICT(id) DO UPDATE SET agent_revision=excluded.agent_revision
 
   - schema: registry
     name: record_scan

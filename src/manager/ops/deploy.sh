@@ -294,6 +294,16 @@ dispatch() {
 }
 
 # --- Database: schema, migration, restricted logins [PACKAGE-OWNERSHIP-RLS] -------------------
+scan_revision() {
+  local version
+  version="$(tf output -raw scan_agent_version)" || return 1
+  [[ "$version" != disabled ]] || return 0
+  [[ "$version" =~ ^[1-9][0-9]*$ ]] || die "invalid scanner secret version"
+  gcloud secrets versions access "$version" --secret="$NAME-scan-agent" --project="$GCP_PROJECT_ID" |
+    jq -er 'select((.configId | test("^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")) and
+                   (.agentRevision | test("^sha256:[0-9a-f]{64}$"))) | .configId + "@" + .agentRevision'
+}
+
 step_database() (
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
   log "applying src/manager/ops/supabase/migrations/schema.yaml in Cloud Build"
@@ -313,6 +323,11 @@ step_database() (
   export PGHOST="$pooler" PGPORT=5432 PGUSER="postgres.$ref" PGDATABASE=postgres PGSSLMODE=verify-full PGSSLROOTCERT="$CA" PGCONNECT_TIMEOUT=10
   PGPASSWORD="$password" psql -XAt -v ON_ERROR_STOP=1 -f "$ROOT/scripts/packages/registry-table-inventory.sql" | \
     ruby "$ROOT/scripts/packages/check-registry-tables.rb"
+  local revision
+  revision="$(scan_revision)"
+  PGPASSWORD="$password" psql -Xq -v ON_ERROR_STOP=1 -v revision="$revision" <<'PSQL'
+SELECT registry.configure_scan_revision(NULLIF(:'revision',''));
+PSQL
   while read -r role secret; do
     PGPASSWORD="$password" ROLE_PASSWORD="$secret" psql -X -q -v ON_ERROR_STOP=1 -v role="$role" <<'PSQL'
 \getenv secret ROLE_PASSWORD
