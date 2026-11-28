@@ -8,7 +8,8 @@ module ListenerTests {
     let unavailableReply = "503|no-store|"
     let forbidden = "403|no-store|"
     let v1Packages = "/v1/packages"
-    let jsonReply = "200|no-store|application/json|"
+    let publicCache = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    let jsonReply = "200|" + publicCache + "|application/json|"
     let problemReply = "404|no-store|application/problem+json|"
 
     let valid = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"test-only-secret-with-at-least-32-bytes\"}"
@@ -63,6 +64,23 @@ module ListenerTests {
 
     let projection = "{\"packages\":[{\"key\":\"@atlas/net\",\"keywords\":[\"networking\",\"web\"],\"releases\":[{\"digest\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"epoch\":1,\"licenseExpression\":\"MIT\",\"notices\":[{\"path\":\"NOTICE.md\",\"text\":\"Adapted from Atlas upstream.\\nCopyright Atlas.\"}],\"ordinal\":1,\"publisherId\":\"11111111-1111-4111-8111-111111111111\",\"publisherName\":\"Atlas Engineering\"}],\"summary\":\"HTTP tools\",\"warnings\":[\"Network access\"]}]}"
 
+    fn fetchEtag(port, path, extra) = match httpCreateClient("http://127.0.0.1:${port}", 2000) {
+        Error => ""
+        Success { value } => {
+            let client = value
+            let etag = match httpGetResponse(client, path, extra) {
+                Error => ""
+                Success { value } => {
+                    let tag = httpResponseHeader(value, "etag") ?: ""
+                    let _released = httpResponseFree(value)
+                    tag
+                }
+            }
+            let _closed = httpCloseClient(client)
+            etag
+        }
+    }
+
     fn requests(port) = {
         let probe = fetch(port + 1, "/v1/ready", "")
         let private = fetch(port + 1, v1Packages, "")
@@ -70,6 +88,9 @@ module ListenerTests {
         sessions(port, edge)
         let admitted = fetch(port, v1Packages, edge)
         let crossOrigin = fetch(port, v1Packages, edge + "\r\nOrigin: https://packages.example.test")
+        let etag = fetchEtag(port, v1Packages, edge)
+        let notModified = fetch(port, v1Packages, edge + "\r\nIf-None-Match: " + etag)
+        let bearerCatalog = fetch(port, v1Packages, edge + "\r\nAuthorization: Bearer opaque")
         checkAll("live registry probe and ingress isolation", [
             serving(port, "/v1/packages/@atlas/net", edge, jsonReply) && contains(fetch(port, "/v1/packages/@atlas/net", edge), "Network access"),
             serving(port, "/v1/packages/@atlas/missing", edge, problemReply),
@@ -81,8 +102,11 @@ module ListenerTests {
             serving(port, HostedLogin::startPath, "", forbidden),
             probe == "200|no-store|text/plain||", private == "404|no-store|text/plain||",
             problem(port, v1Packages, "", 403, "req.edge-secret"),
-            admitted == "200|no-store|application/json||" + projection,
-            crossOrigin == "200|no-store|application/json|https://packages.example.test|" + projection,
+            admitted == jsonReply + "|" + projection,
+            crossOrigin == jsonReply + "https://packages.example.test|" + projection,
+            startsWith(etag, "\"sha256:") && endsWith(etag, "\""),
+            startsWith(notModified, "304|" + publicCache + "|"),
+            startsWith(bearerCatalog, "200|no-store|application/json|"),
             problem(port, "/v1/ready", edge, 404, "api.not-found")
         ])
         Success { value: 0 }

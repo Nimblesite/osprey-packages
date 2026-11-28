@@ -3,6 +3,7 @@ import registry_host::Database
 import registry::Bytes
 import registry::Bundle
 import registry::Catalog
+import registry::Digests
 import registry::Json
 import registry::Canonical
 import registry::PublicCatalog
@@ -10,6 +11,7 @@ import registry::JsonRead
 import registry::Maybe
 import registry::Paths
 import registry::Release
+import registry::Sha256
 
 /// Process liveness and public ingress use separate listeners [PACKAGE-HOSTED-TOPOLOGY].
 module HostedService {
@@ -18,6 +20,8 @@ module HostedService {
     let authorizationHeader = "authorization"
     let publisherPrefix = "/v1/publishers/"
     let logoutPath = "/v1/auth/logout"
+    let publicCache = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    let immutableCache = "public, max-age=31536000, immutable"
 
     export fn config(source) = match Json::parse(source) {
         Error => Error { message: "hosted.config-invalid" }
@@ -76,6 +80,22 @@ module HostedService {
         headers: "Content-Type: ${mime}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n" + extra,
         streamFd: -1, isComplete: true, partialBody: body }
 
+    fn anonymous(headers) = !HostedHeaders::has(headers, "cookie") && !HostedHeaders::has(headers, authorizationHeader)
+
+    fn etagMatches(headers, etag) = match HostedHeaders::find(headers, "if-none-match") {
+        Success { value } => trim(value) == etag
+        Error => false
+    }
+
+    fn cachedReply(headers, mime, body, cacheControl, extra) = if !anonymous(headers) {
+        replyWith(200, mime, body, extra)
+    } else {
+        let etag = "\"" + Digests::format(Sha256::digest(Bytes::ofString(body))) + "\""
+        let base = "Cache-Control: ${cacheControl}\r\nETag: ${etag}\r\nX-Content-Type-Options: nosniff\r\n" + extra
+        if etagMatches(headers, etag) { HttpResponse { status: 304, contentType: mime, headers: base, streamFd: -1, isComplete: true, partialBody: "" } }
+        else { HttpResponse { status: 200, contentType: mime, headers: "Content-Type: ${mime}\r\n" + base, streamFd: -1, isComplete: true, partialBody: body } }
+    }
+
     fn reply(status, mime, body) = replyWith(status, mime, body, "")
 
     fn problemWith(status, code, headers) = replyWith(status, problemType,
@@ -109,7 +129,7 @@ module HostedService {
         let cors = if origin == "" { "" } else { browserHeaders(origin) }
         if path == "/v1/ready" { problem(404, "api.not-found") }
         else if method == "OPTIONS" { preflight(headers, origin) }
-        else if method == "GET" && (path == "/v1/packages" || startsWith(path, "/v1/packages/") || startsWith(path, publisherPrefix) || startsWith(path, HostedSource::prefix)) { catalogResponse(catalog(), path, cors, source) }
+        else if method == "GET" && (path == "/v1/packages" || startsWith(path, "/v1/packages/") || startsWith(path, publisherPrefix) || startsWith(path, HostedSource::prefix)) { catalogResponse(headers, catalog(), path, cors, source) }
         else if method == "GET" && path == HostedLogin::startPath { loginResponse(login(), cors) }
         else if method == "GET" && Bytes::before(path, "?") == OAuth::callbackPath {
             callbackResponse(callback(path, headers), cors)
@@ -171,10 +191,10 @@ module HostedService {
         problemWith(503, "auth.session-unavailable", headers + expiredFlow)
     } else { unavailable(headers) }
 
-    fn catalogResponse(result: Result<string, string>, path, cors, source) = match result {
+    fn catalogResponse(headers, result: Result<string, string>, path, cors, source) = match result {
         Success { value } => match PublicCatalog::decode(value) {
             Success => match Json::parse(value) {
-                Success { value } => catalogDocument(value, path, cors, source)
+                Success { value } => catalogDocument(headers, value, path, cors, source)
                 Error => unavailable(cors)
             }
             Error => unavailable(cors)
@@ -187,34 +207,41 @@ module HostedService {
         Error => unavailable(cors)
     }
 
+    fn cachedSerialized(headers, result, cacheControl, cors) = match result {
+        Success { value } => cachedReply(headers, jsonType, value, cacheControl, cors)
+        Error => unavailable(cors)
+    }
+
     fn jsonReply(doc, cors) = serializedReply(Canonical::serialize(doc), cors)
 
-    fn catalogDocument(doc, path, cors, source) = if path == "/v1/packages" { jsonReply(doc, cors) } else if startsWith(path, HostedSource::prefix) {
-        releaseResponse(HostedSource::request(doc, path, source), endsWith(path, HostedSource::licenseSuffix), cors)
+    fn cachedJsonReply(headers, doc, cors) = cachedSerialized(headers, Canonical::serialize(doc), publicCache, cors)
+
+    fn catalogDocument(headers, doc, path, cors, source) = if path == "/v1/packages" { cachedJsonReply(headers, doc, cors) } else if startsWith(path, HostedSource::prefix) {
+        releaseResponse(headers, HostedSource::request(doc, path, source), endsWith(path, HostedSource::licenseSuffix), cors)
     } else if startsWith(path, publisherPrefix) {
-        publisherDocument(JsonRead::items(JsonRead::field(doc, "packages")), path, cors)
+        publisherDocument(headers, JsonRead::items(JsonRead::field(doc, "packages")), path, cors)
     } else {
         match listGet(filterList(JsonRead::items(JsonRead::field(doc, "packages")), fn(item) => "/v1/packages/" + field(item, "key") == path), 0) {
-            Success { value } => jsonReply(value, cors)
+            Success { value } => cachedJsonReply(headers, value, cors)
             Error => problemWith(404, "catalog.unknown-package", cors)
         }
     }
 
-    fn releaseLicense(release: Release::Served, cors) = {
+    fn releaseLicense(headers, release: Release::Served, cors) = {
         let files = filterList(release.files, fn(file) => Paths::licenseDocument(file.relPath))
         if isEmpty(files) { problem(404, "release.license-unavailable") }
-        else { replyWith(200, "text/plain; charset=utf-8", join(mapList(files, fn(file) => "${file.relPath}\n\n${file.content}"), "\n\n"), cors) }
+        else { cachedReply(headers, "text/plain; charset=utf-8", join(mapList(files, fn(file) => "${file.relPath}\n\n${file.content}"), "\n\n"), immutableCache, cors) }
     }
 
-    fn releaseResponse(resolution, license, cors) = match resolution {
+    fn releaseResponse(headers, resolution, license, cors) = match resolution {
         Error { message } => if message == HostedSource::unknownRelease { problemWith(404, "catalog.unknown-release", cors)
         } else { unavailable(cors) }
-        Success { value } => if license { releaseLicense(value.release, cors) } else if value.download {
+        Success { value } => if license { releaseLicense(headers, value.release, cors) } else if value.download {
             match Bundle::encode(value.release) {
-                Success { value } => replyWith(200, jsonType, value, cors + "Content-Disposition: attachment; filename=\"osprey-source.json\"\r\n")
+                Success { value } => cachedReply(headers, jsonType, value, immutableCache, cors + "Content-Disposition: attachment; filename=\"osprey-source.json\"\r\n")
                 Error => unavailable(cors)
             }
-        } else { serializedReply(Catalog::releaseJson(value.release), cors) }
+        } else { cachedSerialized(headers, Catalog::releaseJson(value.release), immutableCache, cors) }
     }
 
     fn credited(item, id) = filterList(JsonRead::items(JsonRead::field(item, "releases")), fn(release) => field(release, "publisherId") == id)
@@ -227,23 +254,23 @@ module HostedService {
         Json::member("releases", Json::arr(credited(item, id)))
     ])
 
-    fn publisherDocument(packages, path, cors) = {
+    fn publisherDocument(headers, packages, path, cors) = {
         let parts = split(drop(path, byteLength(publisherPrefix)), "/") ?: []
         let id = listGet(parts, 0) ?: ""
         let detail = length(parts) == 1
         let releases = length(parts) == 2 && (listGet(parts, 1) ?: "") == "releases"
-        if Bytes::canonicalUuid(id) && (detail || releases) { publisherReply(packages, id, detail, cors) }
+        if Bytes::canonicalUuid(id) && (detail || releases) { publisherReply(headers, packages, id, detail, cors) }
         else { unknownPublisher(cors) }
     }
 
-    fn publisherReply(packages, id, detail, cors) = {
+    fn publisherReply(headers, packages, id, detail, cors) = {
         let publicPackages = filterList(packages, fn(item) => !isEmpty(credited(item, id)))
         let first = listGet(publicPackages, 0) ?: Json::Null
         match listGet(credited(first, id), 0) {
             Error => unknownPublisher(cors)
             Success { value } => if detail {
-                jsonReply(Json::obj([Json::member("id", Json::str(id)), Json::member("name", JsonRead::field(value, "publisherName"))]), cors)
-            } else { jsonReply(Json::obj([Json::member("packages", Json::arr(mapList(publicPackages, fn(item) => publisherPackage(item, id))))]), cors) }
+                cachedJsonReply(headers, Json::obj([Json::member("id", Json::str(id)), Json::member("name", JsonRead::field(value, "publisherName"))]), cors)
+            } else { cachedJsonReply(headers, Json::obj([Json::member("packages", Json::arr(mapList(publicPackages, fn(item) => publisherPackage(item, id))))]), cors) }
         }
     }
 

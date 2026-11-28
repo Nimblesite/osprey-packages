@@ -13,6 +13,7 @@ resource "cloudflare_workers_script" "edge" {
   compatibility_date = "2025-09-01"
   bindings = [
     { type = "plain_text", name = "RUN_HOST", text = local.run_host },
+    { type = "plain_text", name = "WEBSITE_ORIGIN", text = "https://${var.website_hostname}" },
     { type = "secret_text", name = "EDGE_SECRET", text = random_password.edge_secret.result },
     # Per-IP, per-location: 50 requests per 10 s. Namespace IDs are account-unique integers.
     { type = "ratelimit", name = "LIMITER", namespace_id = var.environment == "production" ? "7701" : "7702", simple = { limit = 50, period = 10 } },
