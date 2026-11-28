@@ -531,25 +531,3 @@ tables:
             current_setting('session_authorization') = 'registry_session_runtime' AND approved_at = statement_timestamp()
             AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = reviewer_id)
             AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id = release_approvals.submission_id AND s.verdict = 'accepted')
-
-# The public catalog's one writer [PACKAGE-HOSTED-ROUTES-CATALOG]: owned by NOLOGIN
-# registry_catalog_writer, admitted to row 1 by the catalog_writer_* policies, callable only by the
-# API's restricted reader (PUBLIC execute revoked). Each call attests a one-hour lifetime; the API
-# calls it when its memo finds the row within ten minutes of expiry. The schema has no release table
-# yet, so the true catalog is the empty list.
-functions:
-  - schema: registry
-    name: refresh_public_catalog
-    returns: void
-    language: sql
-    volatility: volatile
-    securityDefiner: true
-    ownerRole: registry_catalog_writer
-    searchPath: [pg_catalog]
-    executeRoles: [registry_catalog_reader]
-    revokePublicExecute: true
-    body: >-
-      INSERT INTO registry.public_catalog AS catalog (id, verified_at, expires_at, body)
-      VALUES (1, statement_timestamp(), statement_timestamp() + interval '1 hour', '{"packages":[]}')
-      ON CONFLICT (id) DO UPDATE
-      SET verified_at = excluded.verified_at, expires_at = excluded.expires_at, body = excluded.body
