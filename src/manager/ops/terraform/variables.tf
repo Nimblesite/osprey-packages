@@ -14,7 +14,7 @@ variable "project_id" {
 
 variable "region" {
   type    = string
-  default = "australia-southeast1"
+  default = "us-central1" # cheapest US region; deploy.sh REGION matches
 }
 
 variable "cloudflare_account_id" {
@@ -70,7 +70,7 @@ variable "supabase_publishable_key" {
 }
 
 variable "supabase_pooler_host" {
-  description = "Dashboard → Connect → Transaction pooler host, e.g. aws-1-ap-southeast-2.pooler.supabase.com."
+  description = "Dashboard → Connect → Transaction pooler host, e.g. aws-1-us-east-2.pooler.supabase.com."
   type        = string
   validation {
     condition     = can(regex("^aws-[0-9]+-[a-z0-9-]+\\.pooler\\.supabase\\.com$", var.supabase_pooler_host))

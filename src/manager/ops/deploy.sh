@@ -87,10 +87,11 @@ secret_put() { # NAME (value on stdin)
 
 owner_password() { gcloud secrets versions access latest --secret="$NAME-db-owner" --project="$GCP_PROJECT_ID"; }
 
+REGION=us-central1 # the cheapest US GCP region (Tier 1 pricing for Cloud Run, Storage, KMS, Artifact Registry)
 # --- Cost guard [PACKAGE-HOSTED-SPEND-CAP]: alerts plus a hard stop, before anything can spend --
 BUDGET=50 # in the billing account's own currency (AUD here); the API rejects any other
 CAP_NAME=osprey-registry-spend-cap
-CAP_REGION=australia-southeast1
+CAP_REGION=$REGION
 
 # Both environments share the project, so the cap is one project singleton, not per-environment Terraform.
 ensure_spend_cap() {
@@ -196,7 +197,7 @@ tf_init() {
   local bucket="$GCP_PROJECT_ID-osprey-registry-tfstate"
   if ! gcloud storage buckets describe "gs://$bucket" >/dev/null 2>&1; then
     log "creating private versioned state bucket gs://$bucket"
-    gcloud storage buckets create "gs://$bucket" --project="$GCP_PROJECT_ID" --location=australia-southeast1 \
+    gcloud storage buckets create "gs://$bucket" --project="$GCP_PROJECT_ID" --location="$REGION" \
       --uniform-bucket-level-access --public-access-prevention
     gcloud storage buckets update "gs://$bucket" --versioning
   fi
@@ -215,10 +216,10 @@ tfvars() { # IMAGE
       supabase_pooler_host:$s[0].pooler_host }' > "$WORK/terraform.tfvars.json"
 }
 
-image_repo() { printf 'australia-southeast1-docker.pkg.dev/%s/%s' "$GCP_PROJECT_ID" "$NAME"; }
+image_repo() { printf '%s-docker.pkg.dev/%s/%s' "$REGION" "$GCP_PROJECT_ID" "$NAME"; }
 
 deployed_image() {
-  gcloud run services describe "$NAME" --region=australia-southeast1 --project="$GCP_PROJECT_ID" \
+  gcloud run services describe "$NAME" --region="$REGION" --project="$GCP_PROJECT_ID" \
     --format='value(spec.template.spec.containers[0].image)' 2>/dev/null || true
 }
 
@@ -243,7 +244,7 @@ build_image() {
     local paths; read -ra paths <<<"$(make -s -C "$ROOT" _registry-hosted-context)"
     git -C "$ROOT" archive --format=tar.gz --output="$context" "$sha" "${paths[@]}" src/manager/ops/cloudbuild.yaml
     log "building $ref in Cloud Build"
-    gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region=australia-southeast1 \
+    gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region="$REGION" \
       --config="$OPS/cloudbuild.yaml" --substitutions="_IMAGE=$ref,_SHA=$sha" >&2
   fi
   printf '%s/api@%s' "$(image_repo)" "$(gcloud artifacts docker images describe "$ref" --project="$GCP_PROJECT_ID" --format='value(image_summary.digest)')"
@@ -348,7 +349,7 @@ step_website() {
 # Operator release of HEAD: image via Cloud Build, Cloud Run rolled to its digest, website uploaded.
 step_ship() {
   local image; image="$(build_image)"
-  gcloud run services update "$NAME" --region=australia-southeast1 --project="$GCP_PROJECT_ID" --image="$image" --quiet >&2
+  gcloud run services update "$NAME" --region="$REGION" --project="$GCP_PROJECT_ID" --image="$image" --quiet >&2
   step_website
 }
 

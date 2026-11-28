@@ -14,22 +14,47 @@ The implementation language contract `[PACKAGE-IMPLEMENTATION-LANGUAGE]` applies
 
 ```mermaid
 flowchart LR
-    Pages["Cloudflare Pages"] -->|Serves the website| Web["Osprey Packages in the browser"]
-    Web -->|Search, package details, publisher profiles, downloads, publication intents| Edge["Cloudflare API edge"]
-    CLI["Package client"] --> Edge
-    Edge --> Worker["Cloudflare transport Worker: TLS ≥ 1.2, per-IP rate limit, sets X-Edge-Secret and X-Edge-Host"]
-    Worker -->|"fetch to the run.app URL (Host rewritten)"| API["Osprey Package Manager API on Cloud Run"]
-    API -->|Sessions and GitHub OAuth| Auth["Supabase Auth"]
-    API -->|Catalog, releases, publisher attribution and grants| DB["Supabase PostgreSQL with RLS"]
-    API -->|Seal OAuth verifiers and provider credentials| KMS["Google Cloud KMS"]
-    API -->|Queue authorized publication| Publisher["Isolated publication workers"]
-    Publisher -->|Fetch bound commit| GitHub["GitHub App"]
-    Publisher --> Verify["Independent builders, signers and witnesses"]
-    Publisher -->|Store release source| CAS["Private digest-addressed storage"]
-    API -->|Read eligible release by digest| CAS
+    subgraph Clients["Client devices"]
+        Browser["Browser<br/>registry website (WASM)"]
+        CLI["osprey-pkg CLI"]
+    end
+
+    subgraph CF["Cloudflare (DOMAIN zone)"]
+        Pages["Pages (Direct Upload)<br/>packages.DOMAIN"]
+        Worker["Transport Worker<br/>packages-api.DOMAIN<br/>packages-content.DOMAIN<br/>TLS ≥ 1.2 · per-IP rate limit<br/>sets X-Edge-Secret, X-Edge-Host"]
+    end
+
+    subgraph GCP["Google Cloud · us-central1"]
+        API["Cloud Run: Osprey registry API<br/>:8080 ingress (edge-secret gate)<br/>:8081 probes only"]
+        KMS["Cloud KMS<br/>sealing key"]
+        GCS["Cloud Storage<br/>published source by digest"]
+        SM["Secret Manager<br/>mounted config"]
+    end
+
+    subgraph SB["Supabase · us-east-2"]
+        PG[("PostgreSQL + RLS<br/>catalog, releases, grants")]
+        Auth["Supabase Auth<br/>GitHub OAuth"]
+    end
+
+    subgraph GH["GitHub"]
+        OAuth["OAuth app"]
+        App["GitHub App<br/>bound commits"]
+    end
+
+    Browser -- "HTTPS GET static assets" --> Pages
+    Browser -- "HTTPS JSON API (cookie session)" --> Worker
+    CLI -- "HTTPS JSON API + downloads (bearer)" --> Worker
+    Worker -- "HTTPS fetch to *.run.app<br/>(Host rewritten)" --> API
+    API -- "Postgres wire, TLS :5432" --> PG
+    API -- "HTTPS Auth REST" --> Auth
+    Auth -- "HTTPS OAuth redirect/token" --> OAuth
+    API -- "HTTPS Google API: encrypt/decrypt" --> KMS
+    API -- "HTTPS Google API: read/write objects" --> GCS
+    SM -. "mounted at start" .-> API
+    API -. "HTTPS REST (planned publication workers)" .-> App
 ```
 
-Production is the only hosted environment. A test environment is an exact copy of production (Prod → Dev), never provisioned from scratch, and is paused for now. Use distinct local and production Supabase projects, GCP resources, storage, GitHub OAuth applications, GitHub Apps, signing identities and secrets. Default runtime region is `australia-southeast1`; select a compatible Supabase region and record the actual choice and latency. Account IDs, domains and capacity limits MUST be inventoried before provisioning; reference projects' IDs and secrets MUST NOT be reused.
+Production is the only hosted environment. A test environment is an exact copy of production (Prod → Dev), never provisioned from scratch, and is paused for now. Use distinct local and production Supabase projects, GCP resources, storage, GitHub OAuth applications, GitHub Apps, signing identities and secrets. The runtime region is `us-central1`, the cheapest US GCP region (Tier 1), and Supabase runs in `us-east-2`, the nearest Supabase region to it (Supabase compute costs the same in every region). Account IDs, domains and capacity limits MUST be inventoried before provisioning; reference projects' IDs and secrets MUST NOT be reused.
 
 The website gets a dedicated hostname, separate from the existing language documentation site; the API gets a dedicated hostname. Exact hostnames are deployment inputs, not asserted existing DNS. Host the prebuilt WASM website in a dedicated Cloudflare Pages Direct Upload project, with immutable deployment IDs and prior-deployment rollback; no Pages Functions or automatic unaudited push deployments. The Osprey operations client publishes the prebuilt artifact through the platform API. Registry writes and all application data access go through the Osprey API. Hostile package documentation uses a third, cookieless origin per `[PACKAGE-PUBLISH]`. No service credentials enter a browser bundle. See [Pages prebuilt deployment](https://developers.cloudflare.com/pages/get-started/direct-upload/) and [rollback](https://developers.cloudflare.com/pages/configuration/rollbacks/).
 
