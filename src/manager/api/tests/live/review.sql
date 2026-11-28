@@ -215,6 +215,8 @@ DO $$ BEGIN
     THEN RAISE EXCEPTION 'revoked binding enrolled as reviewer'; END IF;
   UPDATE registry.auth_bindings SET state='active' WHERE id=md5('binding')::uuid;
   UPDATE registry.principals SET state='suspended' WHERE id=md5('alice')::uuid;
+  IF registry.release_reviewer_candidate('issuer','123') IS NOT NULL
+    THEN RAISE EXCEPTION 'suspended person offered as reviewer candidate'; END IF;
   IF registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS NOT NULL
     THEN RAISE EXCEPTION 'suspended person enrolled as reviewer'; END IF;
   UPDATE registry.principals SET state='active' WHERE id=md5('alice')::uuid;

@@ -1,5 +1,9 @@
 # Registry security findings
 
+## Reviewer lookup returned a suspended principal
+
+**Operator workflow · [PACKAGE-SECURITY-SCAN-APPROVAL].** In disposable PostgreSQL the owner-only reviewer lookup returned a suspended principal as an eligible candidate. Appointment independently denied the grant. Lookup and appointment now share the active human and GitHub binding checks and hold both rows stable for the transaction. The database regression checks that suspension denies both operations.
+
 ## Scan workers could renew stale tickets or reassign expired claims
 
 **Fixed on feature branch · [PACKAGE-SECURITY-SCAN-VERDICT].** The scanner role could extend an expired ticket without rotating it in disposable PostgreSQL. The retry policy also lacked a check that retained the original submission. The database now requires retries to rotate tickets on the same submission and binds each verdict to its exact ticket by foreign key. The regression covers two competing worker connections, both invalid retry updates, and ticket replacement after a verdict.
