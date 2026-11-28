@@ -8,6 +8,8 @@ module Catalog {
     let unknownRelease = "catalog.unknown-release"
     let unknownPackage = "catalog.unknown-package"
     let okStatus = "ok"
+    let yankedStatus = "Yanked"
+    let orphanYank = "folder.yank-orphan"
 
     fn strings(items) = Json::Arr { items: mapList(items, Json::str) }
     fn text(members) = Canonical::serialize(Json::obj(members))
@@ -25,7 +27,9 @@ module Catalog {
         Json::member("ordinal", Json::num(id.ordinal))
     ]
 
-    fn releaseValue(s) = Json::obj(releaseMembers(Release::idOf(s)))
+    /// A listed release: its summary, plus `"status":"Yanked"` when yanked.
+    fn releaseValue(yanked, s) = Json::obj(listConcat(releaseMembers(Release::idOf(s)),
+            if listContains(yanked, servedDigest(s)) { [Json::member("status", Json::str(yankedStatus))] } else { [] }))
 
     fn ordered(served) = {
         let idAt = fn(i) => Release::idOf(servedAt(served, i))
@@ -35,7 +39,18 @@ module Catalog {
     /// The catalog over one registry root: `served` ordered by key
     /// (`Names::compare`), then epoch, then ordinal; refusals as given.
     /// Implements [PACKAGE-FOLDER-REGISTRY].
-    export fn of(served, refused) = Release::Catalog { served: ordered(served), refused: refused }
+    export fn of(served, refused) = Release::Catalog { served: ordered(served), refused: refused, yanked: [] }
+
+    fn servedAtDir(catalog, dir) = Checked::firstMatch(Release::servedOf(catalog), fn(s) => ReleasePath::format(Release::idOf(s)) == dir, orphanYank)
+
+    fn yankOne(catalog, dir) = match servedAtDir(catalog, dir) {
+        Success { value } => Release::Catalog { served: catalog.served, refused: catalog.refused, yanked: listAppend(catalog.yanked, servedDigest(value)) }
+        Error { message } => Release::Catalog { served: catalog.served, refused: listAppend(catalog.refused, Release::Refused { dir: Folder::yankMarkerOf(dir), code: message }), yanked: catalog.yanked }
+    }
+
+    /// The catalog with each release directory in `dirs` yanked; a marker
+    /// naming no served release is refused as `folder.yank-orphan`.
+    export fn withYanked(catalog, dirs) = foldList(dirs, catalog, yankOne)
 
     /// The release whose digest is `digest`, or `"catalog.unknown-release"`.
     export fn byDigest(catalog, digest) = Checked::firstMatch(Release::servedOf(catalog), fn(s) => servedDigest(s) == digest, unknownRelease)
@@ -63,17 +78,14 @@ module Catalog {
 
     fn releasesFor(served, display) = filterList(served, fn(s) => Names::display(servedKey(s)) == display)
 
-    fn packageValue(served, display) = Json::obj([
+    fn packageValue(catalog, display) = Json::obj([
             Json::member("key", Json::str(display)),
-            Json::member("releases", Json::arr(mapList(releasesFor(served, display), releaseValue)))
+            Json::member("releases", Json::arr(mapList(releasesFor(Release::servedOf(catalog), display), fn(s) => releaseValue(Release::yankedOf(catalog), s))))
     ])
 
-    /// `{"packages":[{"key":"@s/n","releases":[{"digest","epoch","ordinal"}]}]}`
+    /// `{"packages":[{"key":"@s/n","releases":[{"digest","epoch","ordinal"[,"status"]}]}]}`
     /// with keys in canonical order. Implements [PACKAGE-FOLDER-REGISTRY].
-    export fn packagesJson(catalog) = {
-        let served = Release::servedOf(catalog)
-        text([Json::member("packages", Json::arr(mapList(keysInOrder(served), fn(d) => packageValue(served, d))))])
-    }
+    export fn packagesJson(catalog) = text([Json::member("packages", Json::arr(mapList(keysInOrder(Release::servedOf(catalog)), fn(d) => packageValue(catalog, d))))])
 
     fn keyText(scope, name) = Names::display(Names::Key { scope: scope, name: name })
 
@@ -86,7 +98,7 @@ module Catalog {
             true => Error { message: unknownPackage }
             false => text([
                     Json::member("key", Json::str(keyText(scope, name))),
-                    Json::member("releases", Json::arr(mapList(releases, releaseValue)))
+                    Json::member("releases", Json::arr(mapList(releases, fn(s) => releaseValue(Release::yankedOf(catalog), s))))
             ])
         }
     }

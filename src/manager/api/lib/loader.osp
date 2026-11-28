@@ -37,7 +37,7 @@ module Loader {
     fn fromWalk(root, walk: Host::Walk) = {
         let plan = Folder::plan(walk.regular, walk.executable, walk.special)
         let tally = foldList(plan.pending, Tally { served: [], refused: plan.refused }, fn(t, p) => record(t, p, outcome(root, p)))
-        Catalog::of(tally.served, tally.refused)
+        Catalog::withYanked(Catalog::of(tally.served, tally.refused), plan.yanked)
     }
 
     /// The catalog of `root`, or `host.tree.unreadable` when it cannot be walked.

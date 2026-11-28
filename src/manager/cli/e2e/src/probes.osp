@@ -343,7 +343,7 @@ module Probes {
 
     /// The newest release of each package: the ones `fetch @scope/name` installs.
     fn newest(catalog) = Release::Catalog { served: filterList(Release::servedOf(catalog), fn(s) =>
-            !foldList(Release::servedOf(catalog), false, fn(newer, o) => newer || (keyOf(o) == keyOf(s) && ordinalOf(o) > ordinalOf(s)))), refused: [] }
+            !foldList(Release::servedOf(catalog), false, fn(newer, o) => newer || (keyOf(o) == keyOf(s) && ordinalOf(o) > ordinalOf(s)))), refused: [], yanked: [] }
 
     fn stop() = {
         let _killed = sh("kill $(cat ${work}/server.pid)")
@@ -364,7 +364,7 @@ module Probes {
 
     fn catalogOf(cwd) = match Loader::load("${cwd}/${managerDir}/sample-registry") {
         Success { value } => value
-        Error { message } => Release::Catalog { served: [], refused: [Release::Refused { dir: cwd, code: message }] }
+        Error { message } => Release::Catalog { served: [], refused: [Release::Refused { dir: cwd, code: message }], yanked: [] }
     }
 
     /// Every observation, in order; a server that never answers is one probe.

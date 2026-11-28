@@ -1,5 +1,7 @@
 namespace registry_tests;
 import registry::Catalog
+import registry::Checked
+import registry::Folder
 import registry::Identity
 import registry::Release
 
@@ -85,6 +87,35 @@ module CatalogTests {
         "{\"digest\":\"${digestA()}\",\"epoch\":1,\"files\":[\"osprey.toml\",\"src/lib.osp\"],\"key\":\"@finch/ledger\",\"ordinal\":1}",
         Catalog::releaseJson(ledgerEarly()) ?: "?")
 
+    /// The fixture with `@finch/ledger` e2.r5 yanked and one marker naming no release.
+    fn yankedFixture() = Catalog::withYanked(fixture(), ["@finch/ledger/2.5", "@finch/ledger/9.9"])
+
+    /// Markers sit beside release directories: neither stray nor a release, and a malformed one stays stray.
+    fn yankPlan() = {
+        let plan = Folder::plan(["@finch/ledger/2.5.yanked", "@finch/ledger/2.5/osprey.toml", "@finch/ledger/x.yanked", "@finch/util/1.1.yanked"], [], [])
+        checkAll("catalog: yank markers in the folder walk", [
+                structuralEquals(plan.yanked, ["@finch/ledger/2.5", "@finch/util/1.1"]),
+                length(plan.pending) == 1,
+                length(plan.refused) == 1,
+                (listGet(plan.refused, 0) ?: Release::Refused { dir: "", code: "" }).dir == "@finch/ledger/x.yanked",
+                Folder::yankMarkerOf("@finch/ledger/2.5") == "@finch/ledger/2.5.yanked"
+        ])
+    }
+
+    /// A yanked release stays served by digest, is listed with its status,
+    /// and its immutable release document does not change; an orphan marker is refused.
+    fn yanked() = checkAll("catalog: yanked releases", [
+            structuralEquals(Release::yankedOf(yankedFixture()), [digestB()]),
+            length(Release::servedOf(yankedFixture())) == 3,
+            Checked::succeeded(Catalog::byDigest(yankedFixture(), digestB())),
+            (Catalog::packageJson(yankedFixture(), "finch", "ledger") ?: "?") == "{\"key\":\"@finch/ledger\",\"releases\":[{\"digest\":\"${digestA()}\",\"epoch\":1,\"ordinal\":1},{\"digest\":\"${digestB()}\",\"epoch\":2,\"ordinal\":5,\"status\":\"Yanked\"}]}",
+            contains(Catalog::packagesJson(yankedFixture()) ?: "?", "\"ordinal\":5,\"status\":\"Yanked\"}"),
+            !contains(Catalog::packagesJson(yankedFixture()) ?: "?", "\"ordinal\":1,\"status\""),
+            (Catalog::healthJson(yankedFixture()) ?: "?") == "{\"refused\":2,\"releases\":3,\"status\":\"ok\"}",
+            structuralEquals(mapList(Release::refusedOf(yankedFixture()), fn(r: Release::Refused) => "${r.dir} ${r.code}"), ["@broken/pkg/1.1 source.symlink", "@finch/ledger/9.9.yanked folder.yank-orphan"]),
+            isEmpty(Release::yankedOf(fixture()))
+    ])
+
     /// The catalog suite: ordering, digest lookup, `releasesOf`, and the
     /// byte-exact health, packages, package and release JSON.
     export fn run() = {
@@ -95,5 +126,7 @@ module CatalogTests {
         test("catalog: packagesJson", packages)
         test("catalog: packageJson", onePackage)
         test("catalog: releaseJson", oneRelease)
+        test("catalog: yank markers", yankPlan)
+        test("catalog: yanked releases", yanked)
     }
 }
