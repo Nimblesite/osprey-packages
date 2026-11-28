@@ -158,24 +158,29 @@ _registry-blockers: $(TOOLCHAIN)
 
 REGISTRY_WEB = src/manager/web
 REGISTRY_TERRAFORM = src/manager/ops/terraform
-REGISTRY_MIGRATOR_REV = 3b4e356522affc61b466d8e87ef5232319c9d7a0
-REGISTRY_MIGRATOR_SHA256 = 87192312ca3a313fa0c786705c2fa2cbafebe76a0afb522b39df82f08aaa740a
-REGISTRY_MIGRATOR_DIR = target/registry-tools/$(REGISTRY_MIGRATOR_REV)
-REGISTRY_MIGRATOR = $(REGISTRY_MIGRATOR_DIR)/bin/DataProviderMigrate.dll
+# DataProviderMigrate as the released native AOT binary: no .NET SDK or runtime, SHA-256 pinned per platform.
+REGISTRY_MIGRATOR_VERSION = 0.11.0-beta.1
+REGISTRY_MIGRATOR_PLATFORM := $(shell uname -s | tr A-Z a-z)-$(subst x86_64,x64,$(subst aarch64,arm64,$(shell uname -m)))
+REGISTRY_MIGRATOR_SHA256_darwin-arm64 = ebc4ff93d1b88d5cd317d1e2e0e0dde4317326fa17643befd8896622619e95a9
+REGISTRY_MIGRATOR_SHA256_darwin-x64 = 5d7747084891603bf9f923cfeaf7efea601bf622e970bfacf5732d2b9c605ac4
+REGISTRY_MIGRATOR_SHA256_linux-x64 = 98a8352350ad730962c322cc152d13a32c4a9ea32d5756326b3b633df85065b8
+REGISTRY_MIGRATOR_DIR = target/registry-tools/dataprovider-$(REGISTRY_MIGRATOR_VERSION)-$(REGISTRY_MIGRATOR_PLATFORM)
+REGISTRY_MIGRATOR = $(REGISTRY_MIGRATOR_DIR)/DataProviderMigrate
 
 .PHONY: _registry-migration-tool _registry-migration-check
-# _registry-migration-tool: Build the pinned private-schema DataProvider CLI under target/registry-tools.
+# _registry-migration-tool: Fetch the pinned native AOT DataProvider migration CLI under target/registry-tools.
 _registry-migration-tool: $(REGISTRY_MIGRATOR)
 	@echo "$(abspath $(REGISTRY_MIGRATOR))"
 
 $(REGISTRY_MIGRATOR):
-	@mkdir -p $(REGISTRY_MIGRATOR_DIR)
-	@set -eu; scratch=$$(mktemp -d "$(REGISTRY_MIGRATOR_DIR)/build.XXXXXX"); \
-	  trap 'rm -rf "$$scratch"' EXIT; \
-	  curl -fsSL --retry 2 --max-time 120 "https://codeload.github.com/Nimblesite/DataProvider/tar.gz/$(REGISTRY_MIGRATOR_REV)" -o "$$scratch/source.tgz"; \
-	  echo "$(REGISTRY_MIGRATOR_SHA256)  $$scratch/source.tgz" | shasum -a 256 -c -; \
-	  tar -xzf "$$scratch/source.tgz" --strip-components=1 -C "$$scratch"; \
-	  dotnet publish "$$scratch/Migration/DataProviderMigrate" -c Release -f net10.0 -o "$(abspath $(REGISTRY_MIGRATOR_DIR))/bin"
+	@set -eu; sha="$(REGISTRY_MIGRATOR_SHA256_$(REGISTRY_MIGRATOR_PLATFORM))"; \
+	  test -n "$$sha" || { echo "no pinned DataProviderMigrate for $(REGISTRY_MIGRATOR_PLATFORM)" >&2; exit 1; }; \
+	  mkdir -p $(REGISTRY_MIGRATOR_DIR); archive="$(REGISTRY_MIGRATOR_DIR)/release.tar.gz"; \
+	  curl -fsSL --retry 2 --max-time 120 -o "$$archive" \
+	    "https://github.com/Nimblesite/DataProvider/releases/download/v$(REGISTRY_MIGRATOR_VERSION)/DataProviderMigrate-$(REGISTRY_MIGRATOR_VERSION)-$(REGISTRY_MIGRATOR_PLATFORM).tar.gz"; \
+	  echo "$$sha  $$archive" | shasum -a 256 -c - >/dev/null; \
+	  tar -xzf "$$archive" -C $(REGISTRY_MIGRATOR_DIR) --exclude='*.dSYM' --exclude='*.pdb' --exclude='*.xml'; \
+	  test -x "$@"
 
 # _registry-migration-check: Apply the registry schema twice on disposable socket-only PostgreSQL.
 _registry-migration-check: $(REGISTRY_MIGRATOR) $(TOOLCHAIN)
@@ -192,7 +197,7 @@ _registry-migration-verify:
 	  "$$pg/initdb" -D "$$db/data" -U "$$PGUSER" --auth-local=trust --auth-host=reject --no-locale >/dev/null; \
 	  "$$pg/pg_ctl" -D "$$db/data" -l "$$db/server.log" -o "-k $$db -p $$PGPORT -c listen_addresses=''" -w start; \
 	  "$$pg/psql" -X -v ON_ERROR_STOP=1 -c 'CREATE SCHEMA registry'; \
-	  migrate() { dotnet "$(REGISTRY_MIGRATOR)" migrate --provider postgres --schema src/manager/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
+	  migrate() { "$(abspath $(REGISTRY_MIGRATOR))" migrate --provider postgres --schema src/manager/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
 	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
@@ -219,8 +224,8 @@ _registry-infra-check:
 
 .PHONY: deploy
 ## deploy: Stand up or converge a hosted environment: Cloudflare → Cloud Run → Supabase (docs/DEPLOY.md).
-##         make deploy ENV=staging|production [STEP=supabase|infra|github|database|release|smoke]
-ENV ?= staging
+##         make deploy [STEP=local|supabase|infra|github|database|release|ship|website|smoke] (production only)
+ENV ?= production
 STEP ?= all
 deploy:
 	src/manager/ops/deploy.sh $(ENV) $(STEP)

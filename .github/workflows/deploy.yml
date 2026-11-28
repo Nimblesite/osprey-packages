@@ -11,8 +11,8 @@ on:
       environment:
         description: Target environment
         type: choice
-        options: [staging, production]
-        default: staging
+        options: [production]
+        default: production
 
 permissions:
   contents: read

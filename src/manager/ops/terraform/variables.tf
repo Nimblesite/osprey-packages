@@ -3,8 +3,8 @@
 variable "environment" {
   type = string
   validation {
-    condition     = contains(["staging", "production"], var.environment)
-    error_message = "Use an isolated staging or production environment."
+    condition     = var.environment == "production"
+    error_message = "Production is the only environment; a test environment is an exact Prod → Dev copy."
   }
 }
 

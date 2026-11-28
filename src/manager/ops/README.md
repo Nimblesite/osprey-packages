@@ -1,10 +1,10 @@
 # Registry operations
 
-Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy ENV=staging|production`. This file says what the pieces are. Shape: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
+Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy` (production is the only environment). This file says what the pieces are. Shape: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
 
 ```mermaid
 flowchart LR
-    Browser --> Pages["Cloudflare Pages<br/>packages[-staging].DOMAIN"]
+    Browser --> Pages["Cloudflare Pages<br/>packages.DOMAIN"]
     Browser --> Edge
     CLI["osprey-pkg"] --> Edge["Cloudflare edge"]
     Edge --> Worker["edge.js Worker<br/>TLS ≥ 1.2, per-IP rate limit<br/>X-Edge-Secret + X-Edge-Host"]
@@ -61,4 +61,4 @@ Migrations are explicit: `make deploy ENV=<env> STEP=database`, never at build o
 - `make _registry-hosted-image-check`: the image with mounted config on both ports (needs Docker).
 - `make _registry-website-check` / `make _registry-integration-check`: the packaged site in Chromium, against a fixture API and against the real API on PostgreSQL.
 
-Public writes stay disabled until the Registry Deployment and Ownership spec's conformance table passes in staging.
+Public writes stay disabled until the Registry Deployment and Ownership spec's conformance table passes against production.

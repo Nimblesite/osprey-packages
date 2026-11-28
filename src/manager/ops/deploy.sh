@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Implements [PACKAGE-HOSTED-TOPOLOGY] and [PACKAGE-HOSTED-RELEASE]: one idempotent operator command
 # that stands up (or converges) an environment: Cloudflare → Cloud Run → Supabase.
-#   src/manager/ops/deploy.sh <staging|production> [all|supabase|infra|github|database|release|smoke]
+#   src/manager/ops/deploy.sh production [all|local|supabase|infra|github|database|release|ship|website|smoke]
 # Reads src/manager/ops/deploy.env (template: deploy.env.example). Secrets go through stdin,
 # environment variables or Secret Manager, never argv. Every step is safe to re-run.
 set -euo pipefail
@@ -10,7 +10,7 @@ export CLOUDSDK_CORE_DISABLE_PROMPTS=1 # never block on a gcloud question
 
 OPS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$OPS/../../.." && pwd)"
-ENV_NAME="${1:?usage: deploy.sh <staging|production> [step]}"
+ENV_NAME="${1:?usage: deploy.sh production [step]}"
 STEP="${2:-all}"
 NAME="osprey-registry-$ENV_NAME"
 WORK="$ROOT/target/deploy/$ENV_NAME"
@@ -23,11 +23,11 @@ log() { printf '\033[1;36m[deploy %s] %s\033[0m\n' "$ENV_NAME" "$*" >&2; }
 die() { printf '\033[1;31m[deploy %s] FATAL: %s\033[0m\n' "$ENV_NAME" "$*" >&2; exit 1; }
 
 load_config() {
-  case "$ENV_NAME" in staging|production) ;; *) die "environment must be staging or production" ;; esac
+  [[ "$ENV_NAME" == production ]] || die "production is the only environment (a test environment is an exact Prod → Dev copy, paused)"
   [[ -f "$OPS/deploy.env" ]] || die "copy $OPS/deploy.env.example to $OPS/deploy.env (docs/DEPLOY.md)"
   set -a; . "$OPS/deploy.env"; set +a
   local var
-  for var in terraform gcloud gh jq curl psql dotnet openssl; do
+  for var in terraform gcloud gh jq curl psql openssl; do
     command -v "$var" >/dev/null || die "missing command: $var"
   done
   for var in GCP_PROJECT_ID DOMAIN SUPABASE_ORG_ID SUPABASE_REGION CLOUDFLARE_API_TOKEN; do
@@ -69,8 +69,7 @@ ensure_project() {
   fi
 }
 
-# Production owns the bare names; staging appends -staging.
-host() { printf '%s%s.%s' "$1" "$([[ "$ENV_NAME" == production ]] || echo -staging)" "$DOMAIN"; }
+host() { printf '%s.%s' "$1" "$DOMAIN"; }
 upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
 
 supabase_api() { # METHOD PATH [stdin body]
@@ -303,7 +302,7 @@ step_database() {
   psql -X -v ON_ERROR_STOP=1 -qc 'CREATE SCHEMA IF NOT EXISTS registry'
   local migrator; migrator="$(make -s -C "$ROOT" _registry-migration-tool | tail -1)"
   log "applying src/manager/supabase/migrations/schema.yaml"
-  dotnet "$migrator" migrate --provider postgres --schema "$ROOT/src/manager/supabase/migrations/schema.yaml" \
+  "$migrator" migrate --provider postgres --schema "$ROOT/src/manager/supabase/migrations/schema.yaml" \
     --output "Host=$pooler;Port=5432;Username=postgres.$ref;Database=postgres;SSL Mode=VerifyFull;Root Certificate=$CA"
   local logins; logins="$(tf output -json database_logins)"
   REGISTRY_CATALOG_READER_PASSWORD="$(jq -r .registry_catalog_reader <<<"$logins")" \
