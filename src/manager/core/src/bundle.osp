@@ -10,7 +10,8 @@ module Bundle {
     let tooLarge = "bundle.too-large"
     let maxBytes = 134217728
 
-    fn fileValue(file) = Json::obj([
+    /// One file as its `{path, text}` object: the bundle file and the catalog notice share it.
+    export fn fileValue(file) = Json::obj([
             Json::member("path", Json::str(file.relPath)),
             Json::member("text", Json::str(file.content))
     ])

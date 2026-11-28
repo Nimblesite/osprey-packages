@@ -105,12 +105,11 @@ module PublicationScan {
     /// What the public catalog lists for a release, as its frozen manifest and notice files declare it [PACKAGE-HOSTED-PUBLISH-FLOW].
     export type Listing = { license: string, summary: string, keywords: string, notices: string }
 
-    fn notice(file: Release::File) = Json::obj([Json::member("path", Json::str(file.relPath)), Json::member("text", Json::str(file.content))])
 
     fn listing(found: Frozen) = {
         let notices = filterList(found.release.files, fn(file) => startsWith(file.relPath, "NOTICE"))
         andThen(Canonical::serialize(Json::arr(mapList(found.publication.discovery.keywords, Json::str))), fn(keywords) =>
-            andThen(Canonical::serialize(Json::arr(mapList(notices, notice))), fn(attributions) => Success { value: Listing {
+            andThen(Canonical::serialize(Json::arr(mapList(notices, Bundle::fileValue))), fn(attributions) => Success { value: Listing {
                         license: found.publication.licenseExpression, summary: found.publication.discovery.summary, keywords: keywords, notices: attributions } }))
     }
 
