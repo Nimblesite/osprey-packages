@@ -2,7 +2,7 @@
 # stable repository/owner IDs and the GitHub environment approval boundary.
 resource "google_iam_workload_identity_pool" "github" {
   workload_identity_pool_id = "registry-${var.environment}"
-  display_name              = "Registry ${var.environment} GitHub deploys"
+  display_name              = "Registry ${var.environment} deploys"
   depends_on                = [google_project_service.required]
 }
 
