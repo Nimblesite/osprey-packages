@@ -54,7 +54,7 @@ ci: build _lint
 #        strategy: the client (CLI_MEMORY), the folder registry and the hosted API (API_MEMORY). Each
 #        crash it finds is replayed natively; a reproduced crash or a compile failure exits 1. Reports
 #        land in target/hunt/<program>.
-HUNT_PROGRAMS = cli:$(CLI_MEMORY) api:$(API_MEMORY) api/hosted:$(API_MEMORY) api/scan:$(API_MEMORY)
+HUNT_PROGRAMS = cli:$(CLI_MEMORY) api:$(API_MEMORY) api/hosted:$(API_MEMORY) api/scan:$(API_MEMORY) api/collect:$(API_MEMORY)
 .PHONY: _hunt
 _hunt: $(TOOLCHAIN)
 	set -e; for entry in $(HUNT_PROGRAMS); do p=$${entry%%:*}; memory=$${entry##*:}; \
@@ -255,9 +255,9 @@ $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 registry-scan-once: target/osprey-registry-scan
 	@REGISTRY_SCAN_BINARY="$(abspath $<)" scripts/packages/registry-scan-once.sh
 
-target/osprey-registry-scan: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
+target/osprey-registry-scan target/osprey-registry-collect: target/osprey-registry-%: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	@mkdir -p $(dir $@)
-	$(OSPREY) build src/manager/api/scan --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/api/$* --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile

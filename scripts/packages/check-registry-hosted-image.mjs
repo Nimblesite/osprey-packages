@@ -64,6 +64,12 @@ assert.equal(docker(['image', 'inspect', '--format', '{{.Os}}/{{.Architecture}}'
 assert.match(docker(['image', 'inspect', '--format', '{{ index .Config.Labels "org.opencontainers.image.revision" }}', image]), /^[a-f0-9]{40}$/);
 const dependencies = docker(['run', '--rm', '--entrypoint', 'sh', image, '-ec', 'id -u; psql --version; openssl version']);
 assert.match(dependencies, /^65532\npsql \(PostgreSQL\) 17\..*\nOpenSSL 3\./);
+for (const name of ['scan', 'collect']) {
+  const worker = '/usr/local/bin/registry-' + name + '-once';
+  const command = 'test -x /usr/local/bin/osprey-registry-' + name + ' && test -x ' + worker +
+    ' && { if ' + worker + '; then exit 1; else test "$?" -eq 1; fi; }';
+  docker(['run', '--rm', '--network', 'none', '--entrypoint', 'sh', image, '-ec', command]);
+}
 docker(['volume', 'create', fixture]);
 let container;
 try {

@@ -138,7 +138,7 @@ function withRegistryFixture(body) {
     assert.doesNotMatch(hunt, /matrix/)
     assert.ok(hunt.includes('run: make _hunt\n'))
     assert.match(job('ci'), /needs\.hunt\.result/)
-    assert.match(readFileSync(recipes, 'utf8'), /^HUNT_PROGRAMS = cli:\$\(CLI_MEMORY\) api:\$\(API_MEMORY\) api\/hosted:\$\(API_MEMORY\) api\/scan:\$\(API_MEMORY\)$/m)
+    assert.match(readFileSync(recipes, 'utf8'), /^HUNT_PROGRAMS = cli:\$\(CLI_MEMORY\) api:\$\(API_MEMORY\) api\/hosted:\$\(API_MEMORY\) api\/scan:\$\(API_MEMORY\) api\/collect:\$\(API_MEMORY\)$/m)
     assert.ok(makeRecipe('_hunt').some((line) => line.includes('$(OSPREY) hunt src/manager/$$p --memory=$$memory')))
   })
 
