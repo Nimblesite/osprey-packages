@@ -67,10 +67,12 @@ module BundleTests {
 
     fn assembleRejections() = {
         let empty: List<Release::File> = []
+        let overCount = range(0, 10001) |> map(fn(_i) => pythonSource("")) |> toList
         checkAll("assemble rejects bad paths, bad trees and empty releases", [
                 assemblyCode("@finch/ledger", twoFiles()) == "release-path.segments",
                 assemblyCode("@Finch/ledger/1.3", twoFiles()) == "name.scope.chars",
                 assemblyCode(ledgerRelease, empty) == "release.empty",
+                assemblyCode(ledgerRelease, overCount) == "source.too-many-files",
                 assemblyCode(ledgerRelease, [Release::File { relPath: "../evil", content: "x" }]) == "path.dot-segment",
                 assemblyCode(ledgerRelease, [pythonSource("import os\n")]) == "source.python-flavor-header",
                 assemblyCode(ledgerRelease, [pythonSource("# osprey: flavor=python\n")]) == ""

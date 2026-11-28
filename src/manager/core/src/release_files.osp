@@ -37,12 +37,16 @@ module ReleaseFiles {
     /// (which could hide a call from the capability scan,
     /// [PACKAGE-CAPABILITY-CONFINEMENT]), and the file count and byte total
     /// stay within the submission bounds. A folder release declares no assets yet.
-    fn treeCode(files) = if isEmpty(files) { "release.empty" }
-    else if foldList(files, false, fn(found, file) => found || Source::lfsPointer(file.content)) { "source.lfs-pointer" }
+    fn contentCode(files) = if foldList(files, false, fn(found, file) => found || Source::lfsPointer(file.content)) { "source.lfs-pointer" }
     else if badPython(files) { "source.python-flavor-header" }
     else if Surface::shadowsBuiltin(files) { "source.shadowed-builtin" }
     else if listContains(Surface::ofFiles(files), "io/unknown") { "source.unclassified-builtin" }
-    else { Source::limitCode(length(files), totalBytes(files), 0) }
+    else { "" }
+
+    fn treeCode(files) = {
+        let bounds = Source::limitCode(length(files), totalBytes(files), 0)
+        if isEmpty(files) { "release.empty" } else if bounds == "" { contentCode(files) } else { bounds }
+    }
 
     fn checked(id, files) = {
         let code = treeCode(files)
