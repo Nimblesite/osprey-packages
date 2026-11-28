@@ -39,6 +39,12 @@ for (const hostname of [host('packages'), host('packages-api'), host('packages-c
   });
 }
 
+await check('singular website hostname redirects to the same canonical page', async () => {
+  const response = await get(`https://${host('package')}/upload/?from=registry`);
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get('location'), website + '/upload/?from=registry');
+});
+
 await check('api: plain HTTP is redirected to HTTPS', async () => {
   const response = await get(`http://${host('packages-api')}/v1/packages`);
   assert.ok([301, 308].includes(response.status), `status ${response.status}`);

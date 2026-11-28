@@ -98,8 +98,8 @@ resource "google_cloud_run_v2_service" "api" {
     # CI deploys new digests with `gcloud run services update`; Terraform owns everything else.
     ignore_changes = [template[0].containers[0].image, client, client_version]
     precondition {
-      condition     = length(distinct(local.public_hostnames)) == 3 && alltrue([for host in local.public_hostnames : length(host) <= 253 && can(regex(local.hostname_pattern, host))])
-      error_message = "Supply distinct valid hostnames for the API, website and cookieless content origin."
+      condition     = length(distinct(local.public_hostnames)) == length(local.public_hostnames) && alltrue([for host in local.public_hostnames : length(host) <= 253 && can(regex(local.hostname_pattern, host))])
+      error_message = "Supply distinct valid hostnames for the API, website, website alias and cookieless content origin."
     }
     precondition {
       condition     = startswith(var.image, "${var.region}-docker.pkg.dev/${var.project_id}/${local.name}/")

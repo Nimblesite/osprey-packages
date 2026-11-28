@@ -29,6 +29,10 @@ export default {
       return Response.redirect(url.href, 308);
     }
     if (!TLS_FLOOR.has(request.cf?.tlsVersion)) return new Response("TLS 1.2 or later required\n", { status: 426 });
+    if (url.hostname === env.WEBSITE_ALIAS) {
+      if (!["GET", "HEAD"].includes(request.method)) return new Response(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+      return Response.redirect(env.WEBSITE_ORIGIN + url.pathname + url.search, 308);
+    }
     const hasCreds = request.headers.has("Cookie") || request.headers.has("Authorization");
     const foreignOrigin = request.headers.has("Origin") && request.headers.get("Origin") !== env.WEBSITE_ORIGIN;
     const cacheableReq = request.method === "GET" && !hasCreds && !foreignOrigin;

@@ -205,7 +205,7 @@ Launch triage. Read-only public launch (anonymous browse, search, package pages 
 3. ✅ A scheduled writer keeps `registry.public_catalog` verified and unexpired; the API serves 503 `registry.not-ready` once evidence expires.
 4. ✅ The website tells a rate-limited or overloaded visitor to retry: a 429 or 503 shows a retry message instead of the generic "unavailable", honouring `Retry-After`; the catalog fetch drops `cache: 'no-store'` (`web/assets/registry-catalog.mjs:9`) so browsers reuse cached reads.
 5. Passkey first, GitHub second ([PACKAGE-HOSTED-AUTH]); sign-in is either configured (the GitHub OAuth app below) or hidden; a visible "Sign in with GitHub" that answers 503 is not shipped.
-6. The production deploy passes `check-registry-deployed.mjs` 21/21.
+6. The production deploy passes every check in `check-registry-deployed.mjs`, including the singular website hostname redirect.
 7. The operational gates of `[PLAN-ROLLOUT-PRODUCTION]` alert from day one (5xx < 1% over 15 minutes, metadata p95 < 1 s), with the edge credential cutover and traffic rollback rehearsed once.
 
 Everything else in this plan (publication, trust plane, AI review, scoring, governance writes, WebAuthn, waves past read-only) is later: none of it is reachable in a read-only launch.

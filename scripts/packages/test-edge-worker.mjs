@@ -24,6 +24,7 @@ globalThis.fetch = async (_url, init) => {
 
 let allowLimit = true;
 const env = {
+  WEBSITE_ALIAS: 'package.ospreylang.dev',
   RUN_HOST: 'api.run.app',
   WEBSITE_ORIGIN: 'https://packages.ospreylang.dev',
   EDGE_SECRET: 's'.repeat(64),
@@ -35,6 +36,13 @@ const req = (url, headers = {}, tls = 'TLSv1.3') => Object.assign(new Request(ur
 // 1. HTTP redirect and TLS floor
 assert.equal((await worker.fetch(req('http://packages-api.ospreylang.dev/v1/packages'), env, ctx)).status, 308);
 assert.equal((await worker.fetch(req('https://packages-api.ospreylang.dev/v1/packages', {}, 'TLSv1.1'), env, ctx)).status, 426);
+
+for (const path of ['/', '/upload/?from=home', '//another.example/path']) {
+  const res = await worker.fetch(req('https://' + env.WEBSITE_ALIAS + path), env, ctx);
+  assert.equal(res.status, 308);
+  assert.equal(res.headers.get('location'), env.WEBSITE_ORIGIN + path);
+}
+assert.equal(originHits, 0);
 
 // 2. Anonymous GET caches on miss, hits before rate limiter, and overwrites spoofed edge headers
 const first = await worker.fetch(req('https://packages-api.ospreylang.dev/v1/packages', {

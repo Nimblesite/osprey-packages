@@ -101,10 +101,11 @@ variable "github_owner_id" {
 
 locals {
   management_port  = 8081
-  public_hostnames = [var.website_hostname, var.api_hostname, var.content_hostname]
+  website_alias    = "package.${trimprefix(var.website_hostname, "packages.")}"
+  public_hostnames = [var.website_hostname, var.api_hostname, var.content_hostname, local.website_alias]
   hostname_pattern = "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"
   name             = "osprey-registry-${var.environment}"
-  edge_hostnames   = { api = var.api_hostname, content = var.content_hostname }
+  edge_hostnames   = { api = var.api_hostname, content = var.content_hostname, website_alias = local.website_alias }
   supabase_origin  = "https://${var.supabase_project_ref}.supabase.co"
   required_services = toset([
     "artifactregistry.googleapis.com", "run.googleapis.com", "storage.googleapis.com", "cloudkms.googleapis.com",

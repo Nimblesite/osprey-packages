@@ -21,6 +21,7 @@ Production is the only environment. A test environment, when one exists, is an e
 | | production |
 | --- | --- |
 | Website | `packages.<DOMAIN>` |
+| Website redirect | `package.<DOMAIN>` preserves the path and query on the canonical website |
 | API | `packages-api.<DOMAIN>` |
 | Source downloads | `packages-content.<DOMAIN>` |
 
