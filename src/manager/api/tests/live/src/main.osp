@@ -49,7 +49,8 @@ fn refused(sql, sqlState) = {
 /// [PACKAGE-OWNERSHIP-DATABASE] [PACKAGE-NAMES-NO-SITTING]
 fn constraints() = checkAll("ownership constraints on real PostgreSQL", [
         answer("SELECT count(*) FROM packages WHERE name='audio'", "2"),
-        refused("UPDATE packages SET organization_id=md5('org1')::uuid,admin_membership_id=md5('member1')::uuid WHERE id=md5('package2')::uuid", "23505"),
+        refused("UPDATE packages SET organization_id=md5('org1')::uuid,admin_membership_id=md5('member1')::uuid WHERE id=md5('package2')::uuid", "P0001"),
+        refused("INSERT INTO packages SELECT md5('duplicate')::uuid,organization_id,name,admin_membership_id,admin_membership_state,admin_principal_kind,authority_epoch,state,created_at FROM packages WHERE id=md5('package2')::uuid", "23505"),
         refused("UPDATE package_permissions SET membership_id=md5('member3')::uuid WHERE id=md5('grant2')::uuid", "23503"),
         refused("UPDATE package_permissions SET membership_authority_epoch=0 WHERE id=md5('grant2')::uuid", "23514"),
         refused("UPDATE package_permissions SET membership_authority_epoch=NULL WHERE id=md5('grant2')::uuid", "23502"),

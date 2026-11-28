@@ -110,6 +110,7 @@ function bindReceipts(parts) {
   const findings = panel.querySelector('[data-findings]');
   const approve = panel.querySelector('[data-approve]');
   const base = new URL(parts.panel.dataset.sessionUrl).origin;
+  const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
   let pending;
   let generation = 0;
   function clear() {
@@ -124,16 +125,16 @@ function bindReceipts(parts) {
   async function load(id) {
     clear();
     const request = generation;
-    if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id)) { status.textContent = 'Enter a valid submission ID.'; return; }
+    if (!uuid.test(id)) { status.textContent = 'Enter a valid submission ID.'; return; }
     try {
       const response = await accountRequest(base + '/v1/publications/' + id);
       if (!response.ok) throw Error();
       const row = await response.json();
-      if (row.submissionId !== id || !Object.hasOwn(labels, row.status) || !/^sha256:[0-9a-f]{64}$/.test(row.digest)
+      if (row.submissionId !== id || !uuid.test(row.packageId) || !Object.hasOwn(labels, row.status) || !/^sha256:[0-9a-f]{64}$/.test(row.digest)
         || !Number.isSafeInteger(row.epoch) || row.epoch < 1 || !Number.isSafeInteger(row.ordinal) || row.ordinal < 1
         || !Array.isArray(row.messages) || row.messages.some(text => typeof text !== 'string' || !text.trim())) throw Error();
       if (generation !== request) return;
-      status.textContent = `Version ${row.epoch}.${row.ordinal} · ${row.digest}. ${labels[row.status]}`;
+      status.textContent = `Package ${row.packageId} · Version ${row.epoch}.${row.ordinal} · ${row.digest}. ${labels[row.status]}`;
       for (const text of row.messages) {
         const item = document.createElement('li');
         item.textContent = text;

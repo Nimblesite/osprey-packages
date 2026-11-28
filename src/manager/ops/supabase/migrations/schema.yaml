@@ -76,6 +76,11 @@ tables:
     primaryKey: { columns: [id] }
     uniqueConstraints:
       - { name: uq_organizations_handle, columns: [handle] }
+    triggers:
+      - name: preserve_organization_identity
+        events: [Update]
+        raiseWhen: "old.id <> new.id or old.handle <> new.handle"
+        errorMessage: organization identity is immutable
     rowLevelSecurity:
       enabled: true
       forced: true
@@ -151,6 +156,11 @@ tables:
     foreignKeys:
       - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [organization_id, admin_membership_id, admin_membership_state, admin_principal_kind], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id, state, principal_kind], onDelete: Restrict, onUpdate: Restrict }
+    triggers:
+      - name: preserve_package_identity
+        events: [Update]
+        raiseWhen: "old.id <> new.id or old.name <> new.name or old.organization_id <> new.organization_id"
+        errorMessage: package identity is immutable
     rowLevelSecurity:
       enabled: true
       forced: true
@@ -717,7 +727,7 @@ functions:
     returns: text
     executeRoles: [registry_session_runtime]
     body: >-
-      SELECT json_build_object('submissionId',j.id,'digest',j.digest,'epoch',j.epoch,'ordinal',j.ordinal,
+      SELECT json_build_object('submissionId',j.id,'packageId',j.package_id,'digest',j.digest,'epoch',j.epoch,'ordinal',j.ordinal,
       'status',CASE WHEN a.submission_id IS NOT NULL THEN 'approved' WHEN s.verdict='accepted' THEN 'awaiting-admin'
       WHEN s.submission_id IS NOT NULL THEN 'rejected' ELSE 'pending-scan' END,
       'canApprove',COALESCE(s.verdict='accepted' AND a.submission_id IS NULL AND EXISTS (SELECT FROM registry.release_reviewers),false),

@@ -21,6 +21,21 @@ BEGIN
   RAISE EXCEPTION 'expected RLS denial for %', command;
 EXCEPTION WHEN insufficient_privilege THEN NULL;
 END $$;
+-- The public identity survives broad DML grants and future governance endpoints.
+DO $$ BEGIN
+  BEGIN
+    UPDATE organizations SET handle='renamed';
+    RAISE EXCEPTION 'organization rename succeeded';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'organization identity is immutable' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE packages SET name='renamed';
+    RAISE EXCEPTION 'package rename succeeded';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'package identity is immutable' THEN RAISE; END IF;
+  END;
+END $$;
 SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
 SELECT pg_temp.require_denied('SELECT registry.submit_frozen_version(md5(''1'')::uuid,md5(''pkg'')::uuid,1,1,''sha256:''||repeat(''1'',64),md5(''alice'')::uuid)');
 RESET SESSION AUTHORIZATION;
@@ -57,7 +72,8 @@ SELECT set_config('registry.session_subject',md5('subject')::uuid::text,true),
        set_config('registry.session_digest','sha256:'||repeat('c',64),true);
 SET LOCAL registry.session_provider = '123';
 DO $$ BEGIN
-  IF registry.publication_receipt(md5('1')::uuid)::jsonb->>'canApprove' IS DISTINCT FROM 'false'
+  IF registry.publication_receipt(md5('1')::uuid)::jsonb->>'packageId' IS DISTINCT FROM md5('pkg')::uuid::text
+    OR registry.publication_receipt(md5('1')::uuid)::jsonb->>'canApprove' IS DISTINCT FROM 'false'
     OR registry.publication_receipt(md5('2')::uuid)::jsonb->'messages' IS DISTINCT FROM '["blocked capability"]'::jsonb
     OR registry.publication_receipt(md5('3')::uuid)::jsonb->>'status' IS DISTINCT FROM 'pending-scan'
     THEN RAISE EXCEPTION 'incorrect publisher receipt'; END IF;
