@@ -501,6 +501,7 @@ fn suites() = {
     test("session issuer libpq connection", sessionIssuerConnection)
     test("live browser session expiry and revocation", sessionLifetimeChecks)
     test("browser sessions start closed", fn() => checkAll("browser sessions use forced row security", [answer("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'registry.browser_sessions'::regclass", "t")]))
+    test("public catalog writer", CatalogWriter::check)
     test("verified public catalog", publicCatalog)
     test("PostgreSQL-backed hosted API", catalogListener)
     test("publisher delegation storage", constraints)

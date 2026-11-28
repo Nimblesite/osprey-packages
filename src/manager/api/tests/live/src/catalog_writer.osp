@@ -1,0 +1,48 @@
+namespace registry_live_tests;
+import registry::PublicCatalog
+import registry_host::Database
+import registry_host::Host
+
+/// The public catalog's one writer, src/manager/ops/supabase/catalog.sql, on real PostgreSQL
+/// [PACKAGE-HOSTED-ROUTES-CATALOG]: applied twice (idempotent), its NOLOGIN owner holds no
+/// right beyond the catalog row, PUBLIC cannot run the refresh, and an empty registry
+/// yields a live row the restricted reader sees and the API decodes. Cleans up after itself.
+module CatalogWriter {
+    let owner = "psql -XqAt --no-password -p 18873 -U registry_check -d postgres -v ON_ERROR_STOP=1 "
+    fn onFixture(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
+    fn sql(statement) = onFixture(owner + "-c " + Host::shellWord(statement))
+    fn answers(statement, expected) = {
+        let run = sql(statement)
+        run.status == 0 && trim(run.stdout) == expected
+    }
+    fn applied() = onFixture(owner + "-f src/manager/ops/supabase/catalog.sql").status == 0
+    let writer = "registry_catalog_writer"
+    let refresh = "registry.refresh_public_catalog()"
+    let readerSetup = "SELECT 'CREATE ROLE registry_catalog_reader LOGIN' WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'registry_catalog_reader') \\gexec\nGRANT USAGE ON SCHEMA registry TO registry_catalog_reader; GRANT SELECT ON registry.public_catalog TO registry_catalog_reader;"
+    fn readerSees() = {
+        let setup = onFixture("printf '%s\\n' " + Host::shellWord(readerSetup) + " | " + owner)
+        let read = onFixture("printf '%s' " + Host::shellWord(Database::catalogScript()) + " | psql -XqAt --no-password -p 18873 -U registry_catalog_reader -d postgres -v ON_ERROR_STOP=1")
+        setup.status == 0 && read.status == 0 && match PublicCatalog::decode(trim(read.stdout)) {
+            Success { value } => isEmpty(value)
+            Error => false
+        }
+    }
+    fn grants() = [
+        answers("SELECT rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname = '${writer}'", "f"),
+        answers("SELECT string_agg(table_name || ':' || privilege_type, ',' ORDER BY table_name, privilege_type) FROM information_schema.role_table_grants WHERE grantee = '${writer}'",
+            "public_catalog:INSERT,public_catalog:SELECT,public_catalog:UPDATE"),
+        answers("SELECT p.prosecdef AND pg_get_userbyid(p.proowner) = '${writer}' AND p.proconfig = ARRAY['search_path=pg_catalog'] AND NOT EXISTS (SELECT 1 FROM aclexplode(p.proacl) a WHERE a.grantee = 0) FROM pg_proc p WHERE p.oid = '${refresh}'::regprocedure", "t")
+    ]
+    fn lifetime() = answers("SELECT expires_at - verified_at = interval '1 hour' AND verified_at <= now() FROM registry.public_catalog WHERE id = 1", "t")
+    fn cleaned() = sql("DELETE FROM registry.public_catalog; DROP OWNED BY ${writer}; DROP ROLE ${writer};").status == 0
+
+    export fn check() = {
+        let first = applied()
+        let again = applied()
+        let rows = answers("SELECT count(*) FROM registry.public_catalog", "1")
+        let results = listConcat([first, again, rows, lifetime(), readerSees()], grants())
+        let refreshed = answers("UPDATE registry.public_catalog SET verified_at = now() - interval '2 hours', expires_at = now() - interval '1 hour'; SELECT ${refresh}; SELECT expires_at > now() FROM registry.public_catalog", "t")
+        let clean = cleaned()
+        checkAll("the public catalog writer refreshes an empty registry into a live, decodable row", listConcat(results, [refreshed, clean]))
+    }
+}

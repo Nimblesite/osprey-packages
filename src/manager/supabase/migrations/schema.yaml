@@ -310,6 +310,24 @@ tables:
           operations: [Select]
           roles: []
           using: "current_setting('session_authorization') = 'registry_catalog_reader' AND verified_at <= statement_timestamp() AND expires_at > statement_timestamp()"
+        # The one writer, registry.refresh_public_catalog() (src/manager/ops/supabase/catalog.sql), runs as
+        # its NOLOGIN owner: an upsert of the single row needs all three.
+        - name: catalog_writer_select
+          permissive: true
+          operations: [Select]
+          roles: []
+          using: &catalog_writer "current_user = 'registry_catalog_writer' AND id = 1"
+        - name: catalog_writer_insert
+          permissive: true
+          operations: [Insert]
+          roles: []
+          withCheck: *catalog_writer
+        - name: catalog_writer_update
+          permissive: true
+          operations: [Update]
+          roles: []
+          using: *catalog_writer
+          withCheck: *catalog_writer
 
   - name: browser_sessions
     schema: registry

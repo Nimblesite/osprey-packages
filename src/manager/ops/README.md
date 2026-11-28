@@ -45,6 +45,8 @@ The only operator-held credentials are the Cloudflare tokens, the Supabase acces
 | `registry_session_runtime` | identity columns; `SELECT` session columns, `UPDATE(last_used_at, token_envelope, refresh_id, refresh_started_at)` |
 | `registry_session_revoker` | `SELECT(id, principal_id)`, `SELECT(id, credential_epoch)`; `SELECT`/`UPDATE(revoked_at, token_envelope)` on `browser_sessions` |
 
+`catalog.sql` then creates the public catalog's one writer: `registry_catalog_writer` is `NOLOGIN` with `SELECT`/`INSERT`/`UPDATE` on `public_catalog` alone, owns the `SECURITY DEFINER` `registry.refresh_public_catalog()` (no `PUBLIC` execute) and refreshes row 1 with a one-hour lifetime at apply. `catalog-schedule.sql` has `pg_cron` repeat it every ten minutes, so the catalog never lapses into `503 registry.not-ready`; an empty registry is the valid `{"packages":[]}`.
+
 ## Releases [PACKAGE-HOSTED-RELEASE]
 
 `.github/workflows/deploy.yml` (dispatched by `make deploy`, or by hand from the Actions tab) reruns CI at the exact SHA. It then builds the image from that commit, pushes `api:<sha>` and rolls Cloud Run to the resolved `@sha256` digest. The website is built as a content-addressed archive (`make _registry-website-archive`) and uploaded with Pages Direct Upload. Terraform creates the service from the first CI-built digest and then ignores image changes. Rolling back means redeploying an older digest: `gcloud run services update osprey-registry-<env> --image=<repo>/api@sha256:…`.
