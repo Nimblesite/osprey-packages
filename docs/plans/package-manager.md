@@ -48,7 +48,7 @@ Items no agent can complete, because each needs a person or an outside party:
 
 ### Command surface completion `[PLAN-ENGINE-COMMANDS]`
 
-- [ ] Implement `login`, `audit`, `yank` and the authenticated `publish`; `Dispatch` in `cli/lib/dispatch.osp` answers not-implemented for the first three today [PACKAGE-API].
+- [ ] Implement `login`, `audit`, the hosted `yank` and the authenticated `publish`; `Dispatch` in `cli/lib/dispatch.osp` answers not-implemented for `login` and `audit` today. Folder-registry `yank --folder` is done (`a35da0a`, `yank_tests` in `cli/tests`): one release slot per marker, listed as `"status":"Yanked"`, never chosen afresh by `lock` or `fetch`, kept when already locked [PACKAGE-API] [PACKAGE-RESOLUTION].
 - [ ] Make `add`, `remove`, `lock` and `update` show dependency, epoch, capability and vulnerability deltas before one atomic manifest/lock update whose per-key baselines are rebased, the overlay graph validated and release/`publishedBaseLock` written only for a complete registry solution, and snapshot-test the remaining auth, quarantine, revocation and missing-system-capability diagnostics (terse success, offline, conflict, capability and recovery lines are asserted) [PACKAGE-API] [PACKAGE-LOCAL-OVERRIDE].
 
 ## Verifiable public registry `[PLAN-REGISTRY]`
