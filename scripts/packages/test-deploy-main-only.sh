@@ -7,7 +7,7 @@ root="$(git rev-parse --show-toplevel)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-git clone -q --no-hardlinks "$root" "$work/repo"
+GIT_LFS_SKIP_SMUDGE=1 git clone -q --no-hardlinks "$root" "$work/repo"
 cp "$root/src/manager/ops/deploy.sh" "$work/repo/src/manager/ops/deploy.sh"
 cp "$root/scripts/packages/check-website-release.sh" "$work/repo/scripts/packages/"
 git -C "$work/repo" checkout -q -b not-main
@@ -71,6 +71,28 @@ verify_site() {
 verify_site
 echo stale > "$work/served/site.wasm"
 if verify_site; then echo "stale deployed WASM passed" >&2; exit 1; fi
+
+# Record production operations without contacting providers, including a migration failure.
+rollout() (
+  # shellcheck disable=SC1091
+  source "$root/src/manager/ops/deploy.sh" production "$1"
+  for action in require_main load_config ensure_project ensure_spend_cap step_supabase step_infra step_github dispatch step_smoke; do
+    eval "$action() { echo $action; }"
+  done
+  local migration_status="$2"
+  step_database() { echo step_database; return "$migration_status"; }
+  log() { :; }
+  main
+)
+for entry in all release; do
+  rollout "$entry" 0 > "$work/steps"
+  printf '%s\n' require_main load_config ensure_project ensure_spend_cap step_supabase step_infra step_github step_database dispatch step_smoke | diff - "$work/steps"
+done
+set +e
+( set -e; rollout release 1 ) > "$work/steps"
+failed=$?
+set -e
+[[ "$failed" != 0 && "$(tail -1 "$work/steps")" == step_database ]] || { echo "failed migration did not stop release" >&2; exit 1; }
 
 need() { grep -Fq -- "$2" "$root/$1" || { echo "$1 lost its main-only guard: $2" >&2; exit 1; }; }
 need .github/workflows/deploy.yml 'run: test "$GITHUB_REF" = refs/heads/main'
