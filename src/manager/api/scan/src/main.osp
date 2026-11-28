@@ -1,4 +1,5 @@
 namespace registry_api;
+import registry_scan::PublicationScan
 import registry::Bytes
 import registry::Bundle
 import registry::Digests

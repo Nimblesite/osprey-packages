@@ -1,9 +1,14 @@
-namespace registry_api;
+namespace registry_scan;
+import registry_api::Supabase
 import registry::Bundle
 import registry::Bytes
 import registry::Canonical
 import registry::Json
 import registry::JsonRead
+import registry::Manifest
+import registry::Maybe
+import registry::Names
+import registry::Release
 import registry::ReleasePath
 
 /// Mandatory scan of the immutable job [PACKAGE-SECURITY-SCAN-VERDICT].
@@ -55,8 +60,20 @@ module PublicationScan {
     || !Bytes::everyByte(apiKey, fn(b) => b > 32 && b < 127) { refused() }
     else { andThen(post(configId, apiKey, "new", "{\"cwd\":\"/\",\"mcpServers\":[]}"), fn(doc) => submit(configId, apiKey, field(doc, "sessionId"), source)) }
 
+    fn namesPackage(release: Release::Served) = {
+        let entries = filterList(release.files, fn(file) => file.relPath == "osprey.toml")
+        match listGet(entries, 0) {
+            Error => false
+            Success { value } => match Manifest::parse(value.content) {
+                Manifest::Accepted { manifest } => Maybe::fold(manifest.publication, false,
+                    fn(publication) => Names::same(publication.package, release.id.key))
+                _ => false
+            }
+        }
+    }
+
     export fn run(dir, digest, bytes, scan, record) = andThen(Bundle::verify(bytes, digest), fn(release) =>
-        if ReleasePath::format(release.id) != dir { refused() }
+        if ReleasePath::format(release.id) != dir || !namesPackage(release) { refused() }
         else { andThen(Bundle::encode(release), fn(source) => if source != bytes { refused() }
             else { andThen(scan(source), fn(result) => andThen(verdict(result), record)) }) })
 }

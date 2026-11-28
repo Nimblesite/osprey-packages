@@ -1,5 +1,5 @@
 namespace registry_api_tests;
-import registry_api::PublicationScan
+import registry_scan::PublicationScan
 import registry_api::Supabase
 import registry::Release
 import registry::ReleaseFiles
@@ -49,9 +49,27 @@ module ScanTests {
         ])
     }
 
-    export fn run() = test("publication scan gates frozen bytes [PACKAGE-SECURITY-SCAN-VERDICT]", fn() => match
-        ReleaseFiles::assemble(dir, [Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }]) {
+    fn assemble(manifest) = ReleaseFiles::assemble(dir, [
+        Release::File { relPath: "osprey.toml", content: manifest },
+        Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }
+    ])
+
+    fn blocked(files) = match ReleaseFiles::assemble(dir, files) {
+        Success { value } => receipt(value, dir, Bundle::encode(value) ?: "", provider("accepted", "end_turn", session), 200) == "pending"
+        Error => false
+    }
+
+    let manifest = "[project]\nname = \"one\"\nsource_roots = [\"src\"]\n[package]\nname = \"@team/one\"\nlicense = \"MIT\"\nsummary = \"Fixture\"\nkeywords = [\"test\"]\n"
+
+    export fn run() = test("publication scan gates frozen bytes [PACKAGE-SECURITY-SCAN-VERDICT]", fn() => {
+        let file = Release::File { relPath: "src/main.osp", content: "// REVIEW_THIS_BYTE\nfn main() = 1\n" }
+        checkAll("the immutable source manifest identifies the requested package", [
+            blocked([file]), blocked([file, Release::File { relPath: "osprey.toml", content: "invalid" }]),
+            blocked([file, Release::File { relPath: "osprey.toml", content: replace(manifest, "@team/one", "@foreign/one") ?: "" }])
+        ])
+        match assemble(manifest) {
             Success { value } => outcomes(value, Bundle::encode(value) ?: "")
             Error { message } => check("frozen fixture", "ok", message)
+        }
     })
 }
