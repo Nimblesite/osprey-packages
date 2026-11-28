@@ -1,6 +1,8 @@
 namespace registry_api_tests;
 import registry_api::Forge
 import registry_api::ForgeGithub
+import registry_api::HostedLogin
+import registry_api::HostedService
 import registry_api::Supabase
 import registry::Kms
 
@@ -135,8 +137,28 @@ module ForgeTests {
         ])
     }
 
+    fn runtime(extra) = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"${extra}}"
+    fn member(name, value) = ",\"${name}\":\"${value}\""
+    fn settings(extra) = andThen(HostedService::config(runtime(extra)), fn(policy) => HostedLogin::configure(runtime(extra), policy))
+
+    fn runtimeConfiguration() = {
+        let installed = member("forgeAppId", "77") + member("forgeInstallationId", "88")
+        let misconfigured = "auth.configuration"
+        checkAll("the API starts with a whole App or none", [
+                code(settings("")) == "",
+                match settings(installed + member("forgeKmsKey", key)) {
+                    Success { value } => ForgeGithub::configured(value.forge)
+                    Error => false
+                },
+                code(settings(member("forgeAppId", "77"))) == misconfigured,
+                code(settings(installed)) == misconfigured,
+                code(settings(installed + member("forgeKmsKey", "projects/x"))) == misconfigured
+        ])
+    }
+
     export fn run() = {
         test("forge: repository administration", administration)
+        test("forge: runtime configuration", runtimeConfiguration)
         test("forge: commit collection", collection)
         test("forge: App configuration", configuration)
     }
