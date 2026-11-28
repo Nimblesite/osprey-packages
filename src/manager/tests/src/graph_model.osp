@@ -15,28 +15,33 @@ import registry::Resolution
 module GraphModel {
     fn key(v) = Names::Key { scope: Fixtures::textOf(v, "scope"), name: Fixtures::textOf(v, "name") }
 
-    fn releaseId(v) = Identity::ReleaseId {
-        key: key(JsonRead::field(v, "package")),
-        epoch: Fixtures::numberOf(v, "epoch"),
-        ordinal: Fixtures::numberOf(v, "ordinal"),
-        digest: Fixtures::textOf(v, "digest")
+    /// The `package` key and `epoch` a release identity and a requirement share in the fixture encoding.
+    type PackageEpoch = { package: Names::Key, epoch: int }
+
+    fn packageEpoch(v) = PackageEpoch { package: key(JsonRead::field(v, "package")), epoch: Fixtures::numberOf(v, "epoch") }
+
+    fn releaseId(v) = {
+        let at = packageEpoch(v)
+        Identity::ReleaseId { key: at.package, epoch: at.epoch, ordinal: Fixtures::numberOf(v, "ordinal"), digest: Fixtures::textOf(v, "digest") }
     }
 
-    fn requirement(v) = ManifestModel::Requirement {
-        package: key(JsonRead::field(v, "package")),
-        epoch: Fixtures::numberOf(v, "epoch"),
-        minimumOrdinal: Fixtures::numberOf(v, "minimumOrdinal")
+    fn requirement(v) = {
+        let at = packageEpoch(v)
+        ManifestModel::Requirement { package: at.package, epoch: at.epoch, minimumOrdinal: Fixtures::numberOf(v, "minimumOrdinal") }
     }
+
+    /// The requirement an edge body `value` carries.
+    fn required(value) = requirement(JsonRead::field(value, "requirement"))
 
     /// One edge object `{"Runtime": {"requirement": {...}}}` into its
     /// `ManifestModel::Edge` variant.
     fn edge(v) = match Json::get(v, "Runtime") {
-        Success { value } => ManifestModel::Runtime { requirement: requirement(JsonRead::field(value, "requirement")) }
+        Success { value } => ManifestModel::Runtime { requirement: required(value) }
         Error => match Json::get(v, "Build") {
-            Success { value } => ManifestModel::Build { requirement: requirement(JsonRead::field(value, "requirement")) }
+            Success { value } => ManifestModel::Build { requirement: required(value) }
             Error => match Json::get(v, "Test") {
-                Success { value } => ManifestModel::Test { requirement: requirement(JsonRead::field(value, "requirement")) }
-                Error => ManifestModel::Test { requirement: requirement(Json::Null) }
+                Success { value } => ManifestModel::Test { requirement: required(value) }
+                Error => ManifestModel::Test { requirement: required(Json::Null) }
             }
         }
     }
@@ -49,24 +54,22 @@ module GraphModel {
         }
     }
 
-    fn strings(v) = JsonRead::texts(v)
-
     fn entry(v) = Resolution::Entry {
         release: releaseId(JsonRead::field(v, "release")),
         activation: releaseState(JsonRead::field(v, "state")),
-        targets: strings(JsonRead::field(v, "targets")),
-        capabilities: strings(JsonRead::field(v, "capabilities")),
+        targets: Fixtures::textsOf(v, "targets"),
+        capabilities: Fixtures::textsOf(v, "capabilities"),
         dependencies: mapList(Fixtures::itemsOf(v, "dependencies"), edge)
     }
 
     /// One `{"package": {...}, "capabilities": [...]}` grant of the root.
-    fn grant(v) = ManifestModel::Grant { package: key(JsonRead::field(v, "package")), capabilities: strings(JsonRead::field(v, "capabilities")) }
+    fn grant(v) = ManifestModel::Grant { package: key(JsonRead::field(v, "package")), capabilities: Fixtures::textsOf(v, "capabilities") }
 
     /// The typed graph of one parsed fixture object; `grants` is optional and
     /// empty when the fixture carries none.
     export fn graphOf(v) = Resolution::Graph {
         target: Fixtures::textOf(v, "target"),
-        granted: strings(JsonRead::field(v, "grantedCapabilities")),
+        granted: Fixtures::textsOf(v, "grantedCapabilities"),
         grants: mapList(Fixtures::itemsOf(v, "grants"), grant),
         rootDeps: mapList(JsonRead::items(JsonRead::field(JsonRead::field(v, "root"), "dependencies")), edge),
         current: mapList(Fixtures::itemsOf(v, "current"), releaseId),

@@ -102,8 +102,9 @@ module Fixture {
         Error => ""
     }
 
-    /// One grant decision attempted through the real transition.
-    fn grantAttempt(world, id, grantId, membership, permission, expiresAt, now) =
+    /// One grant decision attempted through the real transition: the result
+    /// `grantOn` keeps the world from and `grantCode` reads the reason of.
+    export fn grantAttempt(world, id, grantId, membership, permission, expiresAt, now) =
         GovernanceTransitions::grantPermission(world, id, grantId,
             adminProof(world, id, grantStatementFor(world, id, membership, permission, expiresAt)),
             membership, permission, expiresAt, now)

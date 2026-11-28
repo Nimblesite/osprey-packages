@@ -40,6 +40,8 @@ module PathsTests {
         Error { message } => message
     }
 
+    let firstFourOnly = [true, true, true, true, false, false, false]
+
     fn setsAndExclusions() = checkAll("collisions and excluded control paths", [
         Fixtures::mapsTo([
             ["src/b.osp", "src/a.osp"], ["src/a.osp", "src/a.osp"],
@@ -48,41 +50,44 @@ module PathsTests {
         Fixtures::mapsTo([
             "osprey.lock", "osprey.local.toml", "osprey.local.lock", ".osprey/scratch/x",
             "osprey.toml", "src/osprey.lock", ".ospreyrc"
-        ], [true, true, true, true, false, false, false], Paths::excluded),
+        ], firstFourOnly, Paths::excluded),
         Fixtures::mapsTo([
             "src/.deslop/cache/fingerprint.bin", "src/nested/.OSPREY/cache/entry.bin",
             "src/__pycache__/module.pyc", "src/nested/.git/index", "src/deslop/module.osp",
             "src/.deslop-support/module.osp", "src/cache/module.osp"
-        ], [true, true, true, true, false, false, false], Paths::generatedCache)
+        ], firstFourOnly, Paths::generatedCache)
     ])
 
     fn zeros(n) = range(0, n) |> map(fn(_i) => 0) |> toList
+    fn zeroDigest() = zeros(32)
     fn entry(path, size, digest) = Source::Entry { path: path, byteLength: size, digest: digest }
 
     fn envelopeBytes() = {
-        let one = Source::envelope([entry(mainPath, 5, zeros(32))]) ?: []
-        let two = Source::envelope([entry("src/b.osp", 1, zeros(32)), entry("src/a.osp", 2, zeros(32))]) ?: []
+        let one = Source::envelope([entry(mainPath, 5, zeroDigest())]) ?: []
+        let two = Source::envelope([entry("src/b.osp", 1, zeroDigest()), entry("src/a.osp", 2, zeroDigest())]) ?: []
         checkAll("the envelope is domain, count, then sorted entries", [
             structuralEquals([length(one), (listGet(two, 21 + 3) ?: -1)], [78, 9]),
             structuralEquals([(listGet(two, 21 + 4 + 4) ?: -1), (listGet(two, 21 + 4 + 9 + 1 + 7) ?: -1)], [97, 2]),
             length(Source::envelope([]) ?: []) == 21,
-            Fixtures::ints(range(0, 21) |> map(fn(i) => listGet(one, i) ?: -1) |> toList) == "111,115,112,114,101,121,46,115,111,117,114,99,101,46,118,49,0,0,0,0,1",
-            Fixtures::ints(range(21, 46) |> map(fn(i) => listGet(one, i) ?: -1) |> toList) == "0,0,0,12,115,114,99,47,109,97,105,110,46,111,115,112,0,0,0,0,0,0,0,0,5",
+            envelopeSlice(one, 0, 21) == "111,115,112,114,101,121,46,115,111,117,114,99,101,46,118,49,0,0,0,0,1",
+            envelopeSlice(one, 21, 46) == "0,0,0,12,115,114,99,47,109,97,105,110,46,111,115,112,0,0,0,0,0,0,0,0,5",
             length(two) == 21 + 2 * (4 + 9 + 1 + 8 + 32)
         ])
     }
+
+    fn envelopeSlice(bytes, start, end) = Fixtures::ints(range(start, end) |> map(fn(i) => listGet(bytes, i) ?: -1) |> toList)
 
     fn envelopeCode(entries) = Fixtures::code(Source::envelope(entries))
 
     fn envelopeRejections() = checkAll("an invalid tree never hashes", [
         Fixtures::mapsTo([
-            [entry("src/../x.osp", 1, zeros(32))],
-            [entry("osprey.local.lock", 1, zeros(32))],
-            [entry(".osprey/state", 1, zeros(32))],
-            [entry("a.osp", -1, zeros(32))],
+            [entry("src/../x.osp", 1, zeroDigest())],
+            [entry("osprey.local.lock", 1, zeroDigest())],
+            [entry(".osprey/state", 1, zeroDigest())],
+            [entry("a.osp", -1, zeroDigest())],
             [entry("a.osp", 1, zeros(31))],
-            [entry("a.osp", 1, zeros(32)), entry("A.osp", 1, zeros(32))],
-            [entry("a.osp", 1, zeros(32)), entry("a.osp", 2, zeros(32))]
+            [entry("a.osp", 1, zeroDigest()), entry("A.osp", 1, zeroDigest())],
+            [entry("a.osp", 1, zeroDigest()), entry("a.osp", 2, zeroDigest())]
         ], [
             dotSegment, "source.excluded-path", "source.excluded-path", "source.negative-length",
             "source.digest-length", caseCollision, "path.duplicate"
@@ -112,7 +117,7 @@ module PathsTests {
     fn treeDigests() = {
         let manifest = file("osprey.toml", "[project]\nname = \"ledger\"\nsource_roots = [\"src\"]\n")
         let program = file(mainPath, "fn main() = print(\"ledger\")\n")
-        let tampered = Source::Entry { path: mainPath, byteLength: program.byteLength, digest: zeros(32) }
+        let tampered = Source::Entry { path: mainPath, byteLength: program.byteLength, digest: zeroDigest() }
         checkAll("SourceDigest matches the fixture trees and changes under digest substitution", [
             Fixtures::mapsTo([[], [program, manifest], [manifest, program], [manifest, tampered]], [
                 "sha256:cc0dd61db3bb1b7fd165e5a83cfa2819c241038e830ba14e5ce287481f2eb1e7",

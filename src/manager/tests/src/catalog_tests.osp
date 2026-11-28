@@ -8,12 +8,14 @@ import registry::Release
 /// JSON views the API serves. Implements [PACKAGE-FOLDER-REGISTRY] and
 /// [PACKAGE-API]. The fixture is shared with the router suite.
 module CatalogTests {
-    /// A digest no real release has: `sha256:` followed by 64 `a`s; here the
-    /// digest of `@finch/ledger` e1.r1.
-    export fn digestA() = "sha256:" + (repeat("a", 64) ?: "")
-    fn digestB() = "sha256:" + (repeat("b", 64) ?: "")
-    /// `sha256:` followed by 64 `c`s: the digest of `@finch/util` e1.r1.
-    export fn digestC() = "sha256:" + (repeat("c", 64) ?: "")
+    /// A digest no real release has: `sha256:` followed by 64 copies of `c`.
+    fn repeatedDigest(c) = "sha256:" + (repeat(c, 64) ?: "")
+    /// 64 `a`s: the digest of `@finch/ledger` e1.r1.
+    export fn digestA() = repeatedDigest("a")
+    /// 64 `b`s: the digest of `@finch/ledger` e2.r5.
+    fn digestB() = repeatedDigest("b")
+    /// 64 `c`s: the digest of `@finch/util` e1.r1.
+    export fn digestC() = repeatedDigest("c")
 
     fn id(scope, name, epoch, ordinal, digest) = Identity::ReleaseId {
         key: Names::Key { scope: scope, name: name },
@@ -24,11 +26,16 @@ module CatalogTests {
 
     fn file(path) = Release::File { relPath: path, content: "" }
 
+    /// One served release `@scope/name` at `epoch.rordinal` under `digest`,
+    /// with the empty files at `paths`.
+    fn servedRelease(scope, name, epoch, ordinal, digest, paths) =
+        Release::Served { id: id(scope, name, epoch, ordinal, digest), files: mapList(paths, file) }
+
     /// `@finch/ledger` e1.r1 as the registry serves it: `osprey.toml` and
     /// `src/lib.osp`, both empty.
-    export fn ledgerEarly() = Release::Served { id: id("finch", "ledger", 1, 1, digestA()), files: [file("osprey.toml"), file("src/lib.osp")] }
-    fn ledgerLate() = Release::Served { id: id("finch", "ledger", 2, 5, digestB()), files: [file("osprey.toml")] }
-    fn utilOnly() = Release::Served { id: id("finch", "util", 1, 1, digestC()), files: [file("osprey.toml")] }
+    export fn ledgerEarly() = servedRelease("finch", "ledger", 1, 1, digestA(), ["osprey.toml", "src/lib.osp"])
+    fn ledgerLate() = servedRelease("finch", "ledger", 2, 5, digestB(), ["osprey.toml"])
+    fn utilOnly() = servedRelease("finch", "util", 1, 1, digestC(), ["osprey.toml"])
 
     /// Two packages, three releases, one refusal — served out of order.
     export fn fixture() = Catalog::of([ledgerLate(), utilOnly(), ledgerEarly()], [Release::Refused { dir: "@broken/pkg/1.1", code: "source.symlink" }])
@@ -41,6 +48,9 @@ module CatalogTests {
     fn servedDisplay(s: Release::Served) = Identity::display(s.id)
 
     fn digestsOf(served) = join(mapList(served, servedDigest), ",")
+
+    /// The digests the catalog serves for `@scope/name`, in order.
+    fn releaseDigestsOf(scope, name) = digestsOf(Catalog::releasesOf(fixture(), scope, name))
 
     fn ordering() = check("catalog: releases ordered by key, then epoch, then ordinal",
         join([digestA(), digestB(), digestC()], ","),
@@ -58,8 +68,8 @@ module CatalogTests {
     ])
 
     fn releases() = checkAll("catalog: releasesOf", [
-        digestsOf(Catalog::releasesOf(fixture(), "finch", "ledger")) == join([digestA(), digestB()], ","),
-        digestsOf(Catalog::releasesOf(fixture(), "finch", "util")) == digestC(),
+        releaseDigestsOf("finch", "ledger") == join([digestA(), digestB()], ","),
+        releaseDigestsOf("finch", "util") == digestC(),
         isEmpty(Catalog::releasesOf(fixture(), "nope", "ledger"))
     ])
 

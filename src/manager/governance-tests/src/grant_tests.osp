@@ -14,13 +14,66 @@ module GrantTests {
     /// The refusal of an administrator whose seat is stale.
     let adminNotCurrent = "governance.admin.not-current"
 
-    fn grantPkgF1(world, grantId, to, permission, expiresAt) = Fixture::grantOn(world, "pkg-f1", grantId, to, permission, expiresAt, 100)
+    /// The grants this suite records and asks about, each named for its
+    /// membership and the permission it confers.
+    fn carolRelease() = { package: "pkg-f1", membership: "m-carol", permission: Governance::PublishRelease }
+    fn carolYank() = { package: "pkg-f1", membership: "m-carol", permission: Governance::YankRelease }
+    fn carolEdit() = { package: "pkg-f1", membership: "m-carol", permission: Governance::EditMetadata }
+    fn bobRelease() = { package: "pkg-f1", membership: "m-bob", permission: Governance::PublishRelease }
+    fn ciRelease() = { package: "pkg-w1", membership: "m-ci", permission: Governance::PublishRelease }
+    fn ciEdit() = { package: "pkg-w1", membership: "m-ci", permission: Governance::EditMetadata }
+    /// The same release grant asked of the other organization's package, and
+    /// the edit grant asked of a package that does not exist.
+    fn carolReleaseOnWren() = { package: "pkg-w1", membership: "m-carol", permission: Governance::PublishRelease }
+    fn carolEditOnUnknown() = { package: "pkg-none", membership: "m-carol", permission: Governance::EditMetadata }
+
+    /// The reason code of one live authorization decision on `grant`'s package
+    /// at `at`, or "" when its membership holds its permission.
+    fn authorize(world, grant, at) = authorizeCode(world, grant.package, grant.membership, grant.permission, at)
+
+    /// `grant` is live on its package at every moment up to and including `last`.
+    fn holdsThrough(world, grant, last) = authorize(world, grant, last) == "" && authorize(world, grant, last - 1) == ""
 
     /// The reason code of one live authorization decision, or "" when granted.
     export fn authorizeCode(world, id, member, permission, at) =
         Fixture::code(GovernanceTransitions::authorize(world, id, member, permission, at))
 
+    /// One grant decision through the real transition at 100: its result.
+    fn grantAttempt(world, grantId, grant, expiresAt) =
+        Fixture::grantAttempt(world, grant.package, grantId, grant.membership, grant.permission, expiresAt, 100)
+
+    /// `world` once `grant` is recorded under `grantId`, never expiring; a
+    /// refusal keeps `world`.
+    fn granted(world, grantId, grant) = grantAttempt(world, grantId, grant, Maybe::none()) ?: world
+
+    /// The reason code of that same decision: "" once it is recorded.
+    fn grantCode(world, grantId, grant) = Fixture::code(grantAttempt(world, grantId, grant, Maybe::none()))
+
+    /// The fixture world once `grant` is recorded under `grantId`.
+    fn worldWith(grantId, grant) = granted(Fixture::world(), grantId, grant)
+
+    /// `world` once `grant` is recorded under `grantId` until `expiresAt`; a
+    /// refusal keeps `world`.
+    fn grantedUntil(world, grantId, grant, expiresAt) = grantAttempt(world, grantId, grant, Maybe::some(expiresAt)) ?: world
+
+    /// Whether a refused grant decision left `world`'s grants untouched.
+    fn recordsNothing(world, grantId, grant) = length(granted(world, grantId, grant).grants) == 0
+
     fn renewWith(world, oldId, newId, proof, expiresAt) = GovernanceTransitions::renewGrant(world, oldId, newId, proof, expiresAt, 100)
+
+    /// The proof a member's own seat signs: `p-<member>` on `m-<member>`,
+    /// never the administrator's.
+    fn ownProof(member, statement) = Fixture::verified("p-${member}", "m-${member}", statement)
+
+    /// The refusal of `member` granting `m-carol` metadata edits from their own
+    /// seat under `grantId`.
+    fn selfDelegationCode(world, grantId, member) =
+        Fixture::code(GovernanceTransitions::grantPermission(world, "pkg-f1", grantId,
+            ownProof(member, "self-delegation"), "m-carol", Governance::EditMetadata, Maybe::none(), 100))
+
+    /// The refusal of `member` renewing their own grant the same way.
+    fn selfRenewalCode(world, oldId, newId, member, expiresAt) =
+        Fixture::code(renewWith(world, oldId, newId, ownProof(member, "self-renewal"), Maybe::some(expiresAt)))
 
     /// The statement text a lookup feeds, or "" when the row is missing.
     fn orEmpty(lookedUp, build) = match lookedUp {
@@ -34,61 +87,69 @@ module GrantTests {
             grantor: "", packageEpoch: 0, memberEpoch: 0, expiresAt: Maybe::none(), status: Governance::GrantRevoked }
     }
 
+    /// The administrator's revocation of `grantId`, signed for the decision it
+    /// authorizes: the transition's result.
+    fn adminRevokes(world, grantId) = {
+        let row = grantRow(world, grantId)
+        GovernanceTransitions::revokeGrant(world, grantId,
+            Fixture::adminProof(world, row.package, orEmpty(Governance::packageOf(world, row.package), fn(pkg) =>
+                Governance::revokeGrantStatement(pkg.key, pkg.authorityEpoch, grantId))))
+    }
+
+    /// `world` once the administrator revoked `grantId`; a refusal keeps `world`.
+    fn adminRevoked(world, grantId) = Fixture::orKeep(world, fn(w) => adminRevokes(w, grantId))
+
+    /// `m-carol`'s edit grant `g-1` recorded on the fixture world, and the same
+    /// world after the administrator revoked it: the two worlds `run` asserts
+    /// on, the granted one first.
+    fn withEditRevoked(run) = {
+        let granted = worldWith("g-1", carolEdit())
+        run(granted, adminRevoked(granted, "g-1"))
+    }
+
     /// Grants record the full signed decision: grantor, both authority
     /// epochs and the optional expiry.
     fn recordedDecision() = {
-        let world = Fixture::world()
-        let granted = grantPkgF1(world, "g-1", "m-carol", Governance::PublishRelease, Maybe::none())
+        let granted = worldWith("g-1", carolRelease())
         checkAll("each grant records grantor, epochs and expiry", [
             grantRow(granted, "g-1").grantor == "m-alice",
             structuralEquals([grantRow(granted, "g-1").packageEpoch, grantRow(granted, "g-1").memberEpoch], [1, 1]),
             Maybe::isPresent(grantRow(granted, "g-1").expiresAt) == false,
-            authorizeCode(granted, "pkg-f1", "m-carol", Governance::PublishRelease, 100) == "",
-            authorizeCode(granted, "pkg-f1", "m-bob", Governance::PublishRelease, 100) == permissionMissing,
-            authorizeCode(granted, "pkg-f1", "m-carol", Governance::YankRelease, 100) == permissionMissing,
-            authorizeCode(granted, "pkg-f1", "m-carol", Governance::EditMetadata, 100) == permissionMissing,
-            authorizeCode(granted, "pkg-w1", "m-carol", Governance::PublishRelease, 100) == "governance.membership.other-org"
+            authorize(granted, carolRelease(), 100) == "",
+            authorize(granted, bobRelease(), 100) == permissionMissing,
+            authorize(granted, carolYank(), 100) == permissionMissing,
+            authorize(granted, carolEdit(), 100) == permissionMissing,
+            authorize(granted, carolReleaseOnWren(), 100) == "governance.membership.other-org"
         ])
     }
 
     /// Several members hold the same permission; the subject itself cannot
     /// grant, renew or widen anything.
     fn concurrentHolders() = {
-        let world = Fixture::world()
-        let both = grantPkgF1(grantPkgF1(world, "g-1", "m-bob", Governance::PublishRelease, Maybe::none()), "g-2", "m-carol", Governance::PublishRelease, Maybe::none())
-        let revoked = Fixture::orKeep(both, fn(w) => GovernanceTransitions::revokeGrant(w, "g-1", adminRevokeProof(w, "g-1")))
+        let both = granted(worldWith("g-1", bobRelease()), "g-2", carolRelease())
+        let revoked = adminRevoked(both, "g-1")
         checkAll("several members may hold the same permission simultaneously", [
-            authorizeCode(both, "pkg-f1", "m-bob", Governance::PublishRelease, 100) == "",
-            authorizeCode(both, "pkg-f1", "m-carol", Governance::PublishRelease, 100) == "",
-            Fixture::grantCode(both, "pkg-f1", "g-3", "m-bob", Governance::PublishRelease, Maybe::none(), 100) == "governance.permission.duplicate",
-            Fixture::grantCode(both, "pkg-f1", "g-1", "m-carol", Governance::EditMetadata, Maybe::none(), 100) == "governance.grant.id-taken",
-            authorizeCode(revoked, "pkg-f1", "m-bob", Governance::PublishRelease, 100) == permissionMissing,
-            authorizeCode(revoked, "pkg-f1", "m-carol", Governance::PublishRelease, 100) == "",
-            Fixture::code(GovernanceTransitions::grantPermission(both, "pkg-f1", "g-3", Fixture::verified("p-bob", "m-bob", "self-delegation"), "m-carol", Governance::EditMetadata, Maybe::none(), 100)) == adminNotCurrent,
-            Fixture::code(renewWith(both, "g-1", "g-3", Fixture::verified("p-bob", "m-bob", "self-renewal"), Maybe::some(200))) == adminNotCurrent
+            authorize(both, bobRelease(), 100) == "",
+            authorize(both, carolRelease(), 100) == "",
+            grantCode(both, "g-3", bobRelease()) == "governance.permission.duplicate",
+            grantCode(both, "g-1", carolEdit()) == "governance.grant.id-taken",
+            authorize(revoked, bobRelease(), 100) == permissionMissing,
+            authorize(revoked, carolRelease(), 100) == "",
+            selfDelegationCode(both, "g-3", "bob") == adminNotCurrent,
+            selfRenewalCode(both, "g-1", "g-3", "bob", 200) == adminNotCurrent
         ])
     }
 
     /// Only one active row per `(package, membership, permission)`; a
     /// revoked row frees the slot for a fresh decision.
-    fn duplicates() = {
-        let world = Fixture::world()
-        let once = grantPkgF1(world, "g-1", "m-carol", Governance::EditMetadata, Maybe::none())
-        let revoked = Fixture::orKeep(once, fn(w) => GovernanceTransitions::revokeGrant(w, "g-1", adminRevokeProof(w, "g-1")))
+    fn duplicates() = withEditRevoked(fn(once, revoked) =>
         checkAll("one active row per package, member and permission", [
-            Fixture::grantCode(once, "pkg-f1", "g-2", "m-carol", Governance::EditMetadata, Maybe::none(), 100) == "governance.permission.duplicate",
-            Fixture::code(grantPkgF1(once, "g-2", "m-carol", Governance::PublishRelease, Maybe::none())) == "",
-            Fixture::code(GovernanceTransitions::revokeGrant(once, "g-1", adminRevokeProof(once, "g-1"))) == "",
+            grantCode(once, "g-2", carolEdit()) == "governance.permission.duplicate",
+            grantCode(once, "g-2", carolRelease()) == "",
+            Fixture::code(adminRevokes(once, "g-1")) == "",
             Governance::isActiveGrant(grantRow(revoked, "g-1")) == false,
-            Fixture::code(grantPkgF1(revoked, "g-3", "m-carol", Governance::EditMetadata, Maybe::none())) == ""
-        ])
-    }
-
-    fn adminRevokeProof(world, grantId) = {
-        let row = grantRow(world, grantId)
-        Fixture::adminProof(world, row.package, orEmpty(Governance::packageOf(world, row.package), fn(pkg) =>
-            Governance::revokeGrantStatement(pkg.key, pkg.authorityEpoch, grantId)))
-    }
+            grantCode(revoked, "g-3", carolEdit()) == ""
+        ]))
 
     /// Revocation and renewal [PACKAGE-OWNERSHIP-PERMISSIONS]: the admin
     /// revokes immediately, renewal retires the old row atomically, and the
@@ -96,24 +157,20 @@ module GrantTests {
     /// authorizes: "renewal atomically revokes the previous row and inserts a
     /// newly signed decision with a new ID", so the signed expiry is the new
     /// expiry (300), never the retired row's (200).
-    fn revocationAndRenewal() = {
-        let world = Fixture::world()
-        let granted = grantPkgF1(world, "g-1", "m-carol", Governance::EditMetadata, Maybe::none())
-        let revoked = Fixture::orKeep(granted, fn(w) => GovernanceTransitions::revokeGrant(w, "g-1", adminRevokeProof(w, "g-1")))
-        let regranted = grantPkgF1(revoked, "g-2", "m-carol", Governance::EditMetadata, Maybe::some(200))
+    fn revocationAndRenewal() = withEditRevoked(fn(granted, revoked) => {
+        let regranted = grantedUntil(revoked, "g-2", carolEdit(), 200)
         let renewed = Fixture::orKeep(regranted, fn(w) => renewWith(w, "g-2", "g-3",
             Fixture::adminProof(w, "pkg-f1", renewalStatement(w, "g-2", Maybe::some(300))), Maybe::some(300)))
         checkAll("revoked and renewed rows stay auditable and never double-grant", [
-            authorizeCode(revoked, "pkg-f1", "m-carol", Governance::EditMetadata, 100) == permissionMissing,
+            authorize(revoked, carolEdit(), 100) == permissionMissing,
             Governance::isActiveGrant(grantRow(revoked, "g-1")) == false,
             Fixture::code(GovernanceTransitions::revokeGrant(granted, "g-1", Fixture::verified("p-erin", "m-erin", "not-admin"))) == adminNotCurrent,
-            Fixture::code(renewWith(regranted, "g-2", "g-3", Fixture::verified("p-carol", "m-carol", "self-renewal"), Maybe::some(300))) == adminNotCurrent,
+            selfRenewalCode(regranted, "g-2", "g-3", "carol", 300) == adminNotCurrent,
             Maybe::orElse(grantRow(renewed, "g-3").expiresAt, 0) == 300,
             Governance::isActiveGrant(grantRow(renewed, "g-2")) == false,
-            authorizeCode(renewed, "pkg-f1", "m-carol", Governance::EditMetadata, 299) == "",
-            authorizeCode(renewed, "pkg-f1", "m-carol", Governance::EditMetadata, 300) == ""
+            holdsThrough(renewed, carolEdit(), 300)
         ])
-    }
+    })
 
     fn renewalStatement(world, grantId, expiresAt) =
         orEmpty(Governance::grantOf(world, grantId), fn(old) =>
@@ -124,11 +181,10 @@ module GrantTests {
     /// predicate, and a grant cannot start already expired.
     fn expiry() = {
         let world = Fixture::world()
-        let until200 = grantPkgF1(world, "g-1", "m-carol", Governance::EditMetadata, Maybe::some(200))
+        let until200 = grantedUntil(world, "g-1", carolEdit(), 200)
         checkAll("expiry refuses live and never starts in the past", [
-            authorizeCode(until200, "pkg-f1", "m-carol", Governance::EditMetadata, 199) == "",
-            authorizeCode(until200, "pkg-f1", "m-carol", Governance::EditMetadata, 200) == "",
-            authorizeCode(until200, "pkg-f1", "m-carol", Governance::EditMetadata, 201) == "governance.permission.expired",
+            holdsThrough(until200, carolEdit(), 200),
+            authorize(until200, carolEdit(), 201) == "governance.permission.expired",
             Fixture::grantCode(world, "pkg-f1", "g-9", "m-carol", Governance::EditMetadata, Maybe::some(100), 100) == "governance.permission.expiry-past"
         ])
     }
@@ -140,10 +196,10 @@ module GrantTests {
         let world = Fixture::world()
         let orphaned = world { memberships: filterList(world.memberships, fn(m) => m.id != "m-alice") }
         checkAll("grants refuse an unknown package or a vanished administrator", [
-            Fixture::grantCode(world, "pkg-none", "g-1", "m-carol", Governance::EditMetadata, Maybe::none(), 100) == "governance.package.missing",
-            Fixture::grantCode(orphaned, "pkg-f1", "g-1", "m-carol", Governance::EditMetadata, Maybe::none(), 100) == "governance.admin.not-current",
-            length(Fixture::grantOn(world, "pkg-none", "g-1", "m-carol", Governance::EditMetadata, Maybe::none(), 100).grants) == 0,
-            length(Fixture::grantOn(orphaned, "pkg-f1", "g-1", "m-carol", Governance::EditMetadata, Maybe::none(), 100).grants) == 0
+            grantCode(world, "g-1", carolEditOnUnknown()) == "governance.package.missing",
+            grantCode(orphaned, "g-1", carolEdit()) == "governance.admin.not-current",
+            recordsNothing(world, "g-1", carolEditOnUnknown()),
+            recordsNothing(orphaned, "g-1", carolEdit())
         ])
     }
 
@@ -151,15 +207,14 @@ module GrantTests {
     /// membership role change retires the captured epoch
     /// [PACKAGE-OWNERSHIP-PERMISSIONS].
     fn epochCapture() = {
-        let world = Fixture::world()
-        let granted = grantPkgF1(world, "g-1", "m-bob", Governance::PublishRelease, Maybe::none())
+        let granted = worldWith("g-1", bobRelease())
         let seat = Governance::custodianStatement("o-finch", "m-bob")
         let elevated = Fixture::orKeep(granted, fn(w) =>
             GovernanceTransitions::grantCustodianship(w, "o-finch", "m-bob",
                 Fixture::verified("p-alice", "m-alice", seat), Fixture::verified("p-erin", "m-erin", seat)))
         checkAll("a membership authority change retires captured grants", [
-            authorizeCode(granted, "pkg-f1", "m-bob", Governance::PublishRelease, 100) == "",
-            authorizeCode(elevated, "pkg-f1", "m-bob", Governance::PublishRelease, 100) == "governance.epoch.stale"
+            authorize(granted, bobRelease(), 100) == "",
+            authorize(elevated, bobRelease(), 100) == "governance.epoch.stale"
         ])
     }
 
@@ -167,12 +222,11 @@ module GrantTests {
     /// human sponsor [PACKAGE-OWNERSHIP-PERMISSIONS]: it publishes with a
     /// signed grant and never gains governance authority.
     fn workflowPrincipal() = {
-        let world = Fixture::world()
-        let granted = Fixture::grantOn(world, "pkg-w1", "g-ci", "m-ci", Governance::PublishRelease, Maybe::some(500), 100)
+        let granted = grantedUntil(Fixture::world(), "g-ci", ciRelease(), 500)
         let sponsor = Fixture::verified("p-dave", "m-dave", Governance::custodianStatement("o-wren", "m-ci"))
         checkAll("a workflow principal holds exactly its sponsored grant", [
-            authorizeCode(granted, "pkg-w1", "m-ci", Governance::PublishRelease, 100) == "",
-            authorizeCode(granted, "pkg-w1", "m-ci", Governance::EditMetadata, 100) == permissionMissing,
+            authorize(granted, ciRelease(), 100) == "",
+            authorize(granted, ciEdit(), 100) == permissionMissing,
             Fixture::code(GovernanceTransitions::grantCustodianship(granted, "o-wren", "m-ci", sponsor, sponsor)) == "governance.custodian.quorum",
             Fixture::code(GovernanceTransitions::grantPermission(granted, "pkg-w1", "g-ci2", Fixture::workflow("p-dave", "m-dave", "ci-sponsorship"), "m-ci", Governance::YankRelease, Maybe::none(), 100)) == "governance.proof.ceremony"
         ])

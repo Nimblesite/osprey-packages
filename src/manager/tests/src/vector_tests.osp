@@ -18,11 +18,8 @@ module VectorTests {
     let merkleVectors = "vectors/merkle.json"
 
 
-    fn shaCases() = {
-        let fx = Fixtures::load("vectors/sha256.json")
-        Fixtures::report("sha256 FIPS 180-4 vectors", Fixtures::itemsOf(fx, "cases"), fn(c) =>
-            Sha256::ofString(Fixtures::textOf(c, "text")) == Fixtures::textOf(c, "sha256"))
-    }
+    fn shaCases() = Fixtures::report("sha256 FIPS 180-4 vectors", Fixtures::loadItems("vectors/sha256.json", "cases"), fn(c) =>
+        Sha256::ofString(Fixtures::textOf(c, "text")) == Fixtures::textOf(c, "sha256"))
 
     fn parseOk(t) = match Digests::parse(t) {
         Success { value } => value == t
@@ -34,13 +31,11 @@ module VectorTests {
         Success => false
     }
 
-    fn reportPair(file, first, second) = {
-        let fx = Fixtures::load(file)
-        first(fx)
-        second(fx)
+    fn agilityCases() = {
+        let fx = Fixtures::load("vectors/digest-agility.json")
+        Fixtures::report("digest agility accepted", Fixtures::textsOf(fx, "valid"), parseOk)
+        FixtureTests::reportCases(fx, "digest agility rejected", "invalid", parseCode)
     }
-
-    fn agilityCases() = reportPair("vectors/digest-agility.json", fn(fx) => Fixtures::report("digest agility accepted", Fixtures::textsOf(fx, "valid"), parseOk), fn(fx) => Fixtures::report("digest agility rejected", Fixtures::itemsOf(fx, "invalid"), parseCode))
 
     /// The successful `result`'s value equals the case's text at `key`.
     fn equalsText(result, c, key) = match result {
@@ -48,20 +43,26 @@ module VectorTests {
         Error => false
     }
 
-    fn canonOk(c) = equalsText(Canonical::canonicalize(Fixtures::textOf(c, "input")), c, "canonical")
+    fn canonicalMatches(c, inputKey, outputKey) = equalsText(Canonical::canonicalize(Fixtures::textOf(c, inputKey)), c, outputKey)
+    fn canonOk(c) = canonicalMatches(c, "input", "canonical")
 
     fn canonRejected(c) = match Canonical::canonicalize(Fixtures::textOf(c, "input")) {
         Error { message } => startsWith(message, Fixtures::textOf(c, "code"))
         Success => false
     }
 
-    fn canonCases() = reportPair("vectors/rfc8785.json", fn(fx) => Fixtures::report("rfc8785 canonical form", Fixtures::itemsOf(fx, "cases"), canonOk), fn(fx) => Fixtures::report("rfc8785 rejected inputs", Fixtures::itemsOf(fx, "rejected"), canonRejected))
+    fn canonCases() = {
+        let fx = Fixtures::load("vectors/rfc8785.json")
+        FixtureTests::reportCases(fx, "rfc8785 canonical form", "cases", canonOk)
+        FixtureTests::reportCases(fx, "rfc8785 rejected inputs", "rejected", canonRejected)
+    }
 
-    fn paeOk(c) = Bytes::hex(Dsse::pae(Fixtures::textOf(c, "type"), Bytes::fromHex(Fixtures::textOf(c, "payloadHex")))) == Fixtures::textOf(c, "paeHex")
+    fn paeMatches(c, typeKey, payloadKey, decode) = Bytes::hex(Dsse::pae(Fixtures::textOf(c, typeKey), decode(Fixtures::textOf(c, payloadKey)))) == Fixtures::textOf(c, "paeHex")
+    fn paeOk(c) = paeMatches(c, "type", "payloadHex", Bytes::fromHex)
 
-    fn intentPae(intent) = Bytes::hex(Dsse::pae(Fixtures::textOf(intent, "payloadType"), Bytes::ofString(Fixtures::textOf(intent, "payloadCanonical")))) == Fixtures::textOf(intent, "paeHex")
+    fn intentPae(intent) = paeMatches(intent, "payloadType", "payloadCanonical", Bytes::ofString)
 
-    fn intentCanonical(intent) = equalsText(Canonical::canonicalize(Fixtures::textOf(intent, "payloadInput")), intent, "payloadCanonical")
+    fn intentCanonical(intent) = canonicalMatches(intent, "payloadInput", "payloadCanonical")
 
     fn intentChallenge(intent) = Dsse::webAuthnChallenge(Bytes::fromHex(Fixtures::textOf(intent, "paeHex"))) == Fixtures::textOf(intent, "challenge")
 
@@ -106,10 +107,12 @@ module VectorTests {
 
     /// One inclusion/consistency vector: a positive case must be accepted and
     /// recompute the case's proof; a rejection case must be refused.
+    fn numberAt(c, keys, index) = Fixtures::numberOf(c, listGet(keys, index) ?: "")
+
     fn merkleCase(c, kind, reject) = {
         let keys = if kind == "inclusion" { ["index", "size"] } else { ["first", "second"] }
-        let a = Fixtures::numberOf(c, listGet(keys, 0) ?: "")
-        let b = Fixtures::numberOf(c, listGet(keys, 1) ?: "")
+        let a = numberAt(c, keys, 0)
+        let b = numberAt(c, keys, 1)
         let proof = hexProof(c)
         let verified = if kind == "inclusion" {
             Merkle::verifyInclusion(a, b, leafAt(a), proof, Bytes::fromHex(inclusionRoot(c, b, reject)))
@@ -129,6 +132,8 @@ module VectorTests {
     fn merkleCases(kind) = Fixtures::report("merkle ${kind}", foldList(Fixtures::loadItems(merkleVectors, "negative"), [],
         fn(acc, c) => if Fixtures::textOf(c, "kind") == kind { listAppend(acc, c) } else { acc }), fn(c) => merkleCase(c, kind, true))
 
+    fn positiveMerkle(fx, kind) = FixtureTests::reportCases(fx, "merkle ${kind} proofs", kind, fn(c) => merkleCase(c, kind, false))
+
     /// Every primary-specification vector group, in one run.
     export fn run() = {
         let fx = Fixtures::load(merkleVectors)
@@ -137,8 +142,8 @@ module VectorTests {
         test("vector: rfc8785", canonCases)
         test("vector: dsse", dsseCases)
         test("vector: merkle roots", fn() => Fixtures::report("merkle roots 0..8", range(0, 9) |> toList, rootMatches))
-        test("vector: merkle inclusion", fn() => Fixtures::report("merkle inclusion proofs", Fixtures::itemsOf(fx, "inclusion"), fn(c) => merkleCase(c, "inclusion", false)))
-        test("vector: merkle consistency", fn() => Fixtures::report("merkle consistency proofs", Fixtures::itemsOf(fx, "consistency"), fn(c) => merkleCase(c, "consistency", false)))
+        test("vector: merkle inclusion", fn() => positiveMerkle(fx, "inclusion"))
+        test("vector: merkle consistency", fn() => positiveMerkle(fx, "consistency"))
         test("vector: merkle rejection", fn() => {
             merkleCases("inclusion")
             merkleCases("consistency")

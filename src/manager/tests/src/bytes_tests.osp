@@ -6,13 +6,12 @@ import registry::Order
 module BytesTests {
     fn strs(xs) = join(xs, ",")
 
+    /// Every integer in `widths` encodes big-endian through `be` to its row of octets.
+    fn beEncodes(widths, octets, be) = Fixtures::mapsTo(widths, octets, fn(n) => Fixtures::ints(be(n)))
+
     fn encodings() = checkAll("big-endian widths and hex spelling", [
-        Fixtures::mapsTo([0, 1, 258, 4294967295], [
-            "0,0,0,0", "0,0,0,1", "0,0,1,2", "255,255,255,255"
-        ], fn(n) => Fixtures::ints(Bytes::u32be(n))),
-        Fixtures::mapsTo([0, 4294967296, 9223372036854775807], [
-            "0,0,0,0,0,0,0,0", "0,0,0,1,0,0,0,0", "127,255,255,255,255,255,255,255"
-        ], fn(n) => Fixtures::ints(Bytes::u64be(n))),
+        beEncodes([0, 1, 258, 4294967295], ["0,0,0,0", "0,0,0,1", "0,0,1,2", "255,255,255,255"], Bytes::u32be),
+        beEncodes([0, 4294967296, 9223372036854775807], ["0,0,0,0,0,0,0,0", "0,0,0,1,0,0,0,0", "127,255,255,255,255,255,255,255"], Bytes::u64be),
         structuralEquals([Bytes::hex([0, 15, 16, 171, 255]), Bytes::hex([])], ["000f10abff", ""]),
         Fixtures::mapsTo(["abc", ""], ["97,98,99", ""], fn(s) => Fixtures::ints(Bytes::ofString(s))),
         Fixtures::ints(Bytes::concatAll([[1], [], [2, 3]])) == "1,2,3",

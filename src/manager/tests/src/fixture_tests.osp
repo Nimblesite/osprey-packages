@@ -20,11 +20,17 @@ module FixtureTests {
     /// A case the judge refuses: its verdict on the case's `key` member is exactly the error code the case names.
     fn refuses(key, judge) = fn(c) => Fixtures::code(judge(Fixtures::textOf(c, key))) == Fixtures::textOf(c, "code")
 
-    fn names() = {
-        let fx = Fixtures::load("names.json")
-        Fixtures::report("names valid", Fixtures::textsOf(fx, "valid"), accepts(Names::parse))
-        Fixtures::report("names invalid", Fixtures::itemsOf(fx, "invalid"), refuses("text", Names::parse))
+    fn invalid(label, cases, key, judge) = Fixtures::report(label, cases, refuses(key, judge))
+
+    fn validInvalid(fx, label, key, judge) = {
+        Fixtures::report("${label} valid", Fixtures::textsOf(fx, "valid"), accepts(judge))
+        invalid("${label} invalid", Fixtures::itemsOf(fx, "invalid"), key, judge)
     }
+
+    /// Every case of member `key` must satisfy `judge`.
+    export fn reportCases(fx, label, key, judge) = Fixtures::report(label, Fixtures::itemsOf(fx, key), judge)
+
+    fn names() = validInvalid(Fixtures::load("names.json"), "names", "text", Names::parse)
 
     fn releaseIds() = {
         let fx = Fixtures::load("release-ids.json")
@@ -32,21 +38,23 @@ module FixtureTests {
             Success { value } => Identity::display(value) == t
             Error => false
         })
-        Fixtures::report("release ids invalid", Fixtures::itemsOf(fx, "invalid"), refuses("text", Identity::parse))
+        invalid("release ids invalid", Fixtures::itemsOf(fx, "invalid"), "text", Identity::parse)
     }
 
     fn pathRows() = {
         let fx = Fixtures::load("paths.json")
-        Fixtures::report("paths valid", Fixtures::textsOf(fx, "valid"), accepts(Paths::validate))
-        Fixtures::report("paths invalid", Fixtures::itemsOf(fx, "invalid"), refuses("path", Paths::validate))
-        Fixtures::report("path collisions", Fixtures::itemsOf(fx, "collisions"), fn(c) => Fixtures::code(Paths::canonicalSet(Fixtures::textsOf(c, "paths"))) == Fixtures::textOf(c, "code"))
-        Fixtures::report("excluded paths", Fixtures::textsOf(fx, "excluded"), Paths::excluded)
-        Fixtures::report("included paths", Fixtures::textsOf(fx, "included"), fn(p) => !Paths::excluded(p))
+        validInvalid(fx, "paths", "path", Paths::validate)
+        reportCases(fx, "path collisions", "collisions", fn(c) => Fixtures::code(Paths::canonicalSet(Fixtures::textsOf(c, "paths"))) == Fixtures::textOf(c, "code"))
+        exclusionRows(fx, "excluded paths", "excluded", true)
+        exclusionRows(fx, "included paths", "included", false)
     }
+
+    /// Every path of the table has the `Paths::excluded` verdict `excluded`.
+    fn exclusionRows(fx, label, key, excluded) = Fixtures::report(label, Fixtures::textsOf(fx, key), fn(p) => Paths::excluded(p) == excluded)
 
     fn treeRows() = {
         let fx = Fixtures::load("paths.json")
-        Fixtures::report("forbidden kinds", Fixtures::itemsOf(fx, "forbiddenKinds"), fn(c) => Source::kindCode(Fixtures::textOf(c, "kind")) == Fixtures::textOf(c, "code"))
+        reportCases(fx, "forbidden kinds", "forbiddenKinds", fn(c) => Source::kindCode(Fixtures::textOf(c, "kind")) == Fixtures::textOf(c, "code"))
         expectTrue(Source::lfsPointer(JsonRead::text(JsonRead::field(JsonRead::field(fx, "lfsPointer"), "content"))))
         Fixtures::report("submission limits", JsonRead::items(JsonRead::field(JsonRead::field(fx, "limits"), "cases")), fn(c) =>
             Source::limitCode(Fixtures::numberOf(c, "fileCount"), Fixtures::numberOf(c, "totalBytes"), Fixtures::numberOf(c, "assetBytes")) == Fixtures::textOf(c, "code"))
@@ -60,8 +68,10 @@ module FixtureTests {
         let sub = JsonRead::field(fx, "digestSubstitution")
         let fakeDigest = Bytes::fromHex(Fixtures::textOf(sub, "sha256"))
         let replaced = mapList(entries, fn(e: Source::Entry) => if e.path == Fixtures::textOf(sub, "path") { Source::Entry { path: e.path, byteLength: e.byteLength, digest: fakeDigest } } else { e })
-        (Source::digest(replaced) ?: "") == Fixtures::textOf(sub, "sourceDigest")
+        digestMatches(replaced, Fixtures::textOf(sub, "sourceDigest"))
     }
+
+    fn digestMatches(entries, expected) = (Source::digest(entries) ?: "") == expected
 
     fn tree(name) = {
         let fx = Fixtures::load("source/${name}.json")
@@ -71,7 +81,7 @@ module FixtureTests {
             fileDigestsMatch(fx),
             length(envelope) == Fixtures::numberOf(fx, "envelopeLength"),
             Bytes::hex(envelope) == Fixtures::textOf(fx, "envelopeHex"),
-            (Source::digest(entries) ?: "") == Fixtures::textOf(fx, "sourceDigest"),
+            digestMatches(entries, Fixtures::textOf(fx, "sourceDigest")),
             match Json::get(fx, "digestSubstitution") {
                 Success => tampered(fx, entries)
                 Error => true
@@ -86,9 +96,9 @@ module FixtureTests {
 
     fn confusables() = {
         let fx = Fixtures::load("malicious/confusables.json")
-        Fixtures::report("confusable names", Fixtures::itemsOf(fx, "names"), refuses("text", Names::parse))
-        Fixtures::report("confusable lookalikes are valid names", Fixtures::itemsOf(fx, "names"), fn(c) => Fixtures::code(Names::parse(Fixtures::textOf(c, "lookalike"))) == "")
-        Fixtures::report("confusable paths", Fixtures::itemsOf(fx, "paths"), refuses("path", Paths::validate))
+        invalid("confusable names", Fixtures::itemsOf(fx, "names"), "text", Names::parse)
+        reportCases(fx, "confusable lookalikes are valid names", "names", fn(c) => Fixtures::code(Names::parse(Fixtures::textOf(c, "lookalike"))) == "")
+        invalid("confusable paths", Fixtures::itemsOf(fx, "paths"), "path", Paths::validate)
     }
 
     /// The structural verdict a case expects: `structure` when the full

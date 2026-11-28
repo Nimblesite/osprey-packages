@@ -41,6 +41,9 @@ unitContext () = ui::Context(now = 1, offset = 0, platform = "vscode", home = "/
 
 stepFor (current, action) = Update::apply (unitContext (), current, ui::Act(act = action))
 
+// The step asked the host for nothing.
+noRequests (step) = expect (isEmpty step.requests, true)
+
 catalogState (registry, findings) =
     entry = CatalogEntry(catalogKey = reportKey, catalogVersions = ["e1.r1"], catalogFindings = findings, catalogEvidence = false)
     current = Store::withCatalog (Store::create ("file:///work/project", registry), [entry], 0)
@@ -48,7 +51,7 @@ catalogState (registry, findings) =
 
 test ("editor blocks recorded findings even in a local registry", \() =>
     step = stepFor (catalogState (registryHome, ["source.extern"]), Add)
-    expect (isEmpty step.requests, true)
+    noRequests (step)
     expect (step.stepStore.packageConfirming, "")
     expect (step.stepStore.packageFault, true))
 
@@ -62,9 +65,9 @@ transitiveState registry =
 test ("editor cannot bypass audit safeguards by promoting a transitive dependency", \() =>
     hosted = stepFor (transitiveState "https://registry.example.test", Add)
     local = stepFor (transitiveState registryHome, Add)
-    expect (isEmpty hosted.requests, true)
+    noRequests (hosted)
     expect (hosted.stepStore.packageFault, true)
-    expect (isEmpty local.requests, true)
+    noRequests (local)
     expect (local.stepStore.packageConfirming, "add"))
 
 test ("changing package selection cancels the previous confirmation", \() =>

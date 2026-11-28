@@ -17,24 +17,31 @@ module TreeTests {
 
     // ---- the lock: app -> report (runtime), tool (build); report -> greeting, maths; maths -> greeting ----
 
-    fn files(name) = [Fixture::file("osprey.toml", "[project]\nname = \"${name}\"\nsource_roots = [\"src\"]\n"), Fixture::file("src/${name}.osp", "fn ${name}() = 1\n")]
+    fn manifest(name) = "[project]\nname = \"${name}\"\nsource_roots = [\"src\"]\n"
 
-    fn greeting() = Fixture::served("@demo/greeting/1.1", files("greeting"))
-    fn maths() = Fixture::served("@demo/maths/1.2", files("maths"))
-    fn report() = Fixture::served("@demo/report/1.1", files("report"))
-    fn tool() = Fixture::served("@demo/tool/1.1", files("tool"))
+    /// Release `key` serving `manifest` and one `name` module: the one package
+    /// builder of both tree suites.
+    export fn served(key, name, manifest) = Fixture::served(key,
+        [Fixture::file("osprey.toml", manifest), Fixture::file("src/${name}.osp", "fn ${name}() = 1\n")])
 
-    fn key(name) = Names::Key { scope: "demo", name: name }
-    fn requirement(name) = ManifestModel::Requirement { package: key(name), epoch: 1, minimumOrdinal: 1 }
-    fn runtime(name) = ManifestModel::Runtime { requirement: requirement(name) }
-    fn buildEdge(name) = ManifestModel::Build { requirement: requirement(name) }
-    fn pkg(s, deps) = Lockfile::Package { release: Fixture::idOf(s), dependencies: deps, surface: [] }
+    fn greeting() = served("@demo/greeting/1.1", "greeting", manifest("greeting"))
+    fn maths() = served("@demo/maths/1.2", "maths", manifest("maths"))
+    fn report() = served("@demo/report/1.1", "report", manifest("report"))
+    fn tool() = served("@demo/tool/1.1", "tool", manifest("tool"))
+
+    /// The lock vocabulary both tree suites build their locks from.
+    export fn key(scope, name) = Names::Key { scope: scope, name: name }
+    export fn requirement(scope, name) = ManifestModel::Requirement { package: key(scope, name), epoch: 1, minimumOrdinal: 1 }
+    export fn runtime(scope, name) = ManifestModel::Runtime { requirement: requirement(scope, name) }
+    export fn buildEdge(scope, name) = ManifestModel::Build { requirement: requirement(scope, name) }
+    export fn pkg(s, deps) = Lockfile::Package { release: Fixture::idOf(s), dependencies: deps, surface: [] }
 
     fn lockText() = Lockfile::encode(Lockfile::release(
-            Lockfile::Root { manifestDigest: rootDigest, dependencies: [runtime("report"), buildEdge("tool")] },
-            [pkg(greeting(), []), pkg(maths(), [runtime("greeting")]), pkg(report(), [runtime("greeting"), runtime("maths")]), pkg(tool(), [])])) ?: ""
+            Lockfile::Root { manifestDigest: rootDigest, dependencies: [runtime("demo", "report"), buildEdge("demo", "tool")] },
+            [pkg(greeting(), []), pkg(maths(), [runtime("demo", "greeting")]), pkg(report(), [runtime("demo", "greeting"), runtime("demo", "maths")]), pkg(tool(), [])])) ?: ""
 
-    fn reads() = [Fixture::readRoute("osprey.toml", manifestText), Fixture::readRoute("osprey.lock", lockText())]
+    export fn lockReads(manifest, lock) = [Fixture::readRoute("osprey.toml", manifest), Fixture::readRoute("osprey.lock", lock)]
+    fn reads() = lockReads(manifestText, lockText())
 
     fn compact(s) = Lockfile::compact(Fixture::idOf(s))
 

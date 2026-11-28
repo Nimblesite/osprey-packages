@@ -90,6 +90,12 @@ regionNode (d, key) = match Lists::find (regionsOf d, \region => region.snapshot
 // Every child list is rebuilt through `below`.
 below (d, children) = mapList (children, \child => resolvedNode (d, child))
 
+// The pages of `tabs`, each rebuilt the way the frame is drawn.
+resolvedPages (d, tabs) = mapList (tabs, \tab => tab(page = resolvedNode (d, tab.page)))
+
+// The cells of `rows`, each rebuilt the way the frame is drawn.
+resolvedCells (d, rows) = mapList (rows, \row => row(cell = resolvedNode (d, row.cell)))
+
 resolvedNode (d, node) = match node
     ui::Slot key => regionNode (d, key)
     ui::Stack axis children => ui::Stack(axis = axis, children = below (d, children))
@@ -102,8 +108,8 @@ resolvedNode (d, node) = match node
     ui::Dialog title body dismiss => ui::Dialog(dialogTitle = title, dialogBody = resolvedNode (d, body), dialogDismiss = dismiss)
     ui::ContextMenu body actions => ui::ContextMenu(menuBody = resolvedNode (d, body), menuActions = below (d, actions))
     ui::Aside place aside pane extent least most keep resize => ui::Aside(side = place, aside = resolvedNode (d, aside), pane = resolvedNode (d, pane), extent = extent, asideLeast = least, asideMost = most, paneKeep = keep, resize = resize)
-    ui::Tabs tabs selected bind => ui::Tabs(tabs = mapList (tabs, \tab => tab(page = resolvedNode (d, tab.page))), selected = selected, bind = bind)
-    ui::Rows rows selected bind => ui::Rows(rows = mapList (rows, \row => row(cell = resolvedNode (d, row.cell))), selected = selected, bind = bind)
+    ui::Tabs tabs selected bind => ui::Tabs(tabs = resolvedPages (d, tabs), selected = selected, bind = bind)
+    ui::Rows rows selected bind => ui::Rows(rows = resolvedCells (d, rows), selected = selected, bind = bind)
     ui::Disclosure title expanded bind children => ui::Disclosure(title = title, expanded = expanded, bind = bind, children = below (d, children))
     _ => node
 
@@ -127,7 +133,10 @@ deliver (d, found, words) = match found < 0
 
 press (d, label) = deliver (d, controlOf (walkOf d, label), "")
 
-chooseTyped (d, label, words) = deliver (d, chooserOf (frameTrees (walkOf d), "tabs", \told => entriesWith (told, "tabs", "label", label)), words)
+// The control number of the component of kind `kind` whose entries carry `wanted` as their `member` text, read from the frame `d` showed ([UI-EVENTS]).
+entryChooser (d, kind, member, wanted) = chooserOf (frameTrees (walkOf d), kind, \told => entriesWith (told, kind, member, wanted))
+
+chooseTyped (d, label, words) = deliver (d, entryChooser (d, "tabs", "label", label), words)
 
 completedWith (d, ticket, ok, text) = Runtime::guarded (\() => Drive::completed (d, ticket, ok, text))
 
@@ -136,21 +145,29 @@ completedWith (d, ticket, ok, text) = Runtime::guarded (\() => Drive::completed 
 // The trees of the frame a host was sent, rebuilt the way every host rebuilds them.
 frameTrees walk = uitest::Read::trees walk
 
+// The words member `member` of the component `told`.
+toldWords (told, member) = uitest::Read::words (uitest::Read::inside told, member)
+
 // Whether the entries `told` keeps under `name` carry `wanted` as their `member` text.
-entriesWith (told, name, member, wanted) = Lists::any (uitest::Read::entries (told, name), \entry => uitest::Read::words (uitest::Read::inside entry, member) == wanted)
+entriesWith (told, name, member, wanted) = Lists::any (uitest::Read::entries (told, name), \entry => toldWords (entry, member) == wanted)
 
 // The text the component of kind `name` titled `title` tells under member `member`, read from the region `key`'s tree, or "".
-titledText (d, key, name, title, member) = uitest::Read::words (uitest::Read::inside (uitest::Read::kinded (uitest::Read::trees (regionWalk (d, key)), name, \told => uitest::Read::words (uitest::Read::inside told, "title") == title)), member)
+titledText (d, key, name, title, member) = toldWords (uitest::Read::kinded (uitest::Read::trees (regionWalk (d, key)), name, \told => toldWords (told, "title") == title), member)
 
 // The control number of the component of kind `name` whose entries `sought` accepts, or -1: the entry's key rides in the words ([UI-EVENTS]).
 chooserOf (trees, name, sought) = uitest::Read::whole (uitest::Read::inside (uitest::Read::kinded (trees, name, sought)), "event", 0 - 1)
 
 // Choosing a row delivers its key through the rows control that holds it.
-pick (d, key) = deliver (d, chooserOf (frameTrees (walkOf d), "rows", \told => entriesWith (told, "rows", "key", key)), key)
+pick (d, key) = deliver (d, entryChooser (d, "rows", "key", key), key)
 
 // ---- reading the last step ----
 
 storeOf d = Drive::holding d
+
+// The package flags of `d`'s store, as the model leaves them after the last step.
+pendingOf d = (storeOf d).packagePending
+faultOf d = (storeOf d).packageFault
+confirmingOf d = (storeOf d).packageConfirming
 
 ticketsOf d = d.drivenSurface.surfaceAsked
 
@@ -173,12 +190,15 @@ problemsOf d = d.drivenSurface.surfaceProblem
 // What one region shows, as the host that region's tree was sent reads it.
 regionTexts (d, key) = Views::texts (styled (regionWalk (d, key)))
 
-showsIn (d, key, part) = expect (contains (regionTexts (d, key)) part, true)
+// One expectation: whether `text` contains `part`.
+expectContains (text, part, want) = expect (contains text part, want)
 
-hidesIn (d, key, part) = expect (contains (regionTexts (d, key)) part, false)
+showsIn (d, key, part) = expectContains (regionTexts (d, key), part, true)
+
+hidesIn (d, key, part) = expectContains (regionTexts (d, key), part, false)
 
 // A pair's value: the wording the pair labelled `label` tells, read from the trees a host rebuilds ([NATIVE-SHM-NODES]).
-pairValue (walk, label) = uitest::Read::words (uitest::Read::inside (uitest::Read::kinded (uitest::Read::trees walk, "pair", \told => uitest::Read::words (uitest::Read::inside told, "label") == label)), "value")
+pairValue (walk, label) = toldWords (uitest::Read::kinded (uitest::Read::trees walk, "pair", \told => toldWords (told, "label") == label), "value")
 
 expectEvidence (d, key, cases) = forEachList (cases, \c => expect (pairValue (regionWalk (d, key), c.label), c.want))
 
@@ -190,13 +210,22 @@ toneOf (d, key, label) = (regionControl (d, key, label)).controlTone
 // Whether some control drawn in the region carries the tone `name`.
 hasTone (d, key, name) = Lists::any ((styled (regionWalk (d, key))).renderedControls, \one => one.controlTone == name)
 
+// The root screen keeps naming the selected workspace.
+expectWorkspace (d) = expect (titledText (d, "root", "screen", ospreyPackages, "subtitle"), workspace)
+
+// The detail the root's package-data-unavailable state tells.
+unavailableDetail (d) = titledText (d, "root", "empty", unavailableTitle, "detail")
+
 // ---- control flows ----
 
-cataloguedIn (d) = completedWith (d, ticketAt (d, 0), true, Doc::write (catalogDoc ()))
+cataloguedIn (d) = settle (d, 0, true, Doc::write (catalogDoc ()))
 
 graphIn (d, result) = completedWith (cataloguedIn (d), ticketAt (d, 1), true, result)
 
 completeBoth (d, findings) = graphIn (d, graphResult findings)
+
+// Complete `d`'s outstanding ticket `index` with `ok` and `text`.
+settle (d, index, ok, text) = completedWith (d, ticketAt (d, index), ok, text)
 
 chosenIn (d, key) = pick (chooseTyped (d, "Browse registry", "browse"), key)
 
@@ -213,7 +242,7 @@ askAdd d = press (d, addLabel)
 awaitingConfirmation (d, ask, mode) =
     asked = press (d, ask)
     expectNoRequest asked
-    expect ((storeOf asked).packageConfirming, mode)
+    expect (confirmingOf asked, mode)
     asked
 
 oneRequest (d, want) =
@@ -227,7 +256,7 @@ confirmRemove (d, key) = oneRequest (press (d, "Confirm remove ${key}"), "remove
 missingFooter () =
     after = completeBoth (started loopback, ["tree.no-lock"])
     footer = titledText (after, "packages", "section", "Packages", "footer")
-    expect (contains footer "installed ·", false)
+    expectContains (footer, "installed ·", false)
     expect (footer, "Installed counts unavailable")
 
 installedCounts () =
@@ -239,7 +268,7 @@ installedCounts () =
     ])
     hidesIn (after, "packages", "@demo/ghost")
     showsIn (after, "root", "@demo/ghost · missing from disk")
-    expect (titledText (after, "root", "screen", ospreyPackages, "subtitle"), workspace)
+    expectWorkspace (after)
     expect (toneOf (after, "root", "Audit unverified"), "caution")
 
 emptyFindings () =
@@ -273,8 +302,8 @@ unverifiedAdd () =
     catalogued = cataloguedIn (first)
     // While the graph is still outstanding the frame offers no add control at all, so pending work blocks the add.
     expect (Views::shows (catalogued.drivenSeen, addLabel), false)
-    expect ((storeOf catalogued).packagePending, true)
-    expect ((storeOf catalogued).packageConfirming, "")
+    expect (pendingOf catalogued, true)
+    expect (confirmingOf catalogued, "")
     expectNoRequest catalogued
     expect (problemsOf catalogued, "")
     resolved = completedWith (catalogued, ticketAt (first, 1), true, graphResult [])
@@ -300,17 +329,17 @@ hostedAdd () =
     expectDetailButton (chosen, addLabel, false)
     refused = askAdd chosen
     expectNoRequest refused
-    expect ((storeOf refused).packageFault, true)
+    expect (faultOf refused, true)
     expectNotice (refused, "installation is disabled")
-    expect (contains (titledText (refused, "root", "empty", unavailableTitle, "detail")) "installation is disabled", true)
-    expect ((storeOf refused).packageConfirming, "")
+    expectContains (unavailableDetail refused, "installation is disabled", true)
+    expect (confirmingOf refused, "")
 
 removeDirect () =
     chosen = pick (completeBoth (started loopback, []), reportKey)
     asked = awaitingConfirmation (chosen, removeLabel, "remove")
     message = titledText (asked, "details", "alert", "Confirm remove @demo/report", "message")
-    expect (contains message "Removing @demo/report", true)
-    expect (contains message workspace, true)
+    expectContains (message, "Removing @demo/report", true)
+    expectContains (message, workspace, true)
     confirmRemove (asked, reportKey)
 
 securityFindings () =
@@ -324,27 +353,27 @@ securityFindings () =
 unavailableData () =
     first = started loopback
     expectEvidence (first, "root", [{ label = "Installed", want = "" }])
-    expect (titledText (first, "root", "screen", ospreyPackages, "subtitle"), workspace)
-    failed = completedWith (first, ticketAt (first, 1), false, "Package executable is missing")
+    expectWorkspace (first)
+    failed = settle (first, 1, false, "Package executable is missing")
     expectEvidence (failed, "root", [{ label = "Installed", want = "" }, { label = "Catalog", want = "" }])
     showsIn (failed, "root", unavailableTitle)
-    expect (titledText (failed, "root", "screen", ospreyPackages, "subtitle"), workspace)
+    expectWorkspace (failed)
 
 verifiedFetch () =
     selected = catalogDetail (loopback, "@demo/new")
     asked = askAdd selected
     confirmed = press (asked, confirmAddLabel)
     report = "{\"lines\":[],\"status\":0}"
-    added = completedWith (confirmed, ticketAt (confirmed, 0), true, report)
+    added = settle (confirmed, 0, true, report)
     oneRequest (added, "--json fetch --registry")
-    expect ((storeOf added).packagePending, true)
-    fetched = completedWith (added, ticketAt (added, 0), true, report)
+    expect (pendingOf added, true)
+    fetched = settle (added, 0, true, report)
     expect (requestCount fetched, 2)
-    failed = completedWith (added, ticketAt (added, 0), true, "{\"lines\":[\"Digest mismatch\"],\"status\":1}")
+    failed = settle (added, 0, true, "{\"lines\":[\"Digest mismatch\"],\"status\":1}")
     expectNoRequest failed
-    expect ((storeOf failed).packagePending, false)
-    expect ((storeOf failed).packageFault, true)
-    expect (contains (titledText (failed, "root", "empty", unavailableTitle, "detail")) "Digest mismatch", true)
+    expect (pendingOf failed, false)
+    expect (faultOf failed, true)
+    expectContains (unavailableDetail failed, "Digest mismatch", true)
     expect (pairValue (regionWalk (failed, "root"), "Installed"), "")
 
 exactTests [

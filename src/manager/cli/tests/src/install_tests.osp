@@ -15,17 +15,7 @@ module InstallTests {
     let localBase = "http://127.0.0.1:8787"
     let rootDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-    type WebRoute = { base: string, path: string, status: int, body: string }
     type Attempt = { report: Reports::Report, writes: string, ensures: string, fetched: string }
-
-    fn webRoute(base, path, code, body) = WebRoute { base: base, path: path, status: code, body: body }
-
-    fn webPath(r: WebRoute) = r.path
-
-    fn replyFor(webs, base, path) = foldList(webs, Error { message: "http.transport: no route ${base}${path}" }, fn(answer, w) => match answer {
-        Success => answer
-        Error => if w.base == base && webPath(w) == path { Success { value: Host::Reply { status: w.status, etag: "", body: w.body } } } else { answer }
-    })
 
     fn runInstall(reads, walks, webs, args) = {
         mut writes = ""
@@ -54,13 +44,13 @@ module InstallTests {
         let web = handler Host::Web {
             get base path => {
                 fetched = "${fetched}${path}|"
-                replyFor(webs, base, path)
+                RegistryFixture::replyFor(webs, base, path)
             }
         }
         let process = handler Host::Process {
             run command => Host::Run { status: 0, stdout: "", stderr: "fixture: install never runs ${command}" }
         }
-        let report = process(fn() => files(fn() => tree(fn() => web(fn() => Install::run(args)))))
+        let report = RegistryFixture::runHosted(process, files, tree, web, fn() => Install::run(args))
         Attempt { report: report, writes: writes, ensures: ensures, fetched: fetched }
     }
 
@@ -84,7 +74,7 @@ module InstallTests {
 
     fn installDir(s: Release::Served) = Fetch::installDir(s.id)
 
-    fn readsOf(s) = mapList(s.files, fn(f) => Fixture::readRoute("${installDir(s)}/${f.relPath}", f.content))
+    fn readsOf(s) = RegistryFixture::readRoutesAt(installDir(s), s.files)
 
     fn lockRead(served) = Fixture::readRoute("osprey.lock", lockText(served))
 
@@ -92,7 +82,7 @@ module InstallTests {
 
     fn sourcePath(s: Release::Served) = "/v1/releases/${s.id.digest}/source"
 
-    fn sourceWeb(s) = webRoute(localBase, sourcePath(s), 200, Bundle::encode(s) ?: "")
+    fn sourceWeb(s) = RegistryFixture::webRouteAt(localBase, sourcePath(s), 200, Bundle::encode(s) ?: "")
 
     /// The report of a two-package install: accepted, exactly two lines,
     /// the first `= @demo/one` and the second `secondLine`.
@@ -149,7 +139,7 @@ module InstallTests {
         let os = both()
         let first = Fixture::at(os, 0)
         let second = Fixture::at(os, 1)
-        let broken = webRoute(localBase, sourcePath(first), 404, "")
+        let broken = RegistryFixture::webRouteAt(localBase, sourcePath(first), 404, "")
         let a = runInstall([lockRead(os)], [], [broken, sourceWeb(second)], [])
         checkAll("one failed fetch keeps the run going and ends status 1", [
             structuralEquals([a.report.status, length(a.report.lines)], [1, 2]),

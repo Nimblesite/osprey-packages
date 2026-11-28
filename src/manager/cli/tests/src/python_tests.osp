@@ -86,6 +86,9 @@ module PythonTests {
             && contains(command, PythonPlane::digestOf(expectedPyproject()))
     }
 
+    /// The run's first line names the release it acted on behind `mark`.
+    fn firstLineMarks(a, mark) = RegistryFixture::lineOf(a, 0) == "${mark} ${RegistryFixture::compact(py())}"
+
     /// `lock` composes the project, runs `uv lock` and pins both digests.
     fn lockPins() = {
         let a = lockOver(py(), uvLockText())
@@ -94,7 +97,7 @@ module PythonTests {
             RegistryFixture::writtenTo(a, "${pythonDir}/pyproject.toml") == expectedPyproject(),
             RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == expectedLock(),
             ranUv(a, "lock"),
-            RegistryFixture::lineOf(a, 0) == "+ ${RegistryFixture::compact(py())}",
+            firstLineMarks(a, "+"),
             RegistryFixture::lineOf(a, 1) == "python: locked ${pythonDir}"
         ])
     }
@@ -193,7 +196,7 @@ module PythonTests {
         let a = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk()], [], ["fetch", "--project", project])
         checkAll("fetch runs uv sync --frozen once the trees are present", [
             RegistryFixture::accepted(a),
-            RegistryFixture::lineOf(a, 0) == "= ${RegistryFixture::compact(py())}",
+            firstLineMarks(a, "="),
             RegistryFixture::lineOf(a, 1) == "python: synced ${pythonDir}",
             ranUv(a, "sync --frozen --no-editable")
         ])

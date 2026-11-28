@@ -17,7 +17,7 @@ module Native {
         read path => relay(readFile(path))
         write path content => relay(writeFile(path, content))
         exists path => fileExists(path)
-        remove path => removedFile(path)
+        remove path => pathOk("rm -f --", path, "host.remove")
     }
 
     fn quiet(_pid, _kind, text) = {
@@ -49,22 +49,24 @@ module Native {
         run command => capture(command)
     }
 
+    /// A failed shell command's error: `code` and its trimmed stderr.
+    fn failure(code, run) = Error { message: "${code}: ${trim(run.stderr)}" }
+
     fn fileExists(path) = {
         let word = Host::shellWord(path)
         let run = capture("parent=$(dirname -- ${word}); if test -e ${word} || test -L ${word}; then printf present; elif test -r \"$parent\" && test -x \"$parent\"; then printf absent; else false; fi")
-        if run.status != 0 { Error { message: "host.exists: ${trim(run.stderr)}" } }
+        if run.status != 0 { failure("host.exists", run) }
         else if run.stdout == "present" { Success { value: true } }
         else if run.stdout == "absent" { Success { value: false } }
         else { Error { message: "host.exists: unexpected response" } }
     }
 
-    /// Run `command`: status 0 is `0`, anything else is `code` with stderr.
-    fn shellOk(command, code) = {
-        let run = capture(command)
-        if run.status == 0 { Success { value: 0 } } else { Error { message: "${code}: ${trim(run.stderr)}" } }
+    /// Run `command` over the shell-quoted `path`: status 0 is `0`, anything
+    /// else is `code` with stderr.
+    fn pathOk(command, path, code) = {
+        let run = capture("${command} ${Host::shellWord(path)}")
+        if run.status == 0 { Success { value: 0 } } else { failure(code, run) }
     }
-
-    fn removedFile(path) = shellOk("rm -f -- ${Host::shellWord(path)}", "host.remove")
 
     fn relative(line) = if startsWith(line, "./") { drop(line, 2) } else { line }
 
@@ -79,16 +81,14 @@ module Native {
         let executable = found(root, "-type f -links 1 -perm -u+x")
         let special = found(root, "! -type d ! -type f -o -type f ! -links 1")
         let failed = if regular.status != 0 { regular } else if executable.status != 0 { executable } else { special }
-        if failed.status != 0 { Error { message: "host.tree.unreadable: ${trim(failed.stderr)}" } }
+        if failed.status != 0 { failure("host.tree.unreadable", failed) }
         else { Success { value: Host::Walk { regular: listed(regular), executable: listed(executable), special: listed(special) } } }
     }
-
-    fn ensured(dir) = shellOk("mkdir -p ${Host::shellWord(dir)}", "host.mkdir")
 
     /// Tree answered by the system `find` and `mkdir -p`.
     export fn tree() = handler Host::Tree {
         walk root => walked(root)
-        ensure dir => ensured(dir)
+        ensure dir => pathOk("mkdir -p", dir, "host.mkdir")
     }
 
     let timeoutMs = 10000

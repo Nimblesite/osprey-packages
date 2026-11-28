@@ -19,12 +19,11 @@ module LockfileTests {
         Error { message } => Json::Str { text: "fixture ${name} unreadable: ${message}" }
     }
 
-    fn textOf(value) = JsonRead::text(JsonRead::field(value, "text"))
-    fn nameOf(value) = JsonRead::text(JsonRead::field(value, "name"))
-    fn codeOf(value) = JsonRead::text(JsonRead::field(value, "code"))
+    /// The text of member `key` of `value`, or "".
+    fn textOf(value, key) = JsonRead::text(JsonRead::field(value, key))
 
     fn roundtrip() = {
-        let text = textOf(load("roundtrip"))
+        let text = textOf(load("roundtrip"), "text")
         let decoded = Lockfile::decode(text)
         let reencoded = match decoded {
             Success { value } => Lockfile::encode(value)
@@ -42,8 +41,8 @@ module LockfileTests {
     }
 
     fn rejected(case) = {
-        let expected = codeOf(case)
-        let actual = Lockfile::decode(textOf(case))
+        let expected = textOf(case, "code")
+        let actual = Lockfile::decode(textOf(case, "text"))
         match actual {
             Error { message } => message == expected
             Success => false
@@ -52,7 +51,7 @@ module LockfileTests {
 
     fn rejections() = {
         let cases = JsonRead::items(JsonRead::field(load("rejections"), "cases"))
-        let bad = foldList(cases, [], fn(acc, case) => if rejected(case) { acc } else { listAppend(acc, nameOf(case)) })
+        let bad = foldList(cases, [], fn(acc, case) => if rejected(case) { acc } else { listAppend(acc, textOf(case, "name")) })
         check("lockfile rejection codes: ${length(bad)} of ${length(cases)} failed", 0, length(bad))
     }
 

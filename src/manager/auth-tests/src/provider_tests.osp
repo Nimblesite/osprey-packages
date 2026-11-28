@@ -17,10 +17,13 @@ module ProviderTests {
         Success => ""
     }
 
+    /// Whether the request is the `token` bearer's lookup of its own user.
+    fn userLookup(method, path, headers, token) =
+        method == "GET" && path == userPath && contains(headers, "Authorization: Bearer ${token}")
+
     fn fixture(config, token, status, body) = {
         handle Supabase::Provider {
-            request method base path headers payload => if method == "GET" && base == config.supabaseOrigin
-            && path == userPath && contains(headers, "Authorization: Bearer ${token}") && payload == "" {
+            request method base path headers payload => if userLookup(method, path, headers, token) && base == config.supabaseOrigin && payload == "" {
                 Success { value: Supabase::Reply { status: status, body: body } }
             } else { Error { message: unexpected } }
         }
@@ -30,8 +33,13 @@ module ProviderTests {
     let subject = "a80bcffd-e51b-44cc-9fa8-af2a49fae457"
     fn link(owner, provider) = "{\"user_id\":\"${owner}\",\"provider\":\"${provider}\",\"identity_id\":\"11b2e1b2-64d1-4181-8393-da01a07ec855\",\"id\":\"123456\"}"
     fn account(id, links) = "{\"id\":\"${id}\",\"email\":\"ignored@example.test\",\"identities\":[${links}],\"user_metadata\":{\"admin\":true}}"
+    /// The provider account holding exactly `subject`'s GitHub identity: the one that verifies.
+    fn githubAccount() = account(subject, link(subject, "github"))
+    /// The provider account holding `subject`'s GitHub identity beside a
+    /// second `other` identity of `subject`.
+    fn githubPlus(other) = account(subject, link(subject, "github") + "," + link(subject, other))
 
-    fn stableIdentity(config) = match fixture(config, fixtureToken, 200, account(subject, link(subject, "github"))) {
+    fn stableIdentity(config) = match fixture(config, fixtureToken, 200, githubAccount()) {
         Error { message } => check("verified provider identity", "ok", message)
         Success { value } => checkAll("authority uses immutable provider fields, never email or metadata", [
                 structuralEquals([value.authSubject, value.githubId], [subject, "123456"])
@@ -44,12 +52,12 @@ module ProviderTests {
         let cases = [
             { status: 200, body: account(subject, link("158661ef-f68d-47cf-a9e3-d1c89896601f", "github")), expected: githubIdentity },
             { status: 200, body: account("invalid", link("invalid", "github")), expected: githubIdentity },
-            { status: 200, body: account(subject, link(subject, "github") + "," + link(subject, "email")), expected: githubIdentity },
+            { status: 200, body: githubPlus("email"), expected: githubIdentity },
             { status: 200, body: account(subject, link(subject, "email")), expected: githubIdentity },
             { status: 401, body: "{}", expected: "auth.provider-rejected" },
             { status: 200, body: account(subject, ""), expected: githubIdentity },
             { status: 200, body: "{\"id\":\"x\",\"user_metadata\":{\"provider_id\":\"123\"}}", expected: githubIdentity },
-            { status: 200, body: account(subject, link(subject, "github") + "," + link(subject, "github")), expected: githubIdentity },
+            { status: 200, body: githubPlus("github"), expected: githubIdentity },
             { status: 200, body: "not-json", expected: "auth.provider-json" }
         ]
         checkAll("failed, ambiguous or non-GitHub provider identities are rejected", [
@@ -65,7 +73,7 @@ module ProviderTests {
                 && payload == "{\"auth_code\":\"fixture-code\",\"code_verifier\":\"${verifier}\"}"
                 && contains(headers, "apikey: ${config.publishableKey}") {
                 Success { value: Supabase::Reply { status: 200, body: "{\"access_token\":\"fixture-token\",\"refresh_token\":\"fixture-refresh\",\"expires_in\":600}" } }
-            } else if method == "GET" && path == userPath && contains(headers, "Authorization: Bearer ${fixtureToken}") {
+            } else if userLookup(method, path, headers, fixtureToken) {
                 Success { value: Supabase::Reply { status: 200, body: account(subject, identities) } }
             } else { Error { message: unexpected } }
         }
@@ -120,6 +128,9 @@ module ProviderTests {
 
     fn unsignedHeader(token, header) = Dsse::base64Url(Bytes::ofString(header)) + drop(token, byteLength(Bytes::before(token, ".")))
 
+    /// The denial of `es256Token` once its header is rewritten to `header`: unsigned, so invalid.
+    fn unsignedWith(header) = { now: fixtureTime, token: unsignedHeader(es256Token, header), expected: "auth.jwt-invalid" }
+
     fn jwtDenial(config, keys, c) = {
         let actual = code(jwtFixture(config, keys, c.now, c.token))
         if c.expected == "*" { actual != "" } else { actual == c.expected }
@@ -132,8 +143,8 @@ module ProviderTests {
         { now: fixtureTime - 111, token: es256Token, expected: "*" },
         { now: fixtureTime, token: wrongAudience, expected: "*" },
         { now: fixtureTime, token: rs256Token, expected: "*" },
-        { now: fixtureTime, token: unsignedHeader(es256Token, oldAlgorithm), expected: "auth.jwt-invalid" },
-        { now: fixtureTime, token: unsignedHeader(es256Token, outsideKey), expected: "auth.jwt-invalid" },
+        unsignedWith(oldAlgorithm),
+        unsignedWith(outsideKey),
         { now: fixtureTime, token: es256Token + "=", expected: "base64url.invalid" }
     ]
 
@@ -154,8 +165,8 @@ module ProviderTests {
             else if method == "POST" && path == "/auth/v1/token?grant_type=refresh_token" && body == "{\"refresh_token\":\"fixture-old-refresh\"}"
                 && contains(headers, "apikey: sb_publishable_fixture") {
                 Success { value: Supabase::Reply { status: status, body: "{\"access_token\":\"fixture-token\",\"refresh_token\":\"fixture-next-refresh\",\"expires_in\":600}" } }
-            } else if method == "GET" && path == userPath && contains(headers, "Authorization: Bearer ${fixtureToken}") {
-                Success { value: Supabase::Reply { status: 200, body: account(subject, link(subject, "github")) } }
+            } else if userLookup(method, path, headers, fixtureToken) {
+                Success { value: Supabase::Reply { status: 200, body: githubAccount() } }
             } else { Error { message: unexpected } }
         }
         Supabase::refresh(config, "fixture-old-refresh")

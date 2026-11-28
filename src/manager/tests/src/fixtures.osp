@@ -17,17 +17,20 @@ module Fixtures {
         Error { message } => Json::Str { text: "fixture ${name} unreadable: ${message}" }
     }
 
+    /// Member `key` of `value`, read through `read`: the one shape of every member reader below.
+    fn member(value, key, read) = read(JsonRead::field(value, key))
+
     /// The text of member `key`, or "".
-    export fn textOf(value, key) = JsonRead::text(JsonRead::field(value, key))
+    export fn textOf(value, key) = member(value, key, JsonRead::text)
 
     /// The integer of member `key`, or -1.
-    export fn numberOf(value, key) = JsonRead::number(JsonRead::field(value, key))
+    export fn numberOf(value, key) = member(value, key, JsonRead::number)
 
     /// The items of member `key`, or [].
-    export fn itemsOf(value, key) = JsonRead::items(JsonRead::field(value, key))
+    export fn itemsOf(value, key) = member(value, key, JsonRead::items)
 
     /// The texts of member `key`, or [].
-    export fn textsOf(value, key) = JsonRead::texts(JsonRead::field(value, key))
+    export fn textsOf(value, key) = member(value, key, JsonRead::texts)
 
     /// The items of member `key` of the fixture at `name`.
     export fn loadItems(name, key) = itemsOf(load(name), key)

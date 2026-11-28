@@ -27,7 +27,10 @@ module Audit {
 
     fn load(path) = parsed(path) ?: Json::Null
 
-    fn jsonFiles(walked) = filterList(regular(walked), fn(p) => endsWith(p, ".json"))
+    /// The regular files of `walked` whose path ends in `suffix`.
+    fn suffixed(walked, suffix) = filterList(regular(walked), fn(p) => endsWith(p, suffix))
+
+    fn jsonFiles(walked) = suffixed(walked, ".json")
 
     fn dataFile(path) = endsWith(path, ".json") || endsWith(path, ".md") || endsWith(path, ".toml")
 
@@ -48,7 +51,10 @@ module Audit {
         audit("fixtures are declarative data", regular(walked), fn(p) => if dataFile(p) { "" } else { p })
     }
 
-    fn rawGoldens() = JsonRead::texts(JsonRead::field(load("schema-map.json"), "rawGoldens"))
+    /// Member `name` of the schema map.
+    fn schemaMapField(name) = JsonRead::field(load("schema-map.json"), name)
+
+    fn rawGoldens() = JsonRead::texts(schemaMapField("rawGoldens"))
 
     fn specProblem(specs, path) = if listContains(rawGoldens(), path) { strictProblem(path) } else { citedProblem(specs, path) }
 
@@ -79,20 +85,20 @@ module Audit {
         if join(listed, ",") == join(siblingCases(walked, directory(path)), ",") { "" } else { "${path} does not list exactly its folder" }
     }
 
-    fn indexesComplete(walked) = audit("indexes list exactly their folders", filterList(jsonFiles(walked), fn(p) => endsWith(p, "/index.json")), fn(p) => indexProblem(walked, p))
+    fn indexesComplete(walked) = audit("indexes list exactly their folders", suffixed(walked, "/index.json"), fn(p) => indexProblem(walked, p))
 
     fn model() = TypeDiagram::parse(readFile(schemaPath) ?: "")
 
     fn typedValues(model, walked) = {
-        let entries = JsonRead::items(JsonRead::field(load("schema-map.json"), "entries"))
+        let entries = JsonRead::items(schemaMapField("entries"))
         check("schema map has entries", true, length(entries) > 0)
         audit("typed fixture values are schema-valid and canonically ordered", SchemaMap::expand(entries, jsonFiles(walked), load), fn(t) => SchemaMap::problem(model, t))
     }
 
-    fn sourcesCite(sources, specs) = audit("registry sources cite defined spec sections", filterList(regular(sources), fn(p) => endsWith(p, ".osp")), fn(p) =>
+    fn sourcesCite(sources, specs) = audit("registry sources cite defined spec sections", suffixed(sources, ".osp"), fn(p) =>
         Citations::undefined(specs, readFile("src/manager/${p}") ?: "", "src/manager/${p}"))
 
-    fn specText(specs) = join(mapList(filterList(regular(specs), fn(p) => endsWith(p, ".md")), fn(p) => readFile("docs/specs/${p}") ?: ""), "\n")
+    fn specText(specs) = join(mapList(suffixed(specs, ".md"), fn(p) => readFile("docs/specs/${p}") ?: ""), "\n")
 
     fn schemaStage(walked) = match model() {
         Success { value } => test("fixture-check: typed values", fn() => typedValues(value, walked))

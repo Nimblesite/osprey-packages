@@ -83,14 +83,16 @@ module TomlTests {
         ])
     }
 
+    fn decoded(source) = firstText(Toml::parse("a = \"${source}\""))
+
     fn escapes() = checkAll("escapes and raw UTF-8 decode to the right bytes", [
-        byteLength(firstText(Toml::parse("a = \"é\""))) == 2,
-        byteLength(firstText(Toml::parse("a = \"\\u00E9\""))) == 2,
-        byteLength(firstText(Toml::parse("a = \"\\U0001F600\""))) == 4,
-        firstText(Toml::parse("a = \"\\n\"")) == "\n",
-        firstText(Toml::parse("a = \"x\\ty\"")) == "x\ty",
-        firstText(Toml::parse("a = \"\\\"\"")) == "\"",
-        firstText(Toml::parse("a = \"\\\\\"")) == "\\"
+        byteLength(decoded("é")) == 2,
+        byteLength(decoded("\\u00E9")) == 2,
+        byteLength(decoded("\\U0001F600")) == 4,
+        decoded("\\n") == "\n",
+        decoded("x\\ty") == "x\ty",
+        decoded("\\\"") == "\"",
+        decoded("\\\\") == "\\"
     ])
 
     fn integers() = checkAll("decimal integers, separators and the 64-bit edges", [

@@ -19,11 +19,19 @@ module RouterTests {
 
     fn respond(method, path) = Router::respond(CatalogTests::fixture(), method, path)
 
+    /// `r` answers `status` as `contentType` with no ETag.
+    fn typed(r, status, contentType) = r.status == status && structuralEquals([r.contentType, r.etag], [contentType, ""])
+
+    /// `found` answers 200 and `missing` 404.
+    fn foundAndMissing(found, missing) = structuralEquals([found.status, missing.status], [200, 404])
+
+    /// `method` `path` is answered 404.
+    fn notFound(method, path) = respond(method, path).status == 404
+
     fn healthRoute() = {
         let r = respond("GET", "/v1/health")
         checkAll("router: health route", [
-            r.status == 200,
-            structuralEquals([r.contentType, r.etag], [jsonType, ""]),
+            typed(r, 200, jsonType),
             r.body == "{\"refused\":1,\"releases\":3,\"status\":\"ok\"}"
         ])
     }
@@ -31,8 +39,7 @@ module RouterTests {
     fn packagesRoute() = {
         let r = respond("GET", packagesPath)
         checkAll("router: packages route", [
-            r.status == 200,
-            structuralEquals([r.contentType, r.etag], [jsonType, ""]),
+            typed(r, 200, jsonType),
             r.body == (Catalog::packagesJson(CatalogTests::fixture()) ?: "?")
         ])
     }
@@ -42,7 +49,7 @@ module RouterTests {
         let bare = respond("GET", "/v1/packages/finch/util")
         let missing = respond("GET", "/v1/packages/finch/gone")
         checkAll("router: package route, \"@\" optional", [
-            structuralEquals([withAt.status, missing.status], [200, 404]),
+            foundAndMissing(withAt, missing),
             withAt.body == bare.body,
             withAt.body == "{\"key\":\"@finch/util\",\"releases\":[{\"digest\":\"${CatalogTests::digestC()}\",\"epoch\":1,\"ordinal\":1}]}",
             missing.contentType == problemType,
@@ -54,7 +61,7 @@ module RouterTests {
         let r = respond("GET", "/v1/releases/${CatalogTests::digestA()}")
         let missing = respond("GET", "/v1/releases/sha256:zz")
         checkAll("router: release route", [
-            structuralEquals([r.status, missing.status], [200, 404]),
+            foundAndMissing(r, missing),
             r.etag == "\"${CatalogTests::digestA()}\"",
             r.body == "{\"digest\":\"${CatalogTests::digestA()}\",\"epoch\":1,\"files\":[\"osprey.toml\",\"src/lib.osp\"],\"key\":\"@finch/ledger\",\"ordinal\":1}",
             missing.etag == "",
@@ -66,7 +73,7 @@ module RouterTests {
         let r = respond("GET", "/v1/releases/${CatalogTests::digestA()}/source")
         let missing = respond("GET", "/v1/releases/sha256:zz/source")
         checkAll("router: source route", [
-            structuralEquals([r.status, missing.status], [200, 404]),
+            foundAndMissing(r, missing),
             r.contentType == jsonType,
             r.etag == "\"${CatalogTests::digestA()}\"",
             r.body == (Bundle::encode(CatalogTests::ledgerEarly()) ?: "?"),
@@ -77,8 +84,7 @@ module RouterTests {
     fn methodRejection() = {
         let r = respond("POST", "/v1/health")
         checkAll("router: non-GET rejected", [
-            r.status == 405,
-            structuralEquals([r.contentType, r.etag], [problemType, ""]),
+            typed(r, 405, problemType),
             r.body == "{\"code\":\"api.method-not-allowed\",\"status\":405,\"title\":\"Method not allowed\"}"
         ])
     }
@@ -96,8 +102,8 @@ module RouterTests {
             r.contentType == problemType,
             r.body == "{\"code\":\"api.not-found\",\"status\":404,\"title\":\"Not found\"}",
             structuralEquals([respond("GET", "/").status, respond("GET", "/v1/packages/a/b/c").status], [404, 404]),
-            respond("GET", "/v1/releases/x/other").status == 404,
-            respond("GET", "/v1/health/extra").status == 404
+            notFound("GET", "/v1/releases/x/other"),
+            notFound("GET", "/v1/health/extra")
         ])
     }
 
@@ -119,11 +125,11 @@ module RouterTests {
     /// [PACKAGE-HARDENING] S1 and S2: traversal, encoding and method probes
     /// are answered from the catalog alone, as 404 or 405 problems.
     fn hostileProbes() = checkAll("router: hostile probes", [
-        respond("GET", "/v1/releases/../../etc/passwd/source").status == 404,
+        notFound("GET", "/v1/releases/../../etc/passwd/source"),
         respond("GET", "/v1/releases/%2e%2e/source").body == unknownRelease,
-        respond("GET", "/v1/packages/%40finch/util").status == 404,
-        respond("GET", "/v1/packages/finch/util/../ledger").status == 404,
-        respond("GET", "//v1/packages").status == 404,
+        notFound("GET", "/v1/packages/%40finch/util"),
+        notFound("GET", "/v1/packages/finch/util/../ledger"),
+        notFound("GET", "//v1/packages"),
         structuralEquals([respond("HEAD", "/v1/health").status, respond("DELETE", packagesPath).status], [405, 405]),
         respond("PUT", "/v1/releases/${CatalogTests::digestA()}/source").status == 405
     ])

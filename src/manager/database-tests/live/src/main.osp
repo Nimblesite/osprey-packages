@@ -30,15 +30,15 @@ fn seed() = join([
 let fixtureClient = "psql -XqAt --no-password -p 18873 -U registry_check -d postgres -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -c "
 
 fn onFixture(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
+/// `sql` as one psql command on the fixture's owner connection.
+fn fixtureRun(sql) = onFixture(fixtureClient + Host::shellWord(sql))
 fn fixtureScript(client, script) = onFixture("printf '%s' " + Host::shellWord(script) + " | " + client)
 fn execute(sql) = {
     let tx = "BEGIN; SET LOCAL search_path TO registry, pg_catalog; " + seed() + sql + "; ROLLBACK;"
-    onFixture(fixtureClient + Host::shellWord(tx))
+    fixtureRun(tx)
 }
-fn answer(sql, expected) = {
-    let run = execute(sql)
-    run.status == 0 && trim(run.stdout) == expected
-}
+fn succeeded(run, expected) = run.status == 0 && trim(run.stdout) == expected
+fn answer(sql, expected) = succeeded(execute(sql), expected)
 fn refused(sql, sqlState) = {
     let run = execute(sql)
     run.status != 0 && contains(run.stderr, "ERROR:  " + sqlState + ":")
@@ -112,10 +112,8 @@ fn fixtureSource(digest) = if digest == fixtureDigest {
         Release::File { relPath: "NOTICE.md", content: "Attribution only\n" }
     ]), Bundle::encode)
 } else { Success { value: "{}" } }
-fn fixtureCatalog() = {
-    let result = fixtureScript("psql -XqAt -v ON_ERROR_STOP=1 -U registry_catalog_reader", Database::catalogScript())
-    if result.status == 0 { Success { value: trim(result.stdout) } } else { Error { message: "database.transaction-failed" } }
-}
+fn fixtureCatalog() = Database::completed(
+    fixtureScript("psql -XqAt -v ON_ERROR_STOP=1 -U registry_catalog_reader", Database::catalogScript()), "database.transaction-failed")
 fn catalogFailure(detail) = {
     print(detail)
     Error { message: "unexpected catalog response" }
@@ -134,7 +132,7 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
     }
     let edge = fixtureEdge
     let login = expectLogin(client, edge, true)
-    let binding = onFixture(fixtureClient + Host::shellWord("UPDATE registry.auth_bindings SET state='revoked' WHERE auth_subject='${fixtureBrowserSubject}'"))
+    let binding = fixtureRun("UPDATE registry.auth_bindings SET state='revoked' WHERE auth_subject='${fixtureBrowserSubject}'")
     let denied = expectLogin(client, edge, false)
     let _closed = httpCloseClient(client)
     let browser = onFixture("if [ \"$REGISTRY_BROWSER_CHECK\" = 1 ]; then node scripts/packages/test-registry-preview.cjs --database-catalog ${port}; fi")
@@ -143,7 +141,7 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
 
 fn catalogListener() = {
     let setup = "CREATE ROLE registry_catalog_reader LOGIN; GRANT USAGE ON SCHEMA registry TO registry_catalog_reader; GRANT SELECT ON registry.public_catalog TO registry_catalog_reader; INSERT INTO registry.public_catalog VALUES(1,now(),now()+interval '10 minutes','${catalogRow}')"
-    let created = onFixture(fixtureClient + Host::shellWord(setup + ";" + issuerGrants() + runtimeGrants() + revokerGrants + fixtureBrowserBinding()))
+    let created = fixtureRun(setup + ";" + issuerGrants() + runtimeGrants() + revokerGrants + fixtureBrowserBinding())
     let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let port = 20000 + random() % 15000
     let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, fn() => catalogRequest(port)))
@@ -210,33 +208,29 @@ fn restrictedSessionIssue() = checkAll("only a scoped issuer can create a correc
     refused(issuerScope(issuerOrigin, issuerDigest()) + lookup, "42501")
 ])
 
-let issuerClient = "psql -XqAt --no-password -U ${issuerRole} -v ON_ERROR_STOP=1"
+fn roleClient(role) = "psql -XqAt --no-password -U ${role} -v ON_ERROR_STOP=1"
+fn issuerClient() = roleClient(issuerRole)
 
-fn issueWithRole(client, subject, digest, envelope) = match BrowserSessions::issueScript(digest, issuerOrigin, subject, "421", envelope) {
-    Success { value } => fixtureScript(client, value)
-    Error { message } => Host::Run { status: 1, stdout: "", stderr: message }
-}
+fn issueWithRole(client, subject, digest, envelope) = runScript(client, BrowserSessions::issueScript(digest, issuerOrigin, subject, "421", envelope))
 
 fn sessionIssuerConnection() = {
     let setup = issuerGrants() + " SET search_path=registry,pg_catalog; INSERT INTO principals(id,kind,state,credential_epoch,created_at) VALUES (md5('person1')::uuid,'human','active',1,now()); " + sessionSetup
-    let created = onFixture(fixtureClient + Host::shellWord(setup))
+    let created = fixtureRun(setup)
     let envelope = "fixture-sealed-opaque-envelope"
-    let wrong = issueWithRole(issuerClient, "11111111-1111-4111-8111-111111111111", issuerDigest(), envelope)
-    let refusedRole = issueWithRole(loginClient, sessionSubject, issuerDigest(), envelope)
-    let good = issueWithRole(issuerClient, sessionSubject, issuerDigest(), envelope)
-    let repeated = issueWithRole(issuerClient, sessionSubject, issuerDigest(), envelope)
-    let stored = onFixture(fixtureClient + Host::shellWord("SELECT token_envelope FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}"))
-    let cleanup = onFixture(fixtureClient + Host::shellWord("DELETE FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}; DELETE FROM registry.auth_bindings WHERE id = md5('binding')::uuid; DELETE FROM registry.principals WHERE id = md5('person1')::uuid; DROP OWNED BY ${issuerRole}; DROP ROLE ${issuerRole};"))
+    let wrong = issueWithRole(issuerClient(), "11111111-1111-4111-8111-111111111111", issuerDigest(), envelope)
+    let refusedRole = issueWithRole(loginClient(), sessionSubject, issuerDigest(), envelope)
+    let good = issueWithRole(issuerClient(), sessionSubject, issuerDigest(), envelope)
+    let repeated = issueWithRole(issuerClient(), sessionSubject, issuerDigest(), envelope)
+    let stored = fixtureRun("SELECT token_envelope FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}")
+    let cleanup = fixtureRun("DELETE FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}; DELETE FROM registry.auth_bindings WHERE id = md5('binding')::uuid; DELETE FROM registry.principals WHERE id = md5('person1')::uuid; DROP OWNED BY ${issuerRole}; DROP ROLE ${issuerRole};")
     checkAll("restricted libpq issuer transaction pins its role and does not duplicate sessions", [
-        created.status == 0, wrong.status == 0 && trim(wrong.stdout) == "", refusedRole.status != 0,
+        created.status == 0, succeeded(wrong, ""), refusedRole.status != 0,
         good.status == 0 && Bytes::canonicalUuid(trim(good.stdout)), repeated.status != 0,
-        stored.status == 0 && trim(stored.stdout) == envelope, cleanup.status == 0
+        succeeded(stored, envelope), cleanup.status == 0
     ])
 }
-fn sessionDenied(mutation) = {
-    let result = execute(sessionSql() + issued() + mutation + lookup + "EXECUTE touch(${sessionCookie},${sessionIssuer},${sessionIdentity}); SELECT 'checked';")
-    result.status == 0 && length(split(trim(result.stdout), "\n") ?: []) == 2 && endsWith(trim(result.stdout), "checked")
-}
+/// The mutation, then a lookup and a touch that must still answer exactly two lines ending `checked`.
+fn sessionDenied(mutation) = sessionRun(mutation + lookup + "EXECUTE touch(${sessionCookie},${sessionIssuer},${sessionIdentity}); SELECT 'checked';", 2, "checked")
 
 fn sessionLifetimeChecks() = checkAll("old, suspended, revoked and rotated sessions fail closed", [
     sessionDenied("UPDATE browser_sessions SET started_at=now()-interval '60 minutes',last_used_at=now()-interval '30 minutes';"),
@@ -249,18 +243,22 @@ fn sessionLifetimeChecks() = checkAll("old, suspended, revoked and rotated sessi
 ])
 
 let roleSetup = "CREATE ROLE registry_login_runtime LOGIN NOSUPERUSER NOBYPASSRLS; GRANT USAGE ON SCHEMA registry TO registry_login_runtime; GRANT INSERT(state_digest,browser_digest,verifier_envelope,created_at), SELECT(state_digest,browser_digest,verifier_envelope,created_at), DELETE ON registry.pending_logins TO registry_login_runtime;"
-let loginClient = "psql -XqAt --no-password -U registry_login_runtime -v ON_ERROR_STOP=1"
+fn loginClient() = roleClient("registry_login_runtime")
 
-fn loginRun(script) = match script {
-    Success { value } => fixtureScript(loginClient, value)
+/// `script` piped to psql as `client`, or a failed run carrying the script's own error.
+fn runScript(client, script) = match script {
+    Success { value } => fixtureScript(client, value)
     Error { message } => Host::Run { status: 1, stdout: "", stderr: message }
 }
+fn loginRun(script) = runScript(loginClient(), script)
 fn countWithScope(flowState, browser) = Database::loginScript(flowState, browser,
     "SELECT count(*) FROM registry.pending_logins WHERE state_digest <> " + Database::decoded(1),
     [digest("0")])
 
+fn claimAs(flowState, browser) = loginRun(LoginFlow::claimScript(flowState, browser))
+
 fn restrictedLoginJourney() = {
-    let initialized = onFixture(fixtureClient + Host::shellWord(roleSetup))
+    let initialized = fixtureRun(roleSetup)
     let flowState = digest("a")
     let opener = digest("b")
     let stranger = digest("c")
@@ -268,16 +266,16 @@ fn restrictedLoginJourney() = {
     let wrote = loginRun(LoginFlow::storeScript(flowState, opener, envelope))
     let scoped = loginRun(Success { value: countWithScope(flowState, opener) })
     let hidden = loginRun(Success { value: countWithScope(flowState, stranger) })
-    let mismatch = loginRun(LoginFlow::claimScript(flowState, stranger))
-    let consumed = loginRun(LoginFlow::claimScript(flowState, opener))
-    let replay = loginRun(LoginFlow::claimScript(flowState, opener))
+    let mismatch = claimAs(flowState, stranger)
+    let consumed = claimAs(flowState, opener)
+    let replay = claimAs(flowState, opener)
     checkAll("actual pre-authentication connection consumes only the scoped verifier", [
         initialized.status == 0, wrote.status == 0,
-        scoped.status == 0 && trim(scoped.stdout) == "1",
-        hidden.status == 0 && trim(hidden.stdout) == "0",
-        mismatch.status == 0 && trim(mismatch.stdout) == "",
-        consumed.status == 0 && trim(consumed.stdout) == envelope,
-        replay.status == 0 && trim(replay.stdout) == ""
+        succeeded(scoped, "1"),
+        succeeded(hidden, "0"),
+        succeeded(mismatch, ""),
+        succeeded(consumed, envelope),
+        succeeded(replay, "")
     ])
 }
 
@@ -297,38 +295,42 @@ let fixtureOAuth = OAuth::Config { supabaseOrigin: "https://project.supabase.co"
     callback: "https://api.example.test/v1/auth/github/callback", websiteOrigin: "https://packages.example.test", publishableKey: "sb_publishable_fixture" }
 fn fixtureBrowserBinding() = "INSERT INTO registry.principals(id,kind,state,credential_epoch,created_at) VALUES (md5('hosted-browser')::uuid,'human','active',1,now()); INSERT INTO registry.auth_bindings(id,principal_id,issuer,provider,provider_subject,auth_subject,state,verified_at) VALUES (md5('hosted-binding')::uuid,md5('hosted-browser')::uuid,'${fixtureOAuth.supabaseOrigin}/auth/v1','github','421','${fixtureBrowserSubject}','active',now());"
 
+fn postTo(origin, method, base) = method == "POST" && base == origin
+fn oauthRequest(method, base, path, expected) = postTo(fixtureOAuth.supabaseOrigin, method, base) && path == expected
+fn jsonReply(body) = Success { value: Supabase::Reply { status: 200, body: body } }
+
 /// A Cloud KMS `operation` (encrypt or decrypt) on `key` from the fixture service account, carrying the bound AAD.
-fn kmsCall(method, base, path, headers, body, key, operation) = method == "POST" && base == fixtureKmsOrigin
+fn kmsCall(method, base, path, headers, body, key, operation) = postTo(fixtureKmsOrigin, method, base)
     && path == "/v1/${key}:${operation}" && headers == fixtureKmsHeaders && startsWith(body, aadField)
 
 fn kmsFixture() = handler Supabase::Provider {
     request method base path headers body =>
         if Kms::isMetadataRequest(method, base, path, headers) && body == "" {
-            Success { value: Supabase::Reply { status: 200, body: "{\"access_token\":\"fixture-access\",\"token_type\":\"Bearer\"}" } }
+            jsonReply("{\"access_token\":\"fixture-access\",\"token_type\":\"Bearer\"}")
         } else if kmsCall(method, base, path, headers, body, kmsKey, "encrypt") && contains(body, ",\"plaintext\":\"") {
-            Success { value: Supabase::Reply { status: 200, body: "{\"ciphertext\":\"${fixtureCiphertext}\"}" } }
+            jsonReply("{\"ciphertext\":\"${fixtureCiphertext}\"}")
         } else if kmsCall(method, base, path, headers, body, kmsKey, "decrypt") && contains(body, ",\"ciphertext\":\"${fixtureCiphertext}\"") {
-            Success { value: Supabase::Reply { status: 200, body: "{\"plaintext\":\"ZEJqZnRKZVo0Q1ZQLW1COTJLMjd1aGJVSlUxcDFyX3dXMWdGV0ZPRWpYaw==\"}" } }
+            jsonReply("{\"plaintext\":\"ZEJqZnRKZVo0Q1ZQLW1COTJLMjd1aGJVSlUxcDFyX3dXMWdGV0ZPRWpYaw==\"}")
         } else if kmsCall(method, base, path, headers, body, sessionKmsKey, "encrypt") {
             sessionKmsReply(body, "plaintext", "ciphertext", sessionPlaintext, rotatedPlaintext, sessionCiphertext, rotatedCiphertext)
         } else if kmsCall(method, base, path, headers, body, sessionKmsKey, "decrypt") {
             sessionKmsReply(body, "ciphertext", "plaintext", sessionCiphertext, rotatedCiphertext, sessionPlaintext, rotatedPlaintext)
-        } else if method == "POST" && base == fixtureOAuth.supabaseOrigin && path == "/auth/v1/token?grant_type=pkce"
+        } else if oauthRequest(method, base, path, "/auth/v1/token?grant_type=pkce")
             && body == "{\"auth_code\":\"fixture-callback-code\",\"code_verifier\":\"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk\"}" {
-            Success { value: Supabase::Reply { status: 200, body: "{\"access_token\":\"fixture-provider-access\",\"refresh_token\":\"fixture-provider-refresh\",\"expires_in\":600}" } }
-        } else if method == "POST" && base == fixtureOAuth.supabaseOrigin && path == "/auth/v1/token?grant_type=refresh_token"
+            jsonReply("{\"access_token\":\"fixture-provider-access\",\"refresh_token\":\"fixture-provider-refresh\",\"expires_in\":600}")
+        } else if oauthRequest(method, base, path, "/auth/v1/token?grant_type=refresh_token")
             && body == "{\"refresh_token\":\"fixture-provider-refresh\"}" {
-            Success { value: Supabase::Reply { status: 200, body: "{\"access_token\":\"fixture-provider-rotated\",\"refresh_token\":\"fixture-provider-next\",\"expires_in\":600}" } }
+            jsonReply("{\"access_token\":\"fixture-provider-rotated\",\"refresh_token\":\"fixture-provider-next\",\"expires_in\":600}")
         } else if method == "GET" && base == fixtureOAuth.supabaseOrigin && path == "/auth/v1/user"
             && listContains(["apikey: sb_publishable_fixture\r\nAuthorization: Bearer fixture-provider-access", "apikey: sb_publishable_fixture\r\nAuthorization: Bearer fixture-provider-rotated"], headers) {
-            Success { value: Supabase::Reply { status: 200, body: "{\"id\":\"${fixtureBrowserSubject}\",\"identities\":[{\"provider\":\"github\",\"id\":\"421\",\"user_id\":\"${fixtureBrowserSubject}\"}]}" } }
+            jsonReply("{\"id\":\"${fixtureBrowserSubject}\",\"identities\":[{\"provider\":\"github\",\"id\":\"421\",\"user_id\":\"${fixtureBrowserSubject}\"}]}")
         } else { Error { message: "fixture.unexpected-encryption-request" } }
 }
 fn sessionKmsReply(body, input, output, oldIn, newIn, oldOut, newOut) = {
     let payload = if endsWith(body, ",\"${input}\":\"${oldIn}\"}") { oldOut }
         else if endsWith(body, ",\"${input}\":\"${newIn}\"}") { newOut } else { "" }
     if payload == "" { Error { message: "fixture.unexpected-envelope" } }
-    else { Success { value: Supabase::Reply { status: 200, body: "{\"${output}\":\"${payload}\"}" } } }
+    else { jsonReply("{\"${output}\":\"${payload}\"}") }
 }
 
 fn storedLogin(flowState, browser, envelope) = {
@@ -336,36 +338,29 @@ fn storedLogin(flowState, browser, envelope) = {
     if result.status == 0 { Success { value: "" } } else { Error { message: "fixture.login-store-failed" } }
 }
 fn openLogin() = kmsFixture()(fn() => HostedLogin::start(fixtureOAuth, fn(aad, verifier) => LoginKms::seal(kmsKey, aad, verifier), storedLogin))
-fn claimLogin(flowState, browser) = {
-    let claimed = loginRun(LoginFlow::claimScript(flowState, browser))
-    if claimed.status == 0 { Success { value: trim(claimed.stdout) } }
-    else { Error { message: "fixture.login-claim-failed" } }
-}
+fn claimLogin(flowState, browser) = Database::completed(claimAs(flowState, browser), "fixture.login-claim-failed")
 
-fn storeBrowser(digest, issuer, subject, github, envelope) = andThen(BrowserSessions::issueScript(digest, issuer, subject, github, envelope), fn(script) => {
-    let result = fixtureScript(issuerClient, script)
-    if result.status == 0 { Success { value: trim(result.stdout) } } else { Error { message: "fixture.session-storage" } }
-})
+fn storeBrowser(digest, issuer, subject, github, envelope) = andThen(BrowserSessions::issueScript(digest, issuer, subject, github, envelope),
+    fn(script) => Database::completed(fixtureScript(issuerClient(), script), "fixture.session-storage"))
 fn loginCallback(path, headers) = kmsFixture()(fn() => andThen(HostedLogin::callback(fixtureOAuth, path, headers,
     claimLogin, fn(aad, envelope) => LoginKms::unseal(kmsKey, aad, envelope)), fn(identity) =>
         HostedLogin::issue(fixtureOAuth, identity, fn(aad, session) => LoginKms::sealSession(sessionKmsKey, aad, session), storeBrowser)))
 
-fn browserRuntime(role, script) = andThen(script, fn(value) => {
-    let result = fixtureScript("psql -XqAt --no-password -U ${role} -v ON_ERROR_STOP=1", value)
-    if result.status == 0 { Success { value: trim(result.stdout) } } else { Error { message: "fixture.session-runtime" } }
-})
+fn browserRuntime(role, script) = andThen(script,
+    fn(value) => Database::completed(fixtureScript(roleClient(role), value), "fixture.session-runtime"))
+fn runRuntime(script) = browserRuntime(runtimeRole, script)
 fn readBrowser(token) = kmsFixture()(fn() => HostedLogin::readSession(fixtureOAuth, token,
-    fn(digest) => browserRuntime(runtimeRole, BrowserSessions::readScript(digest)), fn(aad, envelope) => LoginKms::openSession(sessionKmsKey, aad, envelope),
+    fn(digest) => runRuntime(BrowserSessions::readScript(digest)), fn(aad, envelope) => LoginKms::openSession(sessionKmsKey, aad, envelope),
     fixtureCredentials, fn(digest, issuer, subject, github) =>
-        browserRuntime(runtimeRole, BrowserSessions::touchScript(digest, issuer, subject, github))))
+        runRuntime(BrowserSessions::touchScript(digest, issuer, subject, github))))
 fn reserveOnce(digest, issuer, subject, github, previous) = {
     let script = BrowserSessions::claimRefreshScript(digest, issuer, subject, github, previous)
-    andThen(browserRuntime(runtimeRole, script), fn(claim) => andThen(browserRuntime(runtimeRole, script), fn(replayed) =>
+    andThen(runRuntime(script), fn(claim) => andThen(runRuntime(script), fn(replayed) =>
         if replayed == "" && Bytes::canonicalUuid(claim) { Success { value: claim } } else { Error { message: "fixture.refresh-not-exclusive" } }))
 }
-fn finishOnce(cookie, issuer, subject, github, previous, claim, replacement) = andThen(browserRuntime(runtimeRole,
+fn finishOnce(cookie, issuer, subject, github, previous, claim, replacement) = andThen(runRuntime(
     BrowserSessions::finishRefreshScript(cookie, issuer, subject, github, previous, fixtureBrowserSubject, replacement)), fn(stale) =>
-        if stale == "" { browserRuntime(runtimeRole, BrowserSessions::finishRefreshScript(cookie, issuer, subject, github, previous, claim, replacement)) }
+        if stale == "" { runRuntime(BrowserSessions::finishRefreshScript(cookie, issuer, subject, github, previous, claim, replacement)) }
         else { Error { message: "fixture.stale-refresh-accepted" } })
 fn fixtureCredentials(digest, envelope, credentials) = if envelope == sessionCiphertext {
     HostedLogin::refreshSession(fixtureOAuth, digest, envelope, credentials, reserveOnce,
@@ -393,9 +388,9 @@ fn rawSessionCookie(cookie) = drop(Bytes::before(cookie, ";"), byteLength(Hosted
 fn sessionExists(cookie) = {
     let raw = rawSessionCookie(cookie)
     let digest = HostedLogin::sessionDigest(raw)
-    let found = onFixture(fixtureClient + Host::shellWord("SELECT token_envelope FROM registry.browser_sessions WHERE cookie_digest='${digest}'"))
+    let found = fixtureRun("SELECT token_envelope FROM registry.browser_sessions WHERE cookie_digest='${digest}'")
     startsWith(cookie, HostedLogin::sessionCookieName + "=") && OAuth::challengeCode(raw) == ""
-        && endsWith(cookie, "; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax") && found.status == 0 && trim(found.stdout) == sessionCiphertext
+        && endsWith(cookie, "; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax") && succeeded(found, sessionCiphertext)
 }
 
 fn sessionReply(client, headers, status, marker) = match httpGetResponse(client, "/v1/auth/session", headers) {
@@ -439,12 +434,12 @@ fn logoutJourney(client, signed, cookie) = {
     let ended = logoutStatus(client, signed, 403) && logoutStatus(client, signed + "\r\nX-Csrf-Token: wrong", 403)
         && logoutStatus(client, replace(valid, fixtureOAuth.websiteOrigin, "https://untrusted.example.test") ?: "", 403)
         && logoutStatus(client, valid, 204) && logoutStatus(client, valid, 204)
-    let stored = onFixture(fixtureClient + Host::shellWord("SELECT revoked_at IS NOT NULL AND token_envelope IS NULL AND NOT has_column_privilege('${revokerRole}','registry.browser_sessions','token_envelope','SELECT') FROM registry.browser_sessions WHERE cookie_digest='${HostedLogin::sessionDigest(raw)}'"))
-    ended && stored.status == 0 && trim(stored.stdout) == "t"
+    let stored = fixtureRun("SELECT revoked_at IS NOT NULL AND token_envelope IS NULL AND NOT has_column_privilege('${revokerRole}','registry.browser_sessions','token_envelope','SELECT') FROM registry.browser_sessions WHERE cookie_digest='${HostedLogin::sessionDigest(raw)}'")
+    ended && succeeded(stored, "t")
 }
 
 fn setFixturePrincipal(status) = {
-    let changed = onFixture(fixtureClient + Host::shellWord("UPDATE registry.principals SET state='${status}' WHERE id=md5('hosted-browser')::uuid"))
+    let changed = fixtureRun("UPDATE registry.principals SET state='${status}' WHERE id=md5('hosted-browser')::uuid")
     changed.status == 0
 }
 fn successfulCallback(client, path, browser) = match httpGetResponse(client, path, browser) {

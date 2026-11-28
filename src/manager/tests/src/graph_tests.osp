@@ -120,34 +120,44 @@ module GraphTests {
 
     fn generatedNumbers() = range(0, generatedGraphs) |> toList
 
+    /// The generated graphs failing `holds`.
+    fn failing(holds) = filterList(generatedNumbers(), fn(n) => !holds(n))
+
+    /// The numbers of the graphs failing `holds`, comma-joined for one failure line.
+    fn failuresOf(holds) = join(mapList(failing(holds), fn(n) => "${n}"), ",")
+
     /// Differential and determinism property tests over generated graphs
     /// ([PACKAGE-RESOLUTION] exit gate: no valid bounded graph missed, no
     /// invalid graph emitted, no permutation changes a lock or explanation).
-    fn generatedAgree() = check("generated graphs: resolver disagrees with the oracle on", "", join(mapList(filterList(generatedNumbers(), fn(n) => !agreesOn(n)), fn(n) => "${n}"), ","))
+    fn generatedAgree() = check("generated graphs: resolver disagrees with the oracle on", "", failuresOf(agreesOn))
 
-    fn generatedDeterministic() = check("generated graphs: permutation changes the outcome of", "", join(mapList(filterList(generatedNumbers(), fn(n) => !permutationInvariant(n)), fn(n) => "${n}"), ","))
+    fn generatedDeterministic() = check("generated graphs: permutation changes the outcome of", "", failuresOf(permutationInvariant))
 
-    fn firstOr(xs, fallback) = listGet(xs, 0) ?: fallback
+    /// The first generated graph failing `holds`, or -1 when none does.
+    fn firstFailing(holds) = listGet(failing(holds), 0) ?: -1
 
     /// The first disagreement in full: the oracle's outcome against the resolver's.
     fn generatedDetail() = {
-        let n = firstOr(filterList(generatedNumbers(), fn(n) => !agreesOn(n)), -1)
+        let n = firstFailing(agreesOn)
         if n < 0 { check("generated graphs: first disagreement", "none", "none") }
         else { check("generated graph ${n}: oracle vs resolver", outcomeText(GraphOracle::solve(GraphGen::graph(n))), resolverOutcome(n)) }
     }
 
     /// The first permutation-sensitive graph in full: plain against permuted.
     fn permutationDetail() = {
-        let n = firstOr(filterList(generatedNumbers(), fn(n) => !permutationInvariant(n)), -1)
+        let n = firstFailing(permutationInvariant)
         if n < 0 { check("generated graphs: first permutation change", "none", "none") }
         else { check("generated graph ${n}: plain vs permuted", resolverOutcome(n), permutedResolverOutcome(n)) }
     }
 
+    /// One test per fixture case, `solver`ed, passing while `holds` of the case.
+    fn caseTests(solver, holds) = forEachList(expectedCases(), fn(name) => test("graphs ${solver}: ${name}", fn() => expectTrue(holds(name))))
+
     /// Every graph case as one oracle test and one resolver test, plus the
     /// differential assertion, the generated-graph properties and the index.
     export fn run() = {
-        forEachList(expectedCases(), fn(name) => test("graphs oracle: ${name}", fn() => expectTrue(oracleMatches(name))))
-        forEachList(expectedCases(), fn(name) => test("graphs resolver: ${name}", fn() => expectTrue(resolverMatches(name))))
+        caseTests("oracle", oracleMatches)
+        caseTests("resolver", resolverMatches)
         test("graphs: resolver agrees with oracle", fn() => expectTrue(agreeAll(expectedCases())))
         test("graphs: generated graphs agree with the oracle", generatedAgree)
         test("graphs: first generated disagreement in full", generatedDetail)

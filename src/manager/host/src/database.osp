@@ -69,11 +69,11 @@ module Database {
     + " | PGSERVICEFILE=" + Host::shellWord(config.serviceFile) + " PGPASSFILE=" + Host::shellWord(config.passfile)
     + " psql --no-psqlrc --no-password --quiet --tuples-only --no-align --set=ON_ERROR_STOP=1 --dbname=" + Host::shellWord(connectionString(config))
 
-    fn executed(config, source) = {
-        let result = perform Host::Process.run(command(config, source))
-        if result.status == 0 { Success { value: trim(result.stdout) } }
-        else { Error { message: "database.transaction-failed" } }
-    }
+    /// A finished psql run: its trimmed stdout, or `failure` when psql stopped on an error.
+    export fn completed(result, failure) = if result.status == 0 { Success { value: trim(result.stdout) } }
+        else { Error { message: failure } }
+
+    fn executed(config, source) = completed(perform Host::Process.run(command(config, source)), "database.transaction-failed")
 
     /// The anonymous API can read only the current verified public projection.
     export let catalogSelect = "SELECT body FROM registry.public_catalog WHERE id=1 AND verified_at<=statement_timestamp() AND expires_at>statement_timestamp()"
@@ -91,12 +91,12 @@ module Database {
     export fn loginScript(flowState, browser, statement, values) = preAuthScript("registry_login_runtime",
         ["login_state", "login_browser"], [flowState, browser], statement, values)
 
-    /// The issuer role can mint one cookie for exactly the verified provider identity.
-    export fn sessionIssueScript(scope, statement, values) = preAuthScript("registry_session_issuer",
-        [sessionDigest, "session_issuer", "session_subject", "session_provider"], scope, statement, values)
+    let sessionScopeKeys = [sessionDigest, "session_issuer", "session_subject", "session_provider"]
 
-    export fn sessionRuntimeScript(scope, statement, values) = preAuthScript("registry_session_runtime",
-        [sessionDigest, "session_issuer", "session_subject", "session_provider"], scope, statement, values)
+    /// The issuer role can mint one cookie for exactly the verified provider identity.
+    export fn sessionIssueScript(scope, statement, values) = preAuthScript("registry_session_issuer", sessionScopeKeys, scope, statement, values)
+
+    export fn sessionRuntimeScript(scope, statement, values) = preAuthScript("registry_session_runtime", sessionScopeKeys, scope, statement, values)
 
     export fn sessionRevokeScript(cookie, statement) = preAuthScript("registry_session_revoker",
         [sessionDigest], [cookie], statement, [cookie])

@@ -43,8 +43,13 @@ module HandoverTests {
     fn expireCode(world, transferId, at) = Fixture::code(GovernanceHandover::expireHandover(world, transferId, at))
     fn finalizeCode(world, at) = Fixture::code(GovernanceHandover::finalizeHandover(world, "t-1", at))
     fn authorizeCode(world, membership, permission, at) = Fixture::code(GovernanceTransitions::authorize(world, "pkg-f1", membership, permission, at))
-    fn grantCode(world, grantId, proof) = Fixture::code(GovernanceTransitions::grantPermission(world, "pkg-f1", grantId, proof,
-        "m-carol", Governance::PublishRelease, Maybe::none(), 150))
+    /// `m-bob`'s recorded grant still publishes at 150.
+    fn bobPublishes(world) = authorizeCode(world, "m-bob", Governance::PublishRelease, 150)
+    /// One grant decision through the real transition: `proof` signs `m-carol`
+    /// publishing under `grantId` at 150.
+    fn grantAttempt(world, grantId, proof) =
+        GovernanceTransitions::grantPermission(world, "pkg-f1", grantId, proof, "m-carol", Governance::PublishRelease, Maybe::none(), 150)
+    fn grantCode(world, grantId, proof) = Fixture::code(grantAttempt(world, grantId, proof))
 
     /// The world each guarded step leaves, stacked one step at a time.
     fn proposed(world, transferId, proposed) = Fixture::orKeep(world, fn(w) => propose(w, transferId, proposed))
@@ -55,10 +60,10 @@ module HandoverTests {
     fn grantedWorld() = Fixture::grantOn(Fixture::grantOn(bobGrant(Fixture::world()),
         "pkg-f1", "g-carol", "m-carol", Governance::EditMetadata, Maybe::none(), 100),
         "pkg-f1", "g-alice", "m-alice", Governance::YankRelease, Maybe::none(), 100)
-    fn grantedOn(world, grantId, epoch) = Fixture::orKeep(world, fn(w) =>
-        GovernanceTransitions::grantPermission(w, "pkg-f1", grantId,
-            Fixture::verified("p-bob", "m-bob", carolGrantStatement(epoch)),
-            "m-carol", Governance::PublishRelease, Maybe::none(), 150))
+    /// The new administrator `m-bob`'s signed decision for `epoch`.
+    fn bobProof(epoch) = Fixture::verified("p-bob", "m-bob", carolGrantStatement(epoch))
+    /// `world` once `m-bob`'s decision under `grantId` is recorded; a refusal keeps `world`.
+    fn grantedOn(world, grantId, epoch) = Fixture::orKeep(world, fn(w) => grantAttempt(w, grantId, bobProof(epoch)))
 
     /// The package's own admin and epoch, and `changed`'s rewrite of it.
     fn repackaged(world, changed) = Fixture::orKeep(world, fn(w) => match Governance::packageOf(w, "pkg-f1") {
@@ -67,6 +72,9 @@ module HandoverTests {
     })
     fn epochSeven(value) = value { authorityEpoch: 7 }
     fn erinAdmin(value) = value { admin: "m-erin" }
+    /// Completion at 124 once the accepted proposal's package was rewritten by
+    /// `changed`: what the stale-epoch and stale-admin guards refuse.
+    fn finalizeRepackaged(world, changed) = finalizeCode(accepted(repackaged(world, changed)), 124)
     fn packageIs(world, admin, epoch) = match Governance::packageOf(world, "pkg-f1") {
         Success { value } => value.admin == admin && value.authorityEpoch == epoch
         Error => false
@@ -171,8 +179,8 @@ module HandoverTests {
         let pending = proposed(bobGrant(Fixture::world()), "t-1", "m-bob")
         let accepted = accepted(pending)
         checkAll("a proposal and an acceptance grant no rights", [
-            authorizeCode(pending, "m-bob", Governance::PublishRelease, 150) == "",
-            authorizeCode(accepted, "m-bob", Governance::PublishRelease, 150) == "",
+            bobPublishes(pending) == "",
+            bobPublishes(accepted) == "",
             packageIs(accepted, "m-alice", 1)
         ])
     }
@@ -182,9 +190,9 @@ module HandoverTests {
     fn newAdminOwnsThePermissionSet() = {
         let done = finalized(accepted(proposed(Fixture::world(), "t-1", "m-bob")))
         checkAll("only the new admin's fresh decisions count", [
-            grantCode(done, "g-2", Fixture::verified("p-bob", "m-bob", carolGrantStatement(2))) == "",
+            grantCode(done, "g-2", bobProof(2)) == "",
             grantCode(done, "g-3", Fixture::verified("p-alice", "m-alice", carolGrantStatement(1))) == adminNotCurrent,
-            grantCode(done, "g-4", Fixture::verified("p-bob", "m-bob", carolGrantStatement(1))) == "governance.proof.statement-mismatch",
+            grantCode(done, "g-4", bobProof(1)) == "governance.proof.statement-mismatch",
             authorizeCode(grantedOn(done, "g-2", 2), "m-carol", Governance::PublishRelease, 150) == ""
         ])
     }
@@ -197,8 +205,8 @@ module HandoverTests {
         let pending = proposed(world, "t-1", "m-bob")
         let frozenWorld = frozen(world)
         checkAll("stale epochs, stale admins and freeze refuse completion", [
-            finalizeCode(accepted(repackaged(pending, epochSeven)), 124) == "governance.transfer.stale-epoch",
-            finalizeCode(accepted(repackaged(pending, erinAdmin)), 124) == "governance.transfer.stale-admin",
+            finalizeRepackaged(pending, epochSeven) == "governance.transfer.stale-epoch",
+            finalizeRepackaged(pending, erinAdmin) == "governance.transfer.stale-admin",
             proposeCode(frozenWorld, "t-1", "m-bob") == "governance.package.frozen",
             finalizeCode(frozen(accepted(pending)), 124) == "governance.package.frozen",
             packageIs(frozenWorld, "m-alice", 1)

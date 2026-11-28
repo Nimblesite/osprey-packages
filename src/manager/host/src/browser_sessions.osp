@@ -28,6 +28,14 @@ module BrowserSessions {
         Success { value: Database::sessionIssueScript(values, query, listAppend(values, envelope)) }
     }
 
+    /// `work()` once `cookie` parses as a digest; the parse refusal otherwise.
+    fn parsed(cookie, work) = andThen(Digests::parse(cookie), fn(_) => work())
+
+    /// `work` on the session scope `[cookie, issuer, subject, github]` once the
+    /// identity is valid, else the identity refusal.
+    fn identified(cookie, issuer, subject, github, work) =
+        if validIdentity(issuer, subject, github) { work([cookie, issuer, subject, github]) } else { Error { message: invalidIdentity } }
+
     /// Bind values through the extended protocol before an authenticated session exists.
     export fn issueScript(cookie, issuer, subject, github, envelope) = match Digests::parse(cookie) {
         Error { message } => Error { message: message }
@@ -50,12 +58,11 @@ module BrowserSessions {
     export fn touch() = revalidated("$1", "$2", "$3", "$4")
 
     /// Reading a cookie-scoped encrypted envelope does not authenticate the browser or extend inactivity.
-    export fn readScript(cookie) = andThen(Digests::parse(cookie), fn(_) => Success { value: Database::sessionRuntimeScript(
+    export fn readScript(cookie) = parsed(cookie, fn() => Success { value: Database::sessionRuntimeScript(
         [cookie, "", "", ""], "SELECT token_envelope FROM registry.browser_sessions WHERE cookie_digest=" + Database::decoded(1), [cookie]) })
 
-    export fn touchScript(cookie, issuer, subject, github) = andThen(Digests::parse(cookie), fn(_) =>
-        if validIdentity(issuer, subject, github) { verifiedScript([cookie, issuer, subject, github]) }
-        else { Error { message: invalidIdentity } })
+    export fn touchScript(cookie, issuer, subject, github) =
+        parsed(cookie, fn() => identified(cookie, issuer, subject, github, verifiedScript))
 
     fn verifiedScript(scope) = Success { value: Database::sessionRuntimeScript(scope,
         decodedIdentity(revalidated), scope) }
@@ -72,9 +79,9 @@ module BrowserSessions {
         "UPDATE registry.browser_sessions s SET " + update + " FROM " + principal + " WHERE " + refreshPredicate()
         + " AND " + fence + " RETURNING " + receipt, listConcat(scope, args)) }
 
-    fn eligibleRefresh(cookie, issuer, subject, github, previous, work) = andThen(Digests::parse(cookie), fn(_) =>
-        andThen(Digests::parse(previous), fn(_) => if validIdentity(issuer, subject, github) { work([cookie, issuer, subject, github]) }
-            else { Error { message: invalidIdentity } }))
+    /// The cookie parses, then the previous envelope's digest; then the identity is checked.
+    fn eligibleRefresh(cookie, issuer, subject, github, previous, work) =
+        parsed(cookie, fn() => parsed(previous, fn() => identified(cookie, issuer, subject, github, work)))
 
     /// Claim a token generation before rotating it at the provider.
     export fn claimRefreshScript(cookie, issuer, subject, github, previous) = eligibleRefresh(cookie, issuer, subject, github, previous, fn(scope) =>
@@ -99,8 +106,7 @@ module BrowserSessions {
     export fn revoke() = markRevoked("$1")
 
     /// Logout remains possible if the binding or provider is unavailable.
-    export fn revokeScript(cookie) = andThen(Digests::parse(cookie), fn(_) =>
-        Success { value: Database::sessionRevokeScript(cookie, markRevoked(Database::decoded(1))) })
+    export fn revokeScript(cookie) = parsed(cookie, fn() => Success { value: Database::sessionRevokeScript(cookie, markRevoked(Database::decoded(1))) })
 
     export fn logout(cookie) = andThen(revokeScript(cookie), Database::sessionRevoker)
 }
