@@ -21,11 +21,22 @@ case "$tag-$platform" in
     *) echo "osprey-toolchain: pin the $tag $platform digest in $0" >&2; exit 1 ;;
 esac
 [ "$(cat "$dir/.release" 2>/dev/null)" = "$tag-$platform-$sha" ] && { touch "$dir/.release"; exit 0; }
+# Checks FILE against the expected SHA-256, computed with shasum or, where it is missing (Windows
+# runners), sha256sum, and compared as text: a `-c` check can pass a malformed line. Fails closed on a
+# mismatch, an unreadable file or when neither tool exists.
+sha256_check() { # EXPECTED FILE
+    local actual
+    if command -v shasum >/dev/null 2>&1; then actual=$(shasum -a 256 "$2" | cut -d' ' -f1)
+    elif command -v sha256sum >/dev/null 2>&1; then actual=$(sha256sum "$2" | cut -d' ' -f1)
+    else echo "osprey-toolchain: neither shasum nor sha256sum can verify $2" >&2; return 1
+    fi
+    [ -n "$actual" ] && [ "$actual" = "$1" ] || { echo "osprey-toolchain: $2 has SHA-256 '$actual', expected $1" >&2; return 1; }
+}
 name="osprey-${tag#v}-$platform"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/osprey-toolchain.XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 curl -fsSL --retry 3 -o "$scratch/$name.tar.gz" "https://github.com/Nimblesite/osprey/releases/download/$tag/$name.tar.gz"
-echo "$sha  $scratch/$name.tar.gz" | shasum -a 256 -c - >/dev/null
+sha256_check "$sha" "$scratch/$name.tar.gz"
 tar -xzf "$scratch/$name.tar.gz" -C "$scratch"
 mkdir -p "$scratch/$name/packages" "$scratch/$name/native-host"
 for package in "$scratch/$name"/registry/@osprey/*/; do
