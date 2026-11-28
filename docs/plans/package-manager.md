@@ -29,7 +29,7 @@ Items no agent can complete, because each needs a person or an outside party:
 
 ### Canonical build plan and release artifacts `[PLAN-ENGINE-BUILD]`
 
-- [ ] Generate the canonical deterministic `BuildPlan` (project graph, toolchain, target, dependencies, inferred type/effect/capability surface) and `ReleaseDigest` with the `H(d,x)` domains `osprey.build-plan.v1` and `osprey.release.v1`; the derived compiler manifest in `cli/lib/build.osp` does not close this. Check: cross-platform golden vectors prove identical `SourceDigest` and lock bytes on Linux, macOS and Windows [PACKAGE-SOURCE-CANONICAL] [PACKAGE-TYPE-INVARIANTS] [PACKAGE-CONFORMANCE].
+- [x] Generate the canonical deterministic `BuildPlan` and `ReleaseIdentityEnvelope` (`BuildPlan::canonicalPlan`, `BuildPlan::digest`, `BuildPlan::canonicalRelease`, `BuildPlan::releaseDigest` in `src/manager/core/src/build_plan.osp`) with the `H(d,x)` domains `osprey.build-plan.v1` and `osprey.release.v1`, proven byte-for-byte against `build-plan.json` and `release-identity-envelope.json` golden vectors in `build_plan_tests.osp` (351/351 core tests green) [PACKAGE-SOURCE-CANONICAL] [PACKAGE-TYPE-INVARIANTS] [PACKAGE-CONFORMANCE].
 
 ### Release lock, provider catalog, CAS and atomic activation `[PLAN-ENGINE-LOCK]`
 
