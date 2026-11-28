@@ -12,19 +12,13 @@ module Registration {
     let issuer = "https://supabase.example.test/auth/v1"
     let subject = "7c0d5ad2-2f6b-4e43-9a8e-5d1c3b2a4f60"
     let github = "9001"
-    fn run(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
-    fn owner(statement) = run("psql -XqAt --no-password -p 18873 -U registry_check -d postgres -v ON_ERROR_STOP=1 -c " + Host::shellWord(statement))
-    fn answers(statement, expected) = {
-        let result = owner(statement)
-        result.status == 0 && trim(result.stdout) == expected
-    }
     fn cookie(fill) = "sha256:" + (repeat(fill, 64) ?: "")
 
     /// The session id the issuer login returns for this identity, or "" when it issues none.
     fn issued(fill, authSubject, provider) = match BrowserSessions::issueScript(cookie(fill), issuer, authSubject, provider, "sealed-registration") {
         Error => "refused"
         Success { value } => {
-            let result = run("printf '%s' " + Host::shellWord(value) + " | psql -XqAt --no-password -p 18873 -U registry_session_issuer -d postgres -v ON_ERROR_STOP=1")
+            let result = Ownership::run("printf '%s' " + Host::shellWord(value) + " | " + Ownership::psql("registry_session_issuer"))
             if result.status == 0 { trim(result.stdout) } else { "failed" }
         }
     }
@@ -33,15 +27,15 @@ module Registration {
 
     export fn check() = {
         let first = issued("a", subject, github)
-        let registered = answers(principals(), "1")
+        let registered = Ownership::answers(principals(), "1")
         let again = issued("b", subject, github)
-        let reused = answers(principals(), "1") && answers("SELECT count(*) FROM registry.browser_sessions WHERE principal_id=(SELECT principal_id FROM registry.auth_bindings WHERE provider_subject='${github}')", "2")
+        let reused = Ownership::answers(principals(), "1") && Ownership::answers("SELECT count(*) FROM registry.browser_sessions WHERE principal_id=(SELECT principal_id FROM registry.auth_bindings WHERE provider_subject='${github}')", "2")
         let stolen = issued("c", subject, "9002")
-        let unbound = answers("SELECT count(*) FROM registry.auth_bindings WHERE provider_subject='9002'", "0")
-        let revoked = owner("UPDATE registry.auth_bindings SET state='revoked' WHERE provider_subject='${github}'").status == 0
+        let unbound = Ownership::answers("SELECT count(*) FROM registry.auth_bindings WHERE provider_subject='9002'", "0")
+        let revoked = Ownership::owner("UPDATE registry.auth_bindings SET state='revoked' WHERE provider_subject='${github}'").status == 0
         let afterRevoke = issued("d", subject, github)
-        let noOrphans = answers("SELECT count(*) FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id)", "0")
-        let clean = owner(cleanup).status == 0
+        let noOrphans = Ownership::answers("SELECT count(*) FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id)", "0")
+        let clean = Ownership::owner(cleanup).status == 0
         checkAll("a first GitHub sign-in registers exactly one principal", [Bytes::canonicalUuid(first), registered, Bytes::canonicalUuid(again), first != again, reused,
                 stolen == "", unbound, revoked, afterRevoke == "", noOrphans, clean])
     }
