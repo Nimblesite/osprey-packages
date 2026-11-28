@@ -12,6 +12,7 @@ Every open item below has one owner. An owner ticks an item only with the passin
 | --- | --- |
 | `[PLAN-STANDUP]`, `[PLAN-ENGINE]`, `[PLAN-REGISTRY-TRUST]`, `[PLAN-ROLLOUT-CONTRACTS]`, CI and the end-to-end chain test | OspreyPackagesDeploy2 |
 | `[PLAN-REGISTRY-HOSTED]`, `[PLAN-REGISTRY-PUBLICATION]`, `[PLAN-DISCOVERY]`, `[PLAN-ROLLOUT-OWNERSHIP]`, `[PLAN-ROLLOUT-LOGIN]`, `[PLAN-ROLLOUT-PUBLICATION]`, website items of `[PLAN-ROLLOUT-EDGE]` | OspreyPackagesDeploy3 |
+| `[PLAN-REGISTRY-SECURITY-SCAN]` and the per-version review boundary | registry-review |
 | Deploy, edge and operations items of `[PLAN-ROLLOUT-EDGE]`, `[PLAN-ROLLOUT-REHEARSAL]`, `[PLAN-ROLLOUT-PRODUCTION]`, `[PLAN-LAUNCH]` | OspreyPackagesDeploy1 |
 
 Items no agent can complete, because each needs a person or an outside party:
@@ -90,6 +91,7 @@ Items no agent can complete, because each needs a person or an outside party:
 - [x] Exercise pending, accepted, rejected and approved versions through real PostgreSQL roles, including a second version of an already approved package [PACKAGE-SECURITY-SCAN-APPROVAL].
 - [x] Implement the NAP session and verdict adapter. The ARC scan worker verifies frozen source bytes, package key and version before submitting them. The API suite covers accepted and rejected replies, incomplete turns, wrong sessions, unavailable agents, modified bytes and version substitution [PACKAGE-SECURITY-SCAN-VERDICT].
 - [x] Persist the immutable job, decision and reviewer identity under forced RLS. The live PostgreSQL suite checks an authorized approval and direct-table denials with deliberately excessive DML grants [PACKAGE-SECURITY-SCAN-APPROVAL].
+- [x] Require a verified browser session, same-origin POST, CSRF token, submission UUID and reviewed digest at the approval route. The native listener suite checks missing credentials, missing CSRF, a substituted digest, invalid body and successful approval [PACKAGE-SECURITY-SCAN-APPROVAL].
 - [ ] Provision the tool-free NAP agent and run the worker from hosted signed-intent intake against the private quarantine store [PACKAGE-SECURITY-SCAN].
 - [ ] Run the scan on every upload's frozen canonical source before publication; a rejection publishes nothing and `accepted` still runs every other gate [PACKAGE-SECURITY-SCAN] [PACKAGE-HOSTED-PUBLISH].
 - [ ] Add the append-only `publication_rejections` table to the DataProvider YAML with organization-private RLS, and record each rejection against the publisher with no strike or standing change [PACKAGE-SECURITY-SCAN-REJECTIONS] [PACKAGE-OWNERSHIP-DATABASE].

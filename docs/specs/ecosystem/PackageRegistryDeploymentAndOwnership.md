@@ -208,6 +208,11 @@ All CAS and quarantine buckets are private. Browser/user roles have no INSERT/UP
 
 Once the canonical source digest is frozen, the publication worker submits that frozen source to the NAP security-scan agent [PACKAGE-SECURITY-SCAN]. The agent receives the source only: no Supabase credentials, GitHub tokens, signing keys or mutation authority. A rejection ends the publication job without activating a release and appends the rejection record; a malformed, failed or timed-out scan leaves the job unpublished and retryable without recording a rejection.
 
+The approval endpoint is `POST /v1/reviews/{submissionId}/{digest}/approve`.
+It accepts an empty body, the same-origin session cookie and the session's CSRF
+token. The service revalidates the provider identity and asks PostgreSQL to
+record the decision. Success returns 204 only after the insert commits.
+
 An accepted scan allows a registry release reviewer to approve the exact pending version under [PACKAGE-SECURITY-SCAN-APPROVAL]. The catalog and every digest-addressed read require that approval and signed eligibility.
 
 ## Release and recovery gates `[PACKAGE-HOSTED-RELEASE]`

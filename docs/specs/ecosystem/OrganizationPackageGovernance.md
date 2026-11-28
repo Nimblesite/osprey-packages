@@ -34,6 +34,11 @@ On handover, revoke all existing package grants and delegated workflow credentia
 
 If the administrator is suspended, disappears or refuses cooperation, freeze package writes immediately. Custodians cannot mint a second admin or use a direct database update. Exceptional replacement uses the existing 30-day recovery quarantine and two-of-three independent registry-security-custodian approval from `[PACKAGE-NAMES]`, recipient acceptance, org-governance evidence and a logged atomic replacement. The recorded admin reference stays singular while frozen. Removing/revoking an administrator membership requires completing normal handover or exceptional replacement first; a principal-level suspension provides immediate denial without breaking the FK.
 
+The registry separately provisions the human release-review permission in
+`release_reviewers`. Only a live holder can approve an accepted scan for the
+exact pending submission. Appointing a package administrator or issuing a
+`publish-release` grant confers no registry review authority [PACKAGE-SECURITY-SCAN-APPROVAL].
+
 ## Permission model `[PACKAGE-OWNERSHIP-PERMISSIONS]`
 
 Permissions are explicit per-package capabilities granted to accepted organization memberships. Several members can hold the same permission simultaneously. Each row contains exactly one permission; there are no role bundles, wildcards, deny/allow precedence rules, cross-org subjects, automatic grants from GitHub membership or transitive delegation.
@@ -80,7 +85,8 @@ Provision the private `registry` PostgreSQL schema as a platform resource before
 | `admin_transfers` | Current/proposed same-org admins, active-recipient composite FK, expected authority epoch, one pending proposal per package, signed-proof digests, expiry, acceptance and decision time |
 | `invitations` | Exact target principal/org, member/custodian role, issuer, hashed one-use token, expiry and pending/accepted/revoked/expired state; acceptance consumes the token and role approval rules still apply |
 | `maintenance_reports` | Same-org package/reporter references, public summary, bounded evidence digest and explicit report state; private security evidence stays separate |
-| `publication_rejections` | Append-only security-scan rejections [PACKAGE-SECURITY-SCAN-REJECTIONS]: publisher principal, same-org package reference, submission and source digests, scan agent identity/version, failure messages and decision time; organization-private; never a strike or standing change by itself |
+| `review_submissions`, `review_scans`, `release_approvals` | Immutable frozen version, one scan decision and the human decision that authorizes eligibility for this exact digest [PACKAGE-SECURITY-SCAN-APPROVAL]. |
+| Rejected `review_scans` joined to their frozen submissions | Append-only security-scan rejections [PACKAGE-SECURITY-SCAN-REJECTIONS]: publisher principal, same-org package reference, submission and source digests, scan agent identity/version, failure messages and decision time; organization-private; never a strike or standing change by itself |
 | `governance_events` | Append-only org/package/principal context, operation/epoch/proof commitment and previous-event digest; no PII in public event projections |
 
 All identifiers are UUIDs except canonical handle/name components. Cross-org composite FKs are `Restrict`/`NoAction`, never cascaded ownership deletion. Unique reservations include tombstones. State/permission/role/epoch/expiry and name-format checks are database constraints. Audit append-only permissions, immutable-column grants, live membership policies and atomic transition checks must additionally pass runtime-role tests; a foreign key cannot verify signatures or enforce a transition history.

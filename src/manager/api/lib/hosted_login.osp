@@ -207,11 +207,14 @@ module HostedLogin {
         } else { Error { message: message } }
     }
 
-    fn nativeRead(config: Settings, token) = if config.sessionKey == "" { unavailable() }
+    fn nativeRead(config: Settings, token, revalidate) = if config.sessionKey == "" { unavailable() }
     else { ProviderNative::transport()(fn() => readSession(config.oauth, token, BrowserSessions::read,
                 fn(context, envelope) => LoginKms::openSession(config.sessionKey, context, envelope),
-                fn(digest, envelope, credentials) => validCredentials(config, digest, envelope, credentials), BrowserSessions::revalidate)) }
+                fn(digest, envelope, credentials) => validCredentials(config, digest, envelope, credentials), revalidate)) }
+
+    export fn approve(config, token, id, digest) = nativeRead(config, token, fn(cookie, issuer, subject, github) =>
+        BrowserSessions::approve(cookie, issuer, subject, github, id, digest))
 
     export fn nativeSession(config, method, token) = if method == "POST" { BrowserSessions::logout(sessionDigest(token)) }
-    else { nativeRead(config, token) }
+    else { nativeRead(config, token, BrowserSessions::revalidate) }
 }

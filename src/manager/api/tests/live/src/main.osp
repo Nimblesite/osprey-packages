@@ -1,6 +1,7 @@
 namespace registry_live_tests;
 import registry_api::HostedService
 import registry_api::HostedLogin
+import registry_api::CatalogMemo
 import registry_api::LoginKms
 import registry_api::OAuth
 import registry_api::Supabase
@@ -90,7 +91,7 @@ fn simultaneousCallbacks() = {
 
 /// The hosted reader distinguishes an attested empty catalog from missing or expired evidence.
 fn publicCatalog() = {
-    let read = Database::catalogSelect
+    let read = "SELECT substr(t, strpos(t, ' ') + 1) FROM registry.public_catalog_timed() t;"
     let insert = "INSERT INTO registry.public_catalog VALUES (1,statement_timestamp(),statement_timestamp()+interval '5 minutes','{\"packages\":[]}');"
     checkAll("public catalog signed evidence lifetime", [
             answer(read, ""), answer(insert + read, "{\"packages\":[]}"),
@@ -112,8 +113,9 @@ fn fixtureSource(digest) = if digest == fixtureDigest {
                 Release::File { relPath: "NOTICE.md", content: "Attribution only\n" }
         ]), Bundle::encode)
 } else { Success { value: "{}" } }
-fn fixtureCatalog() = Database::completed(
-    fixtureScript("psql -XqAt -v ON_ERROR_STOP=1 -U registry_catalog_reader", Database::catalogScript()), "database.transaction-failed")
+fn fixtureCatalog() = andThen(Database::completed(
+        fixtureScript("psql -XqAt -v ON_ERROR_STOP=1 -U registry_catalog_reader", Database::timedCatalogScript()), "database.transaction-failed"),
+    fn(row) => andThen(CatalogMemo::parse(trim(row), 0), fn(entry) => Success { value: entry.body }))
 fn catalogFailure(detail) = {
     print(detail)
     Error { message: "unexpected catalog response" }
@@ -140,11 +142,11 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
 })
 
 fn catalogListener() = {
-    let setup = "CREATE ROLE registry_catalog_reader LOGIN; GRANT USAGE ON SCHEMA registry TO registry_catalog_reader; GRANT SELECT ON registry.public_catalog TO registry_catalog_reader; INSERT INTO registry.public_catalog VALUES(1,now(),now()+interval '10 minutes','${catalogRow}')"
+    let setup = "INSERT INTO registry.public_catalog VALUES(1,now(),now()+interval '10 minutes','${catalogRow}')"
     let created = fixtureRun(setup + ";" + issuerGrants() + runtimeGrants() + revokerGrants + fixtureBrowserBinding())
     let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let port = 20000 + random() % 15000
-    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, fn() => catalogRequest(port)))
+    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, fn(_token, _id, _digest) => HostedLogin::unavailable(), fn() => catalogRequest(port)))
     checkAll("restricted PostgreSQL login behind public HTTP ingress", [created.status == 0, (served ?: -1) == 0])
 }
 

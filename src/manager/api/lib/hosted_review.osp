@@ -1,0 +1,20 @@
+namespace registry_api;
+import registry::Bytes
+import registry::Digests
+
+/// The administrator confirms exactly the immutable submission and digest on screen.
+module HostedReview {
+    export let prefix = "/v1/reviews/"
+    export let denied = "publication.review-denied"
+    export let badRequest = "publication.review-request"
+    export fn route(path, token: string, approve) -> Result<string, string> = {
+        let parts = split(drop(path, byteLength(prefix)), "/") ?: []
+        let id = listGet(parts, 0) ?: ""
+        let digest = listGet(parts, 1) ?: ""
+        if length(parts) != 3 || !Bytes::canonicalUuid(id) || (listGet(parts, 2) ?: "") != "approve" { Error { message: badRequest } }
+        else { match Digests::parse(digest) {
+                Success => approve(token, id, digest)
+                Error => Error { message: badRequest }
+            } }
+    }
+}
