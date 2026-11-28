@@ -17,15 +17,15 @@ flowchart LR
     Pages["Cloudflare Pages"] -->|Serves the website| Web["Osprey Packages in the browser"]
     Web -->|Search, package details, publisher profiles, downloads, publication intents| Edge["Cloudflare API edge"]
     CLI["Package client"] --> Edge
-    Edge --> Worker["Cloudflare transport Worker: sets X-Edge-Secret and X-Edge-Host"]
+    Edge --> Worker["Cloudflare transport Worker: TLS ≥ 1.2, per-IP rate limit, sets X-Edge-Secret and X-Edge-Host"]
     Worker -->|"fetch to the run.app URL (Host rewritten)"| API["Osprey Package Manager API on Cloud Run"]
     API -->|Sessions and GitHub OAuth| Auth["Supabase Auth"]
     API -->|Catalog, releases, publisher attribution and grants| DB["Supabase PostgreSQL with RLS"]
     API -->|Seal OAuth verifiers and provider credentials| KMS["Google Cloud KMS"]
-    API -->|Queue authorized publication| Worker["Isolated publication workers"]
-    Worker -->|Fetch bound commit| GitHub["GitHub App"]
-    Worker --> Verify["Independent builders, signers and witnesses"]
-    Worker -->|Store release source| CAS["Private digest-addressed storage"]
+    API -->|Queue authorized publication| Publisher["Isolated publication workers"]
+    Publisher -->|Fetch bound commit| GitHub["GitHub App"]
+    Publisher --> Verify["Independent builders, signers and witnesses"]
+    Publisher -->|Store release source| CAS["Private digest-addressed storage"]
     API -->|Read eligible release by digest| CAS
 ```
 
@@ -33,7 +33,7 @@ Use distinct local, staging and production Supabase projects, GCP resources, sto
 
 The website gets a dedicated hostname, separate from the existing language documentation site; the API gets a dedicated hostname. Exact hostnames are deployment inputs, not asserted existing DNS. Host the prebuilt WASM website in a dedicated Cloudflare Pages Direct Upload project, with immutable deployment IDs and prior-deployment rollback; no Pages Functions or automatic unaudited push deployments. The Osprey operations client publishes the prebuilt artifact through the platform API. Registry writes and all application data access go through the Osprey API. Hostile package documentation uses a third, cookieless origin per `[PACKAGE-PUBLISH]`. No service credentials enter a browser bundle. See [Pages prebuilt deployment](https://developers.cloudflare.com/pages/get-started/direct-upload/) and [rollback](https://developers.cloudflare.com/pages/configuration/rollbacks/).
 
-NAP and TradiSite's Cloudflare → Cloud Run → Supabase shape is used as is, including their host-rewrite Worker. Cloud Run routes by `Host`, and Cloudflare's Host override is not on the free plan, so the Worker fetches the service's `run.app` URL (the runtime sets `Host` to it). It overwrites `X-Edge-Secret` from a Worker secret binding and `X-Edge-Host` with the public hostname. The Worker is transport only: it makes no routing, authorization or package decision, so `[PACKAGE-IMPLEMENTATION-LANGUAGE]` still holds. All of that stays in the Osprey API. This replaces a GCP HTTPS load balancer, Cloud Armor and Certificate Manager (about US$20/month idle) with Cloudflare's free tier. The Worker's outbound fetch validates the Google-issued `run.app` certificate, redirects plain HTTP to HTTPS, refuses TLS below 1.2 (426) and rate-limits per client IP through a Workers rate-limit binding (429). The registry owns no zone-wide rule or setting, so it shares a zone without touching anything else in it. HSTS follows certificate and subdomain checks. Terraform (`src/manager/ops/terraform`) declares the Worker, routes, DNS, Pages project and every GCP resource; `make deploy` drives it ([DEPLOY.md](../../DEPLOY.md)). See [Cloudflare Workers fetch](https://developers.cloudflare.com/workers/runtime-apis/fetch/) and [Google's ingress contract](https://docs.cloud.google.com/run/docs/securing/ingress).
+The registry runs Cloudflare → Cloud Run → Supabase with a host-rewrite Worker and shares no resource, rule or setting with any other deployment. Cloud Run routes by `Host`, and Cloudflare's Host override is not on the free plan, so the Worker fetches the service's `run.app` URL (the runtime sets `Host` to it). It overwrites `X-Edge-Secret` from a Worker secret binding and `X-Edge-Host` with the public hostname. The Worker is transport only: it makes no routing, authorization or package decision, so `[PACKAGE-IMPLEMENTATION-LANGUAGE]` still holds. All of that stays in the Osprey API. This replaces a GCP HTTPS load balancer, Cloud Armor and Certificate Manager (about US$20/month idle) with Cloudflare's free tier. The Worker's outbound fetch validates the Google-issued `run.app` certificate, redirects plain HTTP to HTTPS, refuses TLS below 1.2 (426) and rate-limits per client IP through a Workers rate-limit binding (429). The registry owns no zone-wide rule or setting, so it shares a zone without touching anything else in it. HSTS follows certificate and subdomain checks. Terraform (`src/manager/ops/terraform`) declares the Worker, routes, DNS, Pages project and every GCP resource; `make deploy` drives it ([DEPLOY.md](../../DEPLOY.md)). See [Cloudflare Workers fetch](https://developers.cloudflare.com/workers/runtime-apis/fetch/) and [Google's ingress contract](https://docs.cloud.google.com/run/docs/securing/ingress).
 
 ## Origin and HTTP controls `[PACKAGE-HOSTED-EDGE]`
 
