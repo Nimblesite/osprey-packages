@@ -621,6 +621,13 @@ tables:
       - { name: ticket, type: Uuid, isNullable: false }
       - { name: expires_at, type: DateTimeOffset, isNullable: false }
     primaryKey: { columns: [submission_id] }
+    uniqueConstraints:
+      - { name: uq_scan_claim_ticket, columns: [submission_id, ticket] }
+    triggers:
+      - name: preserve_scan_claim_binding
+        events: [Update]
+        raiseWhen: "old.submission_id <> new.submission_id or old.ticket = new.ticket"
+        errorMessage: scan retry must retain submission and rotate ticket
     foreignKeys:
       - { columns: [submission_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id] }
     rowLevelSecurity:
@@ -654,7 +661,7 @@ tables:
       - { name: decided_at, type: DateTimeOffset, isNullable: false }
     primaryKey: { columns: [submission_id] }
     foreignKeys:
-      - { columns: [submission_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id] }
+      - { columns: [submission_id, claim_ticket], referencedSchema: registry, referencedTable: scan_claims, referencedColumns: [submission_id, ticket], onDelete: Restrict, onUpdate: Restrict }
     rowLevelSecurity:
       enabled: true
       forced: true

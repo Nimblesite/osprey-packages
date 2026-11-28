@@ -1,4 +1,6 @@
 namespace registry_live_tests;
+import registry::Bytes
+import registry_host::Host
 import registry::Bundle
 import registry::Canonical
 import registry::Json
@@ -74,6 +76,14 @@ module ScanWorkerTests {
         }
     }
 
+    fn competingClaims(id) = {
+        let take = "BEGIN; SELECT registry.claim_pending_scan('${id}')::jsonb->>'ticket'; SELECT pg_sleep(0.2); COMMIT;"
+        let client = Ownership::psql("registry_scan_worker") + " -c " + Host::shellWord(take)
+        let race = Ownership::run("{ " + client + " & first=$!; " + client + " & second=$!; wait \"$first\" && wait \"$second\"; }")
+        let ticket = trim(race.stdout)
+        race.status == 0 && Bytes::canonicalUuid(ticket) && CatalogWriter::answers("SELECT ticket FROM registry.scan_claims WHERE submission_id='${id}'", ticket)
+    }
+
     export fn run(seed) = {
         let setup = CatalogWriter::sql("SET search_path=registry,pg_catalog;" + seed).status == 0
         checkAll("frozen collector jobs reach the real scanner and preserve publisher standing", [
@@ -81,6 +91,7 @@ module ScanWorkerTests {
                 scenario(3, "invalid", "pending"), scenario(4, "unavailable", "pending"), scenario(5, "accepted", "pending"),
                 refusesInactiveAgent(6, "UPDATE registry.scan_configuration SET agent_revision=replace(agent_revision,'11111111-','22222222-')"),
                 refusesInactiveAgent(7, "DELETE FROM registry.scan_configuration"),
+                submit(8, "sha256:" + (repeat("8", 64) ?: "")) && competingClaims(job(8)),
                 (scanned(job(1), "", "", "unavailable") ?: "") == job(1),
                 CatalogWriter::answers("SELECT count(*)=2 AND count(*) FILTER(WHERE verdict='accepted')=1 AND count(*) FILTER(WHERE verdict='[\"blocked capability\"]')=1 FROM registry.review_scans", "t"),
                 CatalogWriter::answers("SELECT (SELECT count(*) FROM registry.releases)=0 AND (SELECT count(*) FROM registry.release_approvals)=0 AND (SELECT count(*) FROM registry.package_permissions WHERE state='active')=2 AND (SELECT count(*) FROM registry.principals WHERE state='active')=3", "t")

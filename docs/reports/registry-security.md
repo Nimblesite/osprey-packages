@@ -1,5 +1,9 @@
 # Registry security findings
 
+## Scan workers could renew stale tickets or reassign expired claims
+
+**Fixed on feature branch · [PACKAGE-SECURITY-SCAN-VERDICT].** The scanner role could extend an expired ticket without rotating it in disposable PostgreSQL. The retry policy also lacked a check that retained the original submission. The database now requires retries to rotate tickets on the same submission and binds each verdict to its exact ticket by foreign key. The regression covers two competing worker connections, both invalid retry updates, and ticket replacement after a verdict.
+
 ## Collector admitted a different version than the publisher requested
 
 **High · [PACKAGE-HOSTED-PUBLISH-FLOW] · Feature branch.** On disposable PostgreSQL, a collector with a current publish grant successfully inserted an epoch-2 submission for an epoch-1 intent. The row policy checked the grant alone. This admitted the wrong version to the review queue. Public availability still requires subsequent gates.

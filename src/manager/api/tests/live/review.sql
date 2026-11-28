@@ -82,6 +82,19 @@ INSERT INTO scan_claims VALUES
   (md5('2')::uuid,gen_random_uuid(),statement_timestamp()-interval '2 minutes');
 SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
 DO $$ BEGIN
+  BEGIN
+    UPDATE scan_claims SET expires_at=statement_timestamp()+interval '5 minutes' WHERE submission_id=md5('1')::uuid;
+    RAISE EXCEPTION 'expired scan ticket was renewed without rotating it';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'scan retry must retain submission and rotate ticket' THEN RAISE; END IF;
+  END;
+  BEGIN
+    UPDATE scan_claims SET submission_id=md5('3')::uuid,ticket=gen_random_uuid(),expires_at=statement_timestamp()+interval '5 minutes'
+      WHERE submission_id=md5('1')::uuid;
+    RAISE EXCEPTION 'scan ticket moved to another submission';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'scan retry must retain submission and rotate ticket' THEN RAISE; END IF;
+  END;
   IF registry.claim_pending_scan(NULL)::jsonb->>'id' IS DISTINCT FROM md5('3')::uuid::text THEN
     RAISE EXCEPTION 'an expired lease was retried ahead of an unattempted version';
   END IF;
@@ -109,6 +122,17 @@ SELECT pg_temp.require_denied($cmd$SELECT registry.configure_scan_revision(NULL)
 SELECT pg_temp.require_denied('INSERT INTO scan_configuration VALUES (1,''11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765'')');
 SELECT pg_temp.require_denied(format('SELECT registry.record_scan(%L,%L,%L,%L)',md5('1')::uuid,:'ticket_one',replace('11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','11111111-','22222222-'),'accepted'));
 SELECT registry.record_scan(md5('1')::uuid,:'ticket_one','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','accepted'), registry.record_scan(md5('2')::uuid,:'ticket_two','11111111-1111-4111-8111-111111111111@sha256:de07230359089e8f569ead2e04c1018ddd55d2f7fafcddf4ae26517e63aa3765','["blocked capability"]');
+SAVEPOINT recorded_ticket;
+RESET SESSION AUTHORIZATION;
+DO $$ BEGIN
+  BEGIN
+    UPDATE registry.scan_claims SET ticket=gen_random_uuid() WHERE submission_id=md5('1')::uuid;
+    RAISE EXCEPTION 'recorded scan lost its ticket';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+END $$;
+ROLLBACK TO recorded_ticket;
+RELEASE SAVEPOINT recorded_ticket;
 DO $$ BEGIN
   IF registry.frozen_scan_job(md5('1')::uuid)::jsonb ->> 'dir' IS DISTINCT FROM '@team/one/1.1'
     OR registry.completed_scan(md5('1')::uuid) IS DISTINCT FROM md5('1')::uuid

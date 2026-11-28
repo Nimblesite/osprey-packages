@@ -18,9 +18,11 @@ module CatalogReleases {
         let submission = id(pkg + ordinal)
         let version = "${id(pkg)},1,${ordinal},${digest(fill)}"
         let admitted = "INSERT INTO registry.review_submissions VALUES (${submission},${version},${id("person")});"
-        let scanned = "INSERT INTO registry.review_scans VALUES (${submission},gen_random_uuid(),'catalog-fixture','accepted',now());"
+        let ticket = id("ticket-" + pkg + ordinal)
+        let claimed = "INSERT INTO registry.scan_claims VALUES (${submission},${ticket},now()+interval '5 minutes');"
+        let scanned = "INSERT INTO registry.review_scans VALUES (${submission},${ticket},'catalog-fixture','accepted',now());"
         let approved = "INSERT INTO registry.release_approvals VALUES (${submission},${version},${id("person")},now());"
-        admitted + scanned + approved + "INSERT INTO registry.releases (id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,license_expression,summary,keywords,warnings,notices,state,published_at) VALUES (${id(pkg + ordinal)},${id(org)},${id(pkg)},1,${ordinal},${digest(fill)},${id("person")},'Atlas Engineering','MIT','${summary}','[\"networking\",\"web\"]','[\"Network access\"]','[{\"path\":\"NOTICE.md\",\"text\":\"Upstream\"}]','${status}',now());"
+        admitted + claimed + scanned + approved + "INSERT INTO registry.releases (id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,license_expression,summary,keywords,warnings,notices,state,published_at) VALUES (${id(pkg + ordinal)},${id(org)},${id(pkg)},1,${ordinal},${digest(fill)},${id("person")},'Atlas Engineering','MIT','${summary}','[\"networking\",\"web\"]','[\"Network access\"]','[{\"path\":\"NOTICE.md\",\"text\":\"Upstream\"}]','${status}',now());"
     }
 
     fn seed() = join([
@@ -34,7 +36,7 @@ module CatalogReleases {
             release("sketch", "atlas", "1", "e", "eligible", "Draft"), release("old", "gone", "1", "f", "eligible", "Gone")
         ], "\n")
 
-    let unseed = "DELETE FROM registry.releases; DELETE FROM registry.release_approvals; DELETE FROM registry.review_scans; DELETE FROM registry.review_submissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.principals;"
+    let unseed = "DELETE FROM registry.releases; DELETE FROM registry.release_approvals; DELETE FROM registry.review_scans; DELETE FROM registry.scan_claims; DELETE FROM registry.review_submissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.principals;"
 
     fn releasesOf(entry) = match PublicCatalog::field(entry, "releases") {
         JsonArray(items) => items
