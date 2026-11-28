@@ -11,11 +11,9 @@ import registry_host::Native
 /// Process one frozen scan job by UUID. A retry reads the same immutable job.
 module ScanJob {
     fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
-    let job = "SELECT json_build_object('dir','@'||o.handle||'/'||p.name||'/'||j.epoch||'.'||j.ordinal,'digest',j.digest)::text FROM registry.review_submissions j JOIN registry.packages p ON p.id=j.package_id JOIN registry.organizations o ON o.id=p.organization_id WHERE j.id="
-    let existing = "SELECT submission_id FROM registry.review_scans WHERE submission_id="
-
-    fn receipt(id, revision, result) = Database::scan("INSERT INTO registry.review_scans(submission_id,agent_revision,verdict,decided_at) VALUES (" +
-        Database::decoded(1) + "::uuid," + Database::decoded(2) + "," + Database::decoded(3) + ",statement_timestamp()) RETURNING submission_id", [id, revision, result])
+    fn byId(routine, id) = Database::scan("SELECT registry." + routine + "(" + Database::decoded(1) + "::uuid)", [id])
+    fn receipt(id, revision, result) = Database::scan("SELECT registry.record_scan(" +
+        Database::decoded(1) + "::uuid," + Database::decoded(2) + "," + Database::decoded(3) + ")", [id, revision, result])
 
     fn frozen(digest) = {
         let path = "/run/registry-quarantine/" + Digests::hexOf(digest) + ".json"
@@ -37,12 +35,12 @@ module ScanJob {
         Error => Error { message: "publication.scan-input" }
     }
 
-    fn process(id) = andThen(Database::scan(job + Database::decoded(1) + "::uuid", [id]), fn(raw) =>
+    fn process(id) = andThen(byId("frozen_scan_job", id), fn(raw) =>
         andThen(document(raw), fn(doc) => andThen(readFile("/run/registry-scan/agent.json"), fn(settings) =>
                 andThen(document(settings), fn(config) => review(id, doc, config)))))
 
     export fn run(id) = if !Bytes::canonicalUuid(id) { Error { message: "publication.scan-job" } }
-    else { andThen(Database::scan(existing + Database::decoded(1) + "::uuid", [id]), fn(row) =>
+    else { andThen(byId("completed_scan", id), fn(row) =>
             if row == id { Success { value: id } } else { process(id) }) }
 }
 

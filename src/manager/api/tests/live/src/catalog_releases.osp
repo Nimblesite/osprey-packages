@@ -14,7 +14,14 @@ module CatalogReleases {
     fn organization(name, slug, status) = "INSERT INTO registry.organizations (id,handle,display_name,state,governance_epoch,created_at) VALUES (${id(name)},'${slug}','${slug} org','${status}',1,now());"
     fn membership(name, org) = "INSERT INTO registry.memberships (id,organization_id,principal_id,role,principal_kind,state,authority_epoch,accepted_at) VALUES (${id(name)},${id(org)},${id("person")},'member','human','active',1,now());"
     fn package(name, org, member, status) = "INSERT INTO registry.packages (id,organization_id,name,admin_membership_id,admin_membership_state,admin_principal_kind,authority_epoch,state,created_at) VALUES (${id(name)},${id(org)},'${name}',${id(member)},'active','human',1,'${status}',now());"
-    fn release(pkg, org, ordinal, fill, status, summary) = "INSERT INTO registry.releases (id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,license_expression,summary,keywords,warnings,notices,state,published_at) VALUES (${id(pkg + ordinal)},${id(org)},${id(pkg)},1,${ordinal},${digest(fill)},${id("person")},'Atlas Engineering','MIT','${summary}','[\"networking\",\"web\"]','[\"Network access\"]','[{\"path\":\"NOTICE.md\",\"text\":\"Upstream\"}]','${status}',now());"
+    fn release(pkg, org, ordinal, fill, status, summary) = {
+        let submission = id(pkg + ordinal)
+        let version = "${id(pkg)},1,${ordinal},${digest(fill)}"
+        let admitted = "INSERT INTO registry.review_submissions VALUES (${submission},${version},${id("person")});"
+        let scanned = "INSERT INTO registry.review_scans VALUES (${submission},'catalog-fixture','accepted',now());"
+        let approved = "INSERT INTO registry.release_approvals VALUES (${submission},${version},${id("person")},now());"
+        admitted + scanned + approved + "INSERT INTO registry.releases (id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,license_expression,summary,keywords,warnings,notices,state,published_at) VALUES (${id(pkg + ordinal)},${id(org)},${id(pkg)},1,${ordinal},${digest(fill)},${id("person")},'Atlas Engineering','MIT','${summary}','[\"networking\",\"web\"]','[\"Network access\"]','[{\"path\":\"NOTICE.md\",\"text\":\"Upstream\"}]','${status}',now());"
+    }
 
     fn seed() = join([
             "INSERT INTO registry.principals (id,kind,state,credential_epoch,created_at) VALUES (${id("person")},'human','active',1,now());",
@@ -27,7 +34,7 @@ module CatalogReleases {
             release("sketch", "atlas", "1", "e", "eligible", "Draft"), release("old", "gone", "1", "f", "eligible", "Gone")
         ], "\n")
 
-    let unseed = "DELETE FROM registry.releases; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.principals;"
+    let unseed = "DELETE FROM registry.releases; DELETE FROM registry.release_approvals; DELETE FROM registry.review_scans; DELETE FROM registry.review_submissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.principals;"
 
     fn releasesOf(entry) = match PublicCatalog::field(entry, "releases") {
         JsonArray(items) => items
@@ -57,14 +64,13 @@ module CatalogReleases {
     }
 
     export fn check() = {
-        let ready = CatalogWriter::applied()
         let seeded = CatalogWriter::sql(seed()).status == 0
-        let refreshed = CatalogWriter::sql("SELECT registry.refresh_public_catalog()").status == 0
+        let refreshed = CatalogWriter::refreshed()
         let body = CatalogWriter::readerBody()
         let listed = published(body)
-        let emptied = CatalogWriter::sql(unseed).status == 0 && CatalogWriter::sql("SELECT registry.refresh_public_catalog()").status == 0
+        let emptied = CatalogWriter::sql(unseed).status == 0 && CatalogWriter::refreshed()
         && CatalogWriter::readerBody() == "{\"packages\": []}"
         let clean = CatalogWriter::cleaned()
-        checkAll("the refresher publishes eligible releases of active packages: " + body, [ready, seeded, refreshed, listed, emptied, clean])
+        checkAll("the refresher publishes eligible releases of active packages: " + body, [seeded, refreshed, listed, emptied, clean])
     }
 }

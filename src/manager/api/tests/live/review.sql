@@ -2,10 +2,6 @@
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = registry, pg_catalog;
-CREATE ROLE registry_session_runtime LOGIN;
-GRANT USAGE ON SCHEMA registry TO registry_session_runtime;
-GRANT SELECT ON principals, auth_bindings, browser_sessions TO registry_session_runtime;
-\ir ../../../ops/supabase/review-grants.sql
 -- Deliberately excessive DML grants prove the row boundary independently.
 GRANT INSERT, UPDATE, DELETE, SELECT ON review_submissions, review_scans, release_approvals, release_reviewers TO registry_session_runtime;
 INSERT INTO principals VALUES (md5('alice')::uuid,'human','active',1,now());
@@ -26,10 +22,25 @@ BEGIN
 EXCEPTION WHEN insufficient_privilege THEN NULL;
 END $$;
 SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
-INSERT INTO review_submissions SELECT md5(n::text)::uuid,md5('pkg')::uuid,1,n,'sha256:'||repeat(n::text,64),md5('alice')::uuid FROM generate_series(1,3) n;
+SELECT pg_temp.require_denied('SELECT registry.submit_frozen_version(md5(''1'')::uuid,md5(''pkg'')::uuid,1,1,''sha256:''||repeat(''1'',64),md5(''alice'')::uuid)');
+RESET SESSION AUTHORIZATION;
+INSERT INTO package_permissions VALUES (md5('grant')::uuid,md5('org')::uuid,md5('pkg')::uuid,md5('member')::uuid,
+'publish-release','active',md5('member')::uuid,1,1,now(),NULL);
+SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
+SELECT registry.submit_frozen_version(md5(n::text)::uuid,md5('pkg')::uuid,1,n,'sha256:'||repeat(n::text,64),md5('alice')::uuid) FROM generate_series(1,3) n;
 SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
-INSERT INTO review_scans VALUES (md5('1')::uuid,'fixture-v1','accepted',statement_timestamp()),
-(md5('2')::uuid,'fixture-v1','["blocked capability"]',statement_timestamp());
+DO $$ BEGIN
+  IF (SELECT count(*) FROM review_submissions j JOIN packages p ON p.id=j.package_id JOIN organizations o ON o.id=p.organization_id) <> 3
+
+  THEN RAISE EXCEPTION 'worker job or identity boundary'; END IF;
+END $$;
+SELECT pg_temp.require_denied('SELECT principal_id FROM release_reviewers'), pg_temp.require_denied('SELECT principal_id FROM browser_sessions');
+SELECT registry.record_scan(md5('1')::uuid,'fixture-v1','accepted'), registry.record_scan(md5('2')::uuid,'fixture-v1','["blocked capability"]');
+DO $$ BEGIN
+  IF registry.frozen_scan_job(md5('1')::uuid)::jsonb ->> 'dir' IS DISTINCT FROM '@team/one/1.1'
+    OR registry.completed_scan(md5('1')::uuid) IS DISTINCT FROM md5('1')::uuid
+    OR registry.completed_scan(md5('3')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'incorrect durable scan status'; END IF;
+END $$;
 SELECT pg_temp.require_denied('INSERT INTO review_scans VALUES (md5(''3'')::uuid,''fixture-v1'',''[]'',statement_timestamp())');
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
 SET LOCAL registry.session_issuer = 'issuer';
@@ -41,7 +52,15 @@ SELECT pg_temp.require_denied('INSERT INTO release_reviewers VALUES (md5(''alice
 RESET SESSION AUTHORIZATION;
 INSERT INTO release_reviewers VALUES (md5('alice')::uuid);
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
-SELECT pg_temp.approve(1);
+DO $$ BEGIN
+  IF registry.approve_submission(md5('1')::uuid,'sha256:'||repeat('9',64)) IS NOT NULL OR
+     registry.approve_submission(md5('1')::uuid,'sha256:'||repeat('1',64)) IS DISTINCT FROM md5('1')::uuid OR
+     registry.approve_submission(md5('2')::uuid,'sha256:'||repeat('2',64)) IS NOT NULL
+  THEN RAISE EXCEPTION 'approval routine accepted the wrong receipt or refused the approved version'; END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM review_submissions) <> 3 THEN RAISE EXCEPTION 'missing review candidates'; END IF;
+END $$;
 SELECT pg_temp.require_denied('SELECT pg_temp.approve(2)'), pg_temp.require_denied('SELECT pg_temp.approve(3)');
 SELECT pg_temp.require_denied('INSERT INTO review_scans VALUES (md5(''3'')::uuid,''fake'',''accepted'',statement_timestamp())');
 DELETE FROM release_approvals;
@@ -50,5 +69,30 @@ RESET SESSION AUTHORIZATION;
 DO $$ BEGIN
   IF (SELECT count(*) FROM release_approvals) <> 1 OR EXISTS (SELECT FROM review_submissions WHERE ordinal=99)
   THEN RAISE EXCEPTION 'immutable decision or submission changed'; END IF;
+END $$;
+CREATE FUNCTION pg_temp.publish(n int, content text) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO registry.releases(id,organization_id,package_id,epoch,ordinal,digest,publisher_principal_id,publisher_name,
+    license_expression,summary,keywords,warnings,notices,state,published_at)
+  VALUES(md5(n::text)::uuid,md5('org')::uuid,md5('pkg')::uuid,1,n,content,md5('alice')::uuid,'Alice',
+    'MIT','Test package','[]','[]','[]','eligible',now())
+$$;
+DO $$ BEGIN
+  BEGIN
+    PERFORM pg_temp.publish(2,'sha256:'||repeat('2',64));
+    RAISE EXCEPTION 'unsigned version entered releases';
+  EXCEPTION WHEN foreign_key_violation THEN NULL; END;
+  BEGIN
+    PERFORM pg_temp.publish(1,'sha256:'||repeat('9',64));
+    RAISE EXCEPTION 'substituted digest entered releases';
+  EXCEPTION WHEN foreign_key_violation THEN NULL; END;
+  PERFORM pg_temp.publish(1,'sha256:'||repeat('1',64));
+END $$;
+SET LOCAL SESSION AUTHORIZATION registry_catalog_writer;
+SELECT registry.refresh_public_catalog();
+SELECT pg_temp.require_denied($denied$UPDATE registry.public_catalog SET body='{"packages":[]}',verified_at=statement_timestamp(),expires_at=statement_timestamp()+interval '1 hour'$denied$);
+SET LOCAL SESSION AUTHORIZATION registry_catalog_reader;
+DO $$ BEGIN
+  IF jsonb_array_length((SELECT body::jsonb FROM registry.public_catalog)->'packages'->0->'releases') IS DISTINCT FROM 1
+    THEN RAISE EXCEPTION 'public reader must see only the approved version'; END IF;
 END $$;
 ROLLBACK;

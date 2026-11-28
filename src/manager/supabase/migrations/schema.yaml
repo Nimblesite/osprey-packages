@@ -19,10 +19,11 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: collector_principals, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
         - name: session_identity_principal
           permissive: true
           operations: [Select]
-          roles: []
+          roles: [registry_session_issuer, registry_session_runtime]
           using: >-
             (current_setting('session_authorization') = 'registry_session_issuer'
             OR current_setting('session_authorization') = 'registry_session_runtime')
@@ -79,6 +80,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: collector_organizations, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
         - { name: scan_scope, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.organization_id = organizations.id)" }
         - { name: catalog_writer_organizations, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
 
@@ -104,7 +106,11 @@ tables:
     foreignKeys:
       - { columns: [organization_id], referencedSchema: registry, referencedTable: organizations, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [principal_id, principal_kind], referencedSchema: registry, referencedTable: principals, referencedColumns: [id, kind], onDelete: Restrict, onUpdate: Restrict }
-    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: collector_memberships, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
 
   - name: recovery_authorities
     schema: registry
@@ -148,6 +154,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: collector_packages, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active' OR state = 'draft'" }
         - { name: scan_package, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
         - { name: catalog_writer_packages, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
 
@@ -174,7 +181,11 @@ tables:
       - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [organization_id, membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [organization_id, granted_by_membership_id], referencedSchema: registry, referencedTable: memberships, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
-    rowLevelSecurity: { enabled: true, forced: true, policies: [] }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: collector_package_permissions, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "permission = 'publish-release' AND state = 'active' AND (expires_at IS NULL OR expires_at > statement_timestamp())" }
 
   - name: admin_transfers
     schema: registry
@@ -331,13 +342,16 @@ tables:
           permissive: true
           operations: [Insert]
           roles: []
-          withCheck: *catalog_writer
+          withCheck: &catalog_write_check >-
+            pg_catalog."current_user"() = 'registry_catalog_writer' AND id = 1
+            AND verified_at = statement_timestamp() AND expires_at = verified_at + interval '1 hour'
+            AND body = registry.approved_catalog_body()
         - name: catalog_writer_update
           permissive: true
           operations: [Update]
           roles: []
           using: *catalog_writer
-          withCheck: *catalog_writer
+          withCheck: *catalog_write_check
 
   - name: browser_sessions
     schema: registry
@@ -445,6 +459,7 @@ tables:
     primaryKey: { columns: [id] }
     uniqueConstraints:
       - { name: uq_review_candidate, columns: [package_id, epoch, ordinal, digest] }
+      - { name: uq_review_publisher, columns: [id, publisher_id] }
       - { name: uq_review_binding, columns: [id, package_id, epoch, ordinal, digest] }
     foreignKeys:
       - { columns: [package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [id] }
@@ -453,7 +468,7 @@ tables:
       enabled: true
       forced: true
       policies:
-        - { name: collector_submit, permissive: true, operations: [Insert], roles: [registry_publication_collector], withCheck: "current_setting('session_authorization') = 'registry_publication_collector'" }
+        - { name: collector_submit, permissive: true, operations: [Insert], roles: [registry_publication_collector], withCheck: "current_setting('session_authorization') = 'registry_publication_collector' AND registry.can_submit_version(publisher_id,package_id)" }
         - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
         - { name: scanner_queue, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
 
@@ -560,6 +575,9 @@ tables:
       - { name: uq_releases_version, columns: [package_id, epoch, ordinal] }
       - { name: uq_releases_digest, columns: [digest] }
     foreignKeys:
+      - { columns: [id], referencedSchema: registry, referencedTable: release_approvals, referencedColumns: [submission_id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [id, package_id, epoch, ordinal, digest], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id, package_id, epoch, ordinal, digest], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [id, publisher_principal_id], referencedSchema: registry, referencedTable: review_submissions, referencedColumns: [id, publisher_id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
       - { columns: [publisher_principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
     rowLevelSecurity:
@@ -600,5 +618,120 @@ grants:
   - { schema: registry, target: Table, objectName: releases, privileges: [SELECT], roles: [registry_catalog_writer] }
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_catalog_writer] }
   - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_catalog_writer] }
-  - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_session_runtime] }
-  - { schema: registry, target: Table, objectName: release_reviewers, privileges: [SELECT], roles: [registry_scan_worker] }
+# Stored functions are the only data access [PACKAGE-OWNERSHIP-RLS]: SECURITY INVOKER, so RLS decides
+# every row, and EXECUTE for exactly the role that calls each.
+  - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: memberships, privileges: [SELECT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: package_permissions, privileges: [SELECT], roles: [registry_publication_collector] }
+functions:
+  # The live catalog row as `<expires_at unix seconds> <body>`, or NULL [PACKAGE-HOSTED-ROUTES-CATALOG].
+  - schema: registry
+    name: public_catalog_timed
+    returns: text
+    language: sql
+    volatility: stable
+    executeRoles: [registry_catalog_reader]
+    body: >-
+      SELECT floor(extract(epoch FROM expires_at))::bigint || ' ' || body FROM registry.public_catalog
+      WHERE id = 1 AND verified_at <= statement_timestamp() AND expires_at > statement_timestamp()
+  # Re-attest row 1 from the eligible releases of active packages in active organizations, newest
+  # release first, package metadata from its newest eligible release, one-hour lifetime.
+  - schema: registry
+    name: approved_catalog_body
+    returns: text
+    language: sql
+    volatility: stable
+    executeRoles: [registry_catalog_writer]
+    body: >-
+      SELECT jsonb_build_object('packages', COALESCE(jsonb_agg(e.entry ORDER BY e.key), '[]'::jsonb))::text
+      FROM (SELECT '@' || o.handle || '/' || p.name AS key, jsonb_build_object('key', '@' || o.handle || '/' || p.name,
+      'summary', n.summary, 'keywords', n.keywords::jsonb, 'warnings', n.warnings::jsonb,
+      'releases', (SELECT jsonb_agg(jsonb_build_object('digest', r.digest, 'epoch', r.epoch, 'ordinal', r.ordinal,
+      'publisherId', r.publisher_principal_id::text, 'publisherName', r.publisher_name,
+      'licenseExpression', r.license_expression, 'notices', r.notices::jsonb) ORDER BY r.epoch DESC, r.ordinal DESC)
+      FROM registry.releases r WHERE r.package_id = p.id AND r.state = 'eligible')) AS entry
+      FROM registry.packages p JOIN registry.organizations o ON o.id = p.organization_id
+      JOIN LATERAL (SELECT r.summary, r.keywords, r.warnings FROM registry.releases r
+      WHERE r.package_id = p.id AND r.state = 'eligible' ORDER BY r.epoch DESC, r.ordinal DESC LIMIT 1) n ON true
+      WHERE p.state = 'active' AND o.state = 'active') e
+  - schema: registry
+    name: refresh_public_catalog
+    returns: void
+    language: sql
+    volatility: volatile
+    executeRoles: [registry_catalog_writer]
+    body: >-
+      INSERT INTO registry.public_catalog (id, verified_at, expires_at, body)
+      VALUES (1,statement_timestamp(),statement_timestamp()+interval '1 hour',registry.approved_catalog_body())
+      ON CONFLICT (id) DO UPDATE SET verified_at = excluded.verified_at, expires_at = excluded.expires_at, body = excluded.body
+
+# [PACKAGE-SECURITY-SCAN-APPROVAL] Invoker rights preserve the caller's grants
+# and row policies throughout admission, scanning and approval.
+  - schema: registry
+    name: can_submit_version
+    arguments: [{ name: publisher, type: uuid }, { name: pkg, type: uuid }]
+    returns: boolean
+    executeRoles: [registry_publication_collector]
+    body: >-
+      SELECT EXISTS (SELECT FROM registry.packages p JOIN registry.organizations o ON o.id=p.organization_id
+      JOIN registry.package_permissions g ON g.organization_id=o.id AND g.package_id=p.id AND g.authority_epoch=p.authority_epoch
+      JOIN registry.memberships m ON m.id=g.membership_id AND m.organization_id=o.id AND m.authority_epoch=g.membership_authority_epoch
+      JOIN registry.principals a ON a.id=m.principal_id AND a.kind=m.principal_kind
+      WHERE p.id=pkg AND a.id=publisher AND g.permission='publish-release' AND g.state='active'
+      AND (g.expires_at IS NULL OR g.expires_at>statement_timestamp()) AND a.state='active' AND m.state='active'
+      AND p.state IN ('active','draft') AND o.state='active')
+
+  - schema: registry
+    name: submit_frozen_version
+    arguments: [{ name: job_id, type: uuid }, { name: pkg, type: uuid }, { name: release_epoch, type: bigint }, { name: release_ordinal, type: bigint }, { name: source_digest, type: text }, { name: publisher, type: uuid }]
+    returns: void
+    volatility: volatile
+    executeRoles: [registry_publication_collector]
+    body: >-
+      INSERT INTO registry.review_submissions(id,package_id,epoch,ordinal,digest,publisher_id)
+      VALUES (job_id,pkg,release_epoch,release_ordinal,source_digest,publisher)
+
+  - schema: registry
+    name: frozen_scan_job
+    arguments: [{ name: job_id, type: uuid }]
+    returns: text
+    executeRoles: [registry_scan_worker]
+    body: >-
+      SELECT json_build_object('dir','@'||o.handle||'/'||p.name||'/'||j.epoch||'.'||j.ordinal,'digest',j.digest)::text
+      FROM registry.review_submissions j JOIN registry.packages p ON p.id=j.package_id
+      JOIN registry.organizations o ON o.id=p.organization_id WHERE j.id=job_id
+
+  - schema: registry
+    name: completed_scan
+    arguments: [{ name: job_id, type: uuid }]
+    returns: uuid
+    executeRoles: [registry_scan_worker]
+    body: SELECT submission_id FROM registry.review_scans WHERE submission_id=job_id
+
+  - schema: registry
+    name: record_scan
+    arguments: [{ name: job_id, type: uuid }, { name: revision, type: text }, { name: decision, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_scan_worker]
+    body: >-
+      INSERT INTO registry.review_scans(submission_id,agent_revision,verdict,decided_at)
+      VALUES (job_id,revision,decision,statement_timestamp()) RETURNING submission_id
+
+  - schema: registry
+    name: approve_submission
+    arguments: [{ name: job_id, type: uuid }, { name: reviewed_digest, type: text }]
+    returns: uuid
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      WITH approved AS (
+      INSERT INTO registry.release_approvals(submission_id,package_id,epoch,ordinal,digest,reviewer_id,approved_at)
+      SELECT j.id,j.package_id,j.epoch,j.ordinal,j.digest,r.principal_id,statement_timestamp()
+      FROM registry.review_submissions j CROSS JOIN registry.release_reviewers r
+      WHERE j.id=job_id AND j.digest=reviewed_digest
+      AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id=j.id AND s.verdict='accepted')
+      ON CONFLICT DO NOTHING RETURNING 1)
+      SELECT job_id FROM approved
