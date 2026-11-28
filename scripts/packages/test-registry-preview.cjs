@@ -245,7 +245,7 @@ async function checkMobileMenu(browser) {
         assert.equal((await box('main')).x, cover.x, path);
       }
       await page.goto('http://127.0.0.1:4187/');
-      await page.getByRole('link', { name: 'By publisher' }).click();
+      await page.getByRole('navigation', { name: 'Browse packages' }).getByRole('link', { name: 'By publisher' }).click();
       await page.getByRole('link', { name: 'Osprey repository publisher' }).click();
       await page.locator('.prose-credits').getByRole('link', { name: '@osprey/fastapi', exact: true }).first().click();
       await page.getByRole('link', { name: 'python-flavor', exact: true }).click();
@@ -253,7 +253,7 @@ async function checkMobileMenu(browser) {
       assert.ok(await page.getByRole('link', { name: '@osprey/fastapi', exact: true }).count());
       assert.equal(await page.getByRole('link', { name: '@osprey/express', exact: true }).count(), 0);
       await page.goto('http://127.0.0.1:4187/');
-      await page.getByRole('link', { name: 'By tag' }).click();
+      await page.getByRole('navigation', { name: 'Browse packages' }).getByRole('link', { name: 'By tag' }).click();
       await page.getByRole('link', { name: 'python-flavor', exact: true }).click();
       await page.getByRole('link', { name: '@osprey/fastapi', exact: true }).click();
       assert.deepEqual(await box('.prose-bar'), header);

@@ -17,6 +17,7 @@ module ReviewHttpTests {
 
     let org = "22222222-2222-4222-8222-222222222222"
     let pkg = "33333333-3333-4333-8333-333333333333"
+    let netPackage = "{\"name\":\"net\"}"
 
     export fn organize(cookie, slug, name) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
     else if slug == "atlas" && name == "Atlas Engineering" { Success { value: org } } else { Error { message: HostedOwnership::refused } }
@@ -84,12 +85,12 @@ module ReviewHttpTests {
                 startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"atlas\",\"name\":\" Atlas\"}"), "400|"),
                 startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"atlas\"}"), "400|"),
                 startsWith(answer(client, HostedOwnership::organizations, json(auth), "{\"handle\":\"taken\",\"name\":\"Taken\"}"), "409|"),
-                answer(client, packages, json(auth), "{\"name\":\"net\"}") == "201|{\"id\":\"${pkg}\"}",
-                startsWith(answer(client, packages, json(cookie), "{\"name\":\"net\"}"), "403|"),
+                answer(client, packages, json(auth), netPackage) == "201|{\"id\":\"${pkg}\"}",
+                startsWith(answer(client, packages, json(cookie), netPackage), "403|"),
                 startsWith(answer(client, packages, json(auth), "{\"name\":\"\"}"), "400|"),
-                startsWith(answer(client, HostedOwnership::organizations + "/not-a-uuid/packages", json(auth), "{\"name\":\"net\"}"), "400|"),
+                startsWith(answer(client, HostedOwnership::organizations + "/not-a-uuid/packages", json(auth), netPackage), "400|"),
                 startsWith(answer(client, packages, json(auth), "{\"name\":\"other\"}"), "409|"),
-                startsWith(answer(client, HostedOwnership::organizations + "/" + pkg + "/packages", json(auth), "{\"name\":\"net\"}"), "409|")
+                startsWith(answer(client, HostedOwnership::organizations + "/" + pkg + "/packages", json(auth), netPackage), "409|")
         ])
     }
 

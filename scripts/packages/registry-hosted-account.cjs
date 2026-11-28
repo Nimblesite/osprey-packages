@@ -31,14 +31,14 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
       await route.fulfill({response:upstream});
     });
     await page.goto(website);
-    await page.getByRole('link', {name:'By tag'}).click();
+    await page.getByRole('navigation', {name:'Browse packages'}).getByRole('link', {name:'By tag'}).click();
     await page.getByRole('heading', {name:'Tags', exact:true}).waitFor();
     await page.getByText('No tags have five packages yet.').waitFor();
     assert.equal(await page.getByRole('link', {name:'graphics', exact:true}).count(), 0);
     await page.goto(website + '/tags/graphics/');
     await page.getByRole('heading', {name:'Tag not found'}).waitFor();
     await page.goto(website);
-    await page.getByRole('link', {name:'By publisher'}).click();
+    await page.getByRole('navigation', {name:'Browse packages'}).getByRole('link', {name:'By publisher'}).click();
     await page.getByRole('heading', {name:'Publishers'}).waitFor();
     assert.equal(await page.getByRole('link', {name:'Atlas Engineering', exact:true}).count(), 1);
     await page.goto(website + '/?q=http');
