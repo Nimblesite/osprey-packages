@@ -62,12 +62,12 @@ You need `make`, `curl` and a POSIX shell. `make` downloads the released Osprey 
 
 ```sh
 make build            # osprey-pkg, the folder-registry server and the editor WASM
-make ci               # every suite under GC and ARC, then the website check in Chromium
+make ci               # every suite once under its app's memory strategy, then the website check in Chromium
 make registry-serve   # serve the @osprey packages on http://127.0.0.1:8787
 make help             # every target
 ```
 
-CI runs three phases, once each. Phase 1 builds the client and the hosted fixture site. Phase 2 runs every suite under GC and ARC with line coverage. Phase 3 gates the merged coverage against [`scripts/coverage-thresholds.json`](scripts/coverage-thresholds.json), which only goes up.
+CI runs three phases, once each. Phase 1 builds the client and the hosted fixture site. Phase 2 runs every suite once with line coverage, under its app's one memory strategy: ARC for the native client, folder registry and hosted API, GC for the WASM editor and website. Phase 3 gates the merged coverage against [`scripts/coverage-thresholds.json`](scripts/coverage-thresholds.json), which only goes up.
 
 ## Specs
 

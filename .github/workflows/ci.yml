@@ -56,12 +56,8 @@ jobs:
           if-no-files-found: error
 
   test:
-    name: "Tests: package manager (${{ matrix.memory }})"
+    name: "Tests: package manager"
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        memory: [gc, arc]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -82,24 +78,19 @@ jobs:
           uv --version
           uv python install 3.12
       - name: Package manager security and integration suites
-        run: make _test_registry REGISTRY_MEMORY=${{ matrix.memory }} REGISTRY_COVERAGE=target/coverage
+        run: make _test_registry REGISTRY_COVERAGE=target/coverage
       - name: Allocation-free package hashing
-        if: matrix.memory == 'gc'
         run: make _package-hashing
       - uses: actions/upload-artifact@v7
         with:
-          name: coverage-${{ matrix.memory }}
+          name: coverage-registry
           path: target/coverage/
           retention-days: 1
           if-no-files-found: error
 
   hunt:
-    name: "Hunt: symbolic execution (${{ matrix.memory }})"
+    name: "Hunt: symbolic execution"
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        memory: [gc, arc]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -110,11 +101,11 @@ jobs:
           /home/linuxbrew/.linuxbrew/bin/brew install klee
           echo /home/linuxbrew/.linuxbrew/bin >> "$GITHUB_PATH"
       - name: osprey hunt from every program entry
-        run: make _hunt HUNT_MEMORY=${{ matrix.memory }}
+        run: make _hunt
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: hunt-${{ matrix.memory }}
+          name: hunt
           path: target/hunt/
           retention-days: 7
 

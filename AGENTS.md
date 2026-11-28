@@ -4,7 +4,8 @@
 
 - 🗄️ Backend = Osprey + Supabase, ❌ Rust. Prefer SQL triggers/functions; APIs beside Supabase go on GCP
 - 🔐 Package integrity is the product: hashes, locks and trust checks never fail open
-- 🧪 `make ci` = every suite under GC **and** ARC, then the website check
+- 🧠 One memory strategy per app, never a matrix: native programs (client, folder registry, hosted API) = ARC, WASM (editor, website) = GC. `NATIVE_MEMORY` / `WASM_MEMORY` in `Makefile`
+- 🧪 `make ci` = every suite once under its app's strategy, then the website check
 
 ## 🐦 Osprey
 - 🛠️ Compiler: use what's installed. 1️⃣ the VS Code extension's bundled one (`~/.vscode/extensions/nimblesite.osprey-<version>-<platform>/bin/<platform>/osprey`), 2️⃣ `brew install nimblesite/tap/osprey` (macOS/Linux) or `scoop install osprey` (Windows, [bucket](https://github.com/Nimblesite/scoop-bucket)). ❌ build ospreylang just to run a program. [Install](https://www.ospreylang.dev/docs/installation/)

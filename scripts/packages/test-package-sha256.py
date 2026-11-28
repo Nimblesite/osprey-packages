@@ -26,7 +26,7 @@ def emit_ir(directory):
         'fn run() = { print(Sha256::ofString("abc"))\n0 }\n'
         'fn main() = Policy::guarded(run)\n')
     return subprocess.run([os.environ.get("OSPREY_COMPILER", str(ROOT / "target/ci/osprey")),
-                           str(directory), "--llvm", "--memory=gc"],
+                           str(directory), "--llvm", "--memory=arc"],
                           text=True, capture_output=True, check=True).stdout
 
 

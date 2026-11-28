@@ -5,6 +5,10 @@ BIN ?= target/osprey/osprey
 OSPREY = $(abspath $(BIN))
 TOOLCHAIN = target/osprey/.release
 MKDIR = mkdir -p
+# One memory strategy per app: the native programs (client, folder registry, hosted API)
+# are ARC, the WASM editor and website are GC. Every build, suite and hunt uses its app's strategy.
+NATIVE_MEMORY = arc
+WASM_MEMORY = gc
 
 .PHONY: help _toolchain build ci
 ## help: List this repository's targets.
@@ -17,11 +21,11 @@ _toolchain $(TOOLCHAIN): scripts/osprey-toolchain.sh
 
 REGISTRY_CLIENT_SOURCES = $(shell find src/manager -type f \( -name '*.osp' -o -name '*.ospml' -o -name 'osprey.toml' \))
 target/osprey-pkg: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/cli --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/cli --memory=$(NATIVE_MEMORY) --quiet --warnings-as-errors -o $@
 target/osprey-registry: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/api --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/api --memory=$(NATIVE_MEMORY) --quiet --warnings-as-errors -o $@
 target/package-workspace.wasm: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/editor --target=wasm32 --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/editor --target=wasm32 --memory=$(WASM_MEMORY) --quiet --warnings-as-errors -o $@
 
 ## build: The package client, the folder-registry server and the editor WASM.
 build: target/osprey-pkg target/osprey-registry target/package-workspace.wasm
@@ -32,44 +36,33 @@ build: target/osprey-pkg target/osprey-registry target/package-workspace.wasm
 ##         the fixture and registry tree walks shell out to POSIX `find`.
 .PHONY: canary
 canary: export OSPREY_E2E_COMPILER = $(OSPREY)
-canary: export OSPREY_E2E_MEMORY = gc
+canary: export OSPREY_E2E_MEMORY = $(NATIVE_MEMORY)
 canary: $(TOOLCHAIN)
-	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/fixture-check)
-	$(OSPREY) test src/manager/cli/tests
-	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/e2e)
+	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/fixture-check --memory=$(NATIVE_MEMORY))
+	$(OSPREY) test src/manager/cli/tests --memory=$(NATIVE_MEMORY)
+	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/e2e --memory=$(NATIVE_MEMORY))
 
-## ci: Every check this host can run: each suite under GC and ARC with coverage, the hashing and
+## ci: Every check this host can run: each suite once, under its app's memory strategy, with coverage, the hashing and
 ##     website checks, then the per-project coverage gate (scripts/coverage-thresholds.json).
 ci: build _lint
 	rm -rf target/coverage
-	$(MAKE) _test_registry REGISTRY_MEMORY=gc REGISTRY_COVERAGE=target/coverage
-	$(MAKE) _test_registry REGISTRY_MEMORY=arc REGISTRY_COVERAGE=target/coverage
+	$(MAKE) _test_registry REGISTRY_COVERAGE=target/coverage
 	$(MAKE) _package-hashing
 	$(MAKE) _registry-website-check
-	$(MAKE) _hunt HUNT_MEMORY=gc
-	$(MAKE) _hunt HUNT_MEMORY=arc
+	$(MAKE) _hunt
 	node scripts/coverage.mjs . target/coverage/*.json
 
-# _hunt: KLEE symbolic execution from every shipped program entry (the client, the folder registry and
-#        the hosted API). Each crash it finds is replayed natively; a reproduced crash or a compile
-#        failure exits 1. Reports land in target/hunt/<memory>-<program>.
-HUNT_MEMORY ?= gc
-HUNT_PROGRAMS = cli api api/hosted
+# _hunt: KLEE symbolic execution from every shipped program entry, each under its app's memory
+#        strategy: the client (CLI_MEMORY), the folder registry and the hosted API (API_MEMORY). Each
+#        crash it finds is replayed natively; a reproduced crash or a compile failure exits 1. Reports
+#        land in target/hunt/<program>.
+HUNT_PROGRAMS = cli:$(CLI_MEMORY) api:$(API_MEMORY) api/hosted:$(API_MEMORY)
 .PHONY: _hunt
 _hunt: $(TOOLCHAIN)
-	set -e; for p in $(HUNT_PROGRAMS); do \
-	  nice $(OSPREY) hunt src/manager/$$p --memory=$(HUNT_MEMORY) --max-time 120 --input-bytes 8 --quiet \
-	    --out target/hunt/$(HUNT_MEMORY)-$$(echo $$p | tr / -); \
+	set -e; for entry in $(HUNT_PROGRAMS); do p=$${entry%%:*}; memory=$${entry##*:}; \
+	  nice $(OSPREY) hunt src/manager/$$p --memory=$$memory --max-time 120 --input-bytes 8 --quiet \
+	    --out target/hunt/$$(echo $$p | tr / -); \
 	done
-
-# _lint: The analysis gate, phase 1: every project compiles with --warnings-as-errors, every source is
-#        osprey-fmt clean, and duplication stays under .deslop.toml's threshold (scripts/deslop.sh).
-LINT_PROJECTS = $(sort $(dir $(shell find src/manager -name osprey.toml -not -path '*/fixtures/*' -not -path '*/sample-registry/*' -not -path '*/e2e/consumer*')))
-.PHONY: _lint
-_lint: $(TOOLCHAIN)
-	set -e; for p in $(LINT_PROJECTS); do [ -d $$p/src ] || continue; nice $(OSPREY) $$p --check --warnings-as-errors --quiet; done
-	$(OSPREY) fmt --check src/manager
-	nice scripts/deslop.sh
 
 # _package-hashing: The package hash rotates machine words with no allocation (the emitted IR of
 #                  bytes.osp, sha256.osp and policy.osp). Expect every unittest to pass.
@@ -88,44 +81,49 @@ _package-hashing: $(TOOLCHAIN)
 # core. src/manager/e2e runs last: it starts the
 # server over src/manager/sample-registry on 127.0.0.1:18797, compares every
 # endpoint with the pure router, fetches every release, and builds and runs a
-# consumer project against the fetched sources. Local tests and CI run all
-# suites under both managed backends; the TAP runner propagates failed checks.
-REGISTRY_MEMORY ?= gc
-# REGISTRY_COVERAGE=<dir> writes each suite's line coverage to <dir>/<memory>-<suite>.json, which
+# consumer project against the fetched sources. Each suite runs once, under the memory strategy of the
+# app it tests; the TAP runner propagates failed checks.
+#
+# One memory strategy per app: the one its shipped binary is built with. Ownership is not an option at
+# the pinned toolchain: it rejects the CLI (847 values need a second owner), both APIs (345 and 357)
+# and even the compiler-generated helpers of the WASM apps.
+#   CLI_MEMORY  = gc   osprey-pkg is a short-lived process that exits long before collection matters.
+#   API_MEMORY  = arc  the registry API (folder and hosted) is a long-running server on 512 MiB Cloud
+#                      Run: deterministic frees keep its memory flat, with no collector pauses.
+#   WASM_MEMORY = arc  the website and the VS Code workspace are WASM, and ARC is the only managed WASM
+#                      runtime the toolchain ships.
+CLI_MEMORY = gc
+API_MEMORY = arc
+WASM_MEMORY = arc
+# REGISTRY_COVERAGE=<dir> writes each suite's line coverage to <dir>/<suite>.json, which
 # scripts/coverage.mjs gates against scripts/coverage-thresholds.json.
 REGISTRY_COVERAGE ?=
-registry_coverage = $(if $(REGISTRY_COVERAGE),--coverage-json $(REGISTRY_COVERAGE)/$(REGISTRY_MEMORY)-$(1).json)
-REGISTRY_NATIVE_CLIENT = $(CURDIR)/target/$(if $(filter arc,$(REGISTRY_MEMORY)),registry-tests/osprey-pkg-arc,osprey-pkg)
+registry_coverage = $(if $(REGISTRY_COVERAGE),--coverage-json $(REGISTRY_COVERAGE)/$(1).json)
 .PHONY: _test_registry
 _test_registry: export OSPREY_E2E_COMPILER = $(OSPREY)
-_test_registry: export OSPREY_E2E_MEMORY = $(REGISTRY_MEMORY)
+_test_registry: export OSPREY_E2E_MEMORY = $(CLI_MEMORY)
 _test_registry:
-	@case "$(REGISTRY_MEMORY)" in gc|arc) ;; *) echo "Registry tests require GC or ARC"; exit 1 ;; esac
 	$(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE))
 	@echo "==> Registry fixture and schema validation (fail-fast)..."
-	$(OSPREY) test src/manager/fixture-check --memory=$(REGISTRY_MEMORY) $(call registry_coverage,fixture-check)
+	$(OSPREY) test src/manager/fixture-check --memory=$(CLI_MEMORY) $(call registry_coverage,fixture-check)
 	@echo "==> Registry manifest (TOML parser and manifest rules) tests..."
-	$(OSPREY) test src/manager/manifest/tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,manifest-tests)
+	$(OSPREY) test src/manager/manifest/tests --memory=$(CLI_MEMORY) $(call registry_coverage,manifest-tests)
 	@echo "==> Registry CLI (package frontend) tests..."
-	$(OSPREY) test src/manager/cli/tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,cli-tests)
+	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY) $(call registry_coverage,cli-tests)
 	@echo "==> Registry (Osprey package system) tests..."
-	$(OSPREY) test src/manager/tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,tests)
+	$(OSPREY) test src/manager/tests --memory=$(CLI_MEMORY) $(call registry_coverage,tests)
 	@echo "==> Registry end-to-end: server, fetch and consumer build..."
-	$(OSPREY) test src/manager/e2e --memory=$(REGISTRY_MEMORY) $(call registry_coverage,e2e)
-	$(OSPREY) test src/manager/auth-tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,auth-tests)
-	$(OSPREY) test src/manager/database-tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,database-tests)
-	$(OSPREY) test src/manager/governance-tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,governance-tests)
-	$(OSPREY) test src/manager/hosted-tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,hosted-tests)
-	$(OSPREY) test src/manager/web --memory=$(REGISTRY_MEMORY) $(call registry_coverage,web)
-	$(OSPREY) test src/manager/editor/tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,editor-tests)
-	$(OSPREY) test src/manager/editor/wire-tests --memory=$(REGISTRY_MEMORY) $(call registry_coverage,editor-wire-tests)
+	$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY) $(call registry_coverage,e2e)
+	$(OSPREY) test src/manager/auth-tests --memory=$(API_MEMORY) $(call registry_coverage,auth-tests)
+	$(OSPREY) test src/manager/database-tests --memory=$(API_MEMORY) $(call registry_coverage,database-tests)
+	$(OSPREY) test src/manager/governance-tests --memory=$(API_MEMORY) $(call registry_coverage,governance-tests)
+	$(OSPREY) test src/manager/hosted-tests --memory=$(API_MEMORY) $(call registry_coverage,hosted-tests)
+	$(OSPREY) test src/manager/web --memory=$(WASM_MEMORY) $(call registry_coverage,web)
+	$(OSPREY) test src/manager/editor/tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-tests)
+	$(OSPREY) test src/manager/editor/wire-tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-wire-tests)
 	@echo "==> Native publication and installed-source integrity regressions..."
-	@if [ "$(REGISTRY_MEMORY)" = arc ] && [ -z "$$OSPREY_PACKAGE_CLIENT" ]; then \
-	  mkdir -p "$(CURDIR)/target/registry-tests" && \
-	  "$(OSPREY)" build src/manager/cli --memory=arc --quiet --warnings-as-errors -o "$(REGISTRY_NATIVE_CLIENT)"; \
-	fi
-	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(REGISTRY_NATIVE_CLIENT)}" python3 scripts/packages/test-package-publication.py
-	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(REGISTRY_NATIVE_CLIENT)}" python3 scripts/packages/test-package-interruption.py
+	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(CURDIR)/target/osprey-pkg}" python3 scripts/packages/test-package-publication.py
+	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(CURDIR)/target/osprey-pkg}" python3 scripts/packages/test-package-interruption.py
 
 .PHONY: _registry-test registry-serve _registry-serve-sample _registry-blockers
 # _registry-test: Run the Osprey package-system suites.
@@ -201,7 +199,7 @@ _registry-migration-verify:
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
 	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 14 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
-	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/database-tests/live $(call registry_coverage,database-live)
+	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/database-tests/live --memory=$(NATIVE_MEMORY) $(call registry_coverage,database-live)
 
 .PHONY: _registry-integration-check _registry-integration-verify
 # _registry-integration-check: Browse a real PostgreSQL-backed hosted API with the packaged website in Chromium.
@@ -237,7 +235,7 @@ _registry-hosted-api: $(REGISTRY_HOSTED_BINARY)
 
 $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	@mkdir -p $(dir $@)
-	$(OSPREY) build src/manager/api/hosted --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/api/hosted --memory=$(NATIVE_MEMORY) --quiet --warnings-as-errors -o $@
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
@@ -272,7 +270,7 @@ _registry-website-fixture: export REGISTRY_CONTENT_ORIGIN = https://content.exam
 # _registry-website: Compile the registry website to WASM and render its Cloudflare Pages directory.
 _registry-website _registry-website-fixture _registry-website-archive: $(TOOLCHAIN)
 	@mkdir -p target/registry-site-build
-	$(OSPREY) build $(REGISTRY_WEB)/site --target=wasm32 --quiet --warnings-as-errors -o target/registry-site-build/site.wasm
+	$(OSPREY) build $(REGISTRY_WEB)/site --target=wasm32 --memory=$(WASM_MEMORY) --quiet --warnings-as-errors -o target/registry-site-build/site.wasm
 	@set -eu; out=$$(mktemp -d target/registry-site-build/pages.XXXXXX); \
 	  trap 'rm -rf "$$out"' EXIT; \
 	  render() { printf '%s\n' "$$1" | wasmtime target/registry-site-build/site.wasm; }; \

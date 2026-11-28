@@ -50,7 +50,7 @@ module Probes {
     }
 
     fn compiler(cwd) = configured("OSPREY_E2E_COMPILER", configured("OSPREY_TEST_COMPILER", "${cwd}/target/osprey/osprey"))
-    fn memory() = configured("OSPREY_E2E_MEMORY", configured("OSPREY_TEST_MEMORY", "gc"))
+    fn memory() = configured("OSPREY_E2E_MEMORY", configured("OSPREY_TEST_MEMORY", "arc"))
 
     fn compilerCommand(command, selected) = if startsWith(command, "'osprey' ") {
         Host::shellWord(selected) + (substring(command, 8, byteLength(command)) ?: "")
