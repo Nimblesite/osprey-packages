@@ -49,18 +49,39 @@ function headersForPath(sections, pathname) {
   return merged;
 }
 
+// Cloudflare Pages `_redirects`, as Pages applies a 200 rewrite: a target naming an `.html` file is
+// itself redirected (308) to its extensionless path, dropping the visitor's path; an extensionless
+// target serves `<target>.html` under the visitor's own URL.
+function parsePagesRewrites(text) {
+  return text.split('\n').filter(Boolean).map(line => {
+    const [pattern, target, status] = line.trim().split(/\s+/u);
+    assert.equal(status, '200', line);
+    return {prefix: pattern.replace(/\*$/u, ''), target};
+  });
+}
+
+function rewrite(rules, pathname) {
+  const rule = rules.find(candidate => pathname.startsWith(candidate.prefix));
+  if (!rule) return {file: pathname};
+  if (rule.target.endsWith('.html')) return {redirect: rule.target.slice(0, -'.html'.length)};
+  return {file: rule.target + '.html'};
+}
+
 async function packagedPage(browser, site) {
   const website = 'https://packages.example.test';
   const api = 'https://api.example.test';
   const page = await browser.newPage();
   const sections = parsePagesHeaders(fs.readFileSync(path.join(site, '_headers'), 'utf8'));
+  const rules = parsePagesRewrites(fs.readFileSync(path.join(site, '_redirects'), 'utf8'));
   page.setDefaultTimeout(10000);
   const failures = [];
   page.on('pageerror', error => failures.push(error.message));
   page.on('requestfailed', request => failures.push({url:request.url(), error:request.failure()?.errorText}));
   await page.route(website + '/**', async route => {
     const pathname = new URL(route.request().url()).pathname;
-    const file = (pathname.startsWith('/packages/') || pathname.startsWith('/publishers/') || pathname.startsWith('/tags/')) ? path.join(site, 'package.html') : path.join(site, pathname, pathname.endsWith('/') ? 'index.html' : '');
+    const routed = rewrite(rules, pathname);
+    if (routed.redirect) return route.fulfill({status: 308, headers: {location: website + routed.redirect}});
+    const file = path.join(site, routed.file, routed.file.endsWith('/') ? 'index.html' : '');
     const body = await fs.promises.readFile(file);
     const mime = {'.html':'text/html','.css':'text/css','.svg':'image/svg+xml','.mjs':'text/javascript','.wasm':'application/wasm'}[path.extname(file)];
     assert.ok(mime, pathname);
