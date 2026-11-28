@@ -232,7 +232,7 @@ _registry-infra-check:
 	scripts/packages/check-registry-logins.sh
 
 .PHONY: deploy
-## deploy: Stand up or converge a hosted environment: Cloudflare → Cloud Run → Supabase (docs/DEPLOY.md).
+## deploy: Stand up or converge a hosted environment: Cloudflare → Cloud Run → Supabase (src/manager/ops/README.md).
 ##         make deploy [STEP=local|supabase|infra|github|database|release|ship|website|smoke] (production only)
 ENV ?= production
 STEP ?= all

@@ -24,7 +24,7 @@ die() { printf '\033[1;31m[deploy %s] FATAL: %s\033[0m\n' "$ENV_NAME" "$*" >&2; 
 
 read_environment() {
   [[ "$ENV_NAME" == production ]] || die "production is the only environment (a test environment is an exact Prod → Dev copy, paused)"
-  [[ -f "$OPS/deploy.env" ]] || die "copy $OPS/deploy.env.example to $OPS/deploy.env (docs/DEPLOY.md)"
+  [[ -f "$OPS/deploy.env" ]] || die "copy $OPS/deploy.env.example to $OPS/deploy.env (src/manager/ops/README.md)"
   set -a; . "$OPS/deploy.env"; set +a
 }
 

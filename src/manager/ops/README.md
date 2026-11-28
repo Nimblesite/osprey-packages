@@ -1,6 +1,6 @@
 # Registry operations
 
-Deploy with [docs/DEPLOY.md](../../../docs/DEPLOY.md): `make deploy` (production is the only environment). This file says what the pieces are. Shape: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
+Deploy from a clean `main` only: `make deploy STEP=release` applies the infrastructure and the private registry migration, deploys the API and website, and checks production (production is the only environment). Before the first run the owner sets the monthly budget and creates the GitHub OAuth app (homepage: the website; callback: `https://<supabase-ref>.supabase.co/auth/v1/callback`), with its ID and secret in `deploy.env`. Cloudflare stays on the free plan. Setting up the core `@osprey` account: [docs/DEPLOY.md](../../../docs/DEPLOY.md). This file says what the pieces are. Shape: Cloudflare → Cloud Run → Supabase ([Registry Deployment and Ownership](../../../docs/specs/ecosystem/PackageRegistryDeploymentAndOwnership.md) `[PACKAGE-HOSTED-TOPOLOGY]`).
 
 ```mermaid
 flowchart LR
