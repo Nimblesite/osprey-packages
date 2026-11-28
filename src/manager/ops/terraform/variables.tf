@@ -108,7 +108,7 @@ locals {
   edge_hostnames   = { api = var.api_hostname, content = var.content_hostname, website_alias = local.website_alias }
   supabase_origin  = "https://${var.supabase_project_ref}.supabase.co"
   required_services = toset([
-    "artifactregistry.googleapis.com", "run.googleapis.com", "storage.googleapis.com", "cloudkms.googleapis.com",
+    "cloudbuild.googleapis.com", "artifactregistry.googleapis.com", "run.googleapis.com", "storage.googleapis.com", "cloudkms.googleapis.com",
     "secretmanager.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com",
     "logging.googleapis.com", "monitoring.googleapis.com", "cloudresourcemanager.googleapis.com"
   ])

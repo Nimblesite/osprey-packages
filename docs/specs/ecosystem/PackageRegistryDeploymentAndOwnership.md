@@ -273,6 +273,8 @@ Both operator and workflow Pages uploads must verify the singular hostname prese
 
 Standalone production smoke checks use read-only requests and existing service metadata. They must fail when the public catalog returns an error. They must never provision resources, change IAM, link billing or run migrations.
 
+Run the database migration under a dedicated Cloud Build service account with read access to the private migration source bucket and the owner secret. Remove the legacy direct owner-secret grant from the default Compute account before submitting a migration. Failure to inspect or remove that grant stops the deployment.
+
 Inject the migration owner password only into the schema application process and the operator’s restricted-login provisioning connections. Compile the migration tool before injecting the password. Treat an absent or unreadable credential map as a deployment failure.
 
 After applying a migration, compare the live registry table names against the reviewed schema and require RLS to be enabled and forced on each table. Missing tables, unexpected tables or disabled protections fail deployment.

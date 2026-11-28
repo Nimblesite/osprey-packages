@@ -5,6 +5,7 @@
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 "$root/scripts/packages/test-roll-registry-image.sh"
+"$root/scripts/packages/test-migration-identity.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 

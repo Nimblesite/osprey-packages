@@ -304,17 +304,38 @@ scan_revision() {
                    (.agentRevision | test("^sha256:[0-9a-f]{64}$"))) | .configId + "@" + .agentRevision'
 }
 
+revoke_legacy_owner_access() {
+  local number member policy has_access
+  number="$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')"
+  [[ "$number" =~ ^[0-9]+$ ]] || die "missing GCP project number"
+  member="serviceAccount:$number-compute@developer.gserviceaccount.com"
+  policy="$(gcloud secrets get-iam-policy "$NAME-db-owner" --project="$GCP_PROJECT_ID" --format=json)"
+  has_access="$(jq -r --arg member "$member" 'any(.bindings[]?; .role == "roles/secretmanager.secretAccessor" and
+    .condition == null and (.members | index($member) != null))' <<< "$policy")"
+  [[ "$has_access" == false ]] && return 0
+  [[ "$has_access" == true ]] || die "invalid database owner secret policy"
+  gcloud secrets remove-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None \
+    --member="$member" --role=roles/secretmanager.secretAccessor >/dev/null
+}
+
+migrate_build() {
+  local config account bucket
+  config="$(tf output -json migration_build)"
+  account="$(jq -er '.account | strings | select(length>0)' <<< "$config")"
+  bucket="$(jq -er '.bucket | strings | select(length>0)' <<< "$config")"
+  revoke_legacy_owner_access
+  gcloud builds submit "$1" --project="$GCP_PROJECT_ID" --region="$REGION" --config="$OPS/cloudbuild-migrate.yaml" \
+    --service-account="$account" --gcs-source-staging-dir="gs://$bucket/source" \
+    --substitutions="_HOST=$2,_USER=postgres.$3,_SECRET=$NAME-db-owner" >&2
+}
+
 step_database() (
   local ref pooler; ref="$(jq -r .ref "$WORK/supabase.json")"; pooler="$(jq -r .pooler_host "$WORK/supabase.json")"
   log "applying src/manager/ops/supabase/migrations/schema.yaml in Cloud Build"
-  gcloud secrets add-iam-policy-binding "$NAME-db-owner" --project="$GCP_PROJECT_ID" --condition=None >/dev/null \
-    --member="serviceAccount:$(gcloud projects describe "$GCP_PROJECT_ID" --format='value(projectNumber)')-compute@developer.gserviceaccount.com" \
-    --role=roles/secretmanager.secretAccessor
   local context="$WORK/migrate.tar.gz"
   git -C "$ROOT" archive --format=tar.gz --output="$context" HEAD Makefile src/manager/ops/supabase/migrations/schema.yaml \
     src/manager/ops/supabase/supabase-root-2021.crt src/manager/ops/cloudbuild-migrate.yaml
-  gcloud builds submit "$context" --project="$GCP_PROJECT_ID" --region="$REGION" --config="$OPS/cloudbuild-migrate.yaml" \
-    --substitutions="_HOST=$pooler,_USER=postgres.$ref,_SECRET=$NAME-db-owner" >&2
+  migrate_build "$context" "$pooler" "$ref"
   # The migration owns every role and grant; a password is the one thing schema.yaml cannot declare.
   # Each travels through the environment and \getenv, never argv.
   local role secret logins password

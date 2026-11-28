@@ -31,7 +31,7 @@ Terraform generates the edge secret and every database login password, and write
 - `/run/catalog-service/pg_service.conf`: `[catalog]`, `[login]`, `[session-issuer]`, `[session-runtime]` and `[session-revoker]`, each a distinct login on the transaction pooler (port 6543).
 - `/run/catalog-ca/ca.pem`: the Supabase root CA. The API connects with `sslmode=verify-full`.
 
-The only operator-held credentials are the Cloudflare tokens, the Supabase access token and the GitHub OAuth client. `deploy.sh` generates the Supabase owner password and stores it in Secret Manager as `osprey-registry-<env>-db-owner`; it is used only for migrations. Read access to the Terraform state bucket is secret access.
+The only operator-held credentials are the Cloudflare tokens, the Supabase access token and the GitHub OAuth client. `deploy.sh` generates the Supabase owner password and stores it in Secret Manager as `osprey-registry-<env>-db-owner`; it is used only for migrations. Terraform provisions a dedicated migration build account, a private staging bucket with one-day object expiry, and logging access. The operator submitting the migration needs permission to act as that service account. The database step removes the historical direct owner-secret grant from the default Compute service account before submitting the build. Read access to the Terraform state bucket is secret access.
 
 ## Database logins [PACKAGE-OWNERSHIP-RLS]
 
