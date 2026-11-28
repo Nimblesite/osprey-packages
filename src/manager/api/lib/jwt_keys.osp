@@ -29,8 +29,8 @@ module JwtKeys {
     }
 
     fn ecPoint(key) = andThen(value(key, "x"), fn(x) => andThen(value(key, "y"), fn(y) =>
-        if length(x) == 32 && length(y) == 32 { Success { value: Bytes::concatAll([Bytes::fromHex(ecSpki), x, y]) } }
-        else { Error { message: invalid } }))
+            if length(x) == 32 && length(y) == 32 { Success { value: Bytes::concatAll([Bytes::fromHex(ecSpki), x, y]) } }
+            else { Error { message: invalid } }))
 
     fn rsaSpki(n, e) = {
         let publicKey = tlv(48, listConcat(integer(n), integer(e)))
@@ -38,9 +38,9 @@ module JwtKeys {
     }
 
     fn rsaPublic(key) = andThen(value(key, "n"), fn(n) => andThen(value(key, "e"), fn(e) =>
-        if (length(n) != 256 && length(n) != 384 && length(n) != 512) || leading(n) < 128 || length(e) == 0 || length(e) > 4 || leading(e) == 0 {
-            Error { message: invalid }
-        } else { Success { value: rsaSpki(n, e) } }))
+            if (length(n) != 256 && length(n) != 384 && length(n) != 512) || leading(n) < 128 || length(e) == 0 || length(e) > 4 || leading(e) == 0 {
+                Error { message: invalid }
+            } else { Success { value: rsaSpki(n, e) } }))
 
     fn publicKey(algorithm, key) = if algorithm == "ES256" && AuthText::field(key, "kty") == "EC" && AuthText::field(key, "crv") == "P-256" { ecPoint(key) }
     else if algorithm == "RS256" && AuthText::field(key, "kty") == "RSA" { rsaPublic(key) }

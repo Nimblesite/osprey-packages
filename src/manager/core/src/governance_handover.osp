@@ -20,12 +20,12 @@ module GovernanceHandover {
         use _ <- andThen(noLiveProposal(registry, id))
         use _ <- andThen(recipient(registry, pkg, proposed))
         use _ <- andThen(Governance::requireAdmin(registry, pkg, proof,
-            Governance::proposalStatement(pkg.key, pkg.authorityEpoch, pkg.admin, proposed)))
+                Governance::proposalStatement(pkg.key, pkg.authorityEpoch, pkg.admin, proposed)))
         Success { value: registry { transfers: listAppend(registry.transfers,
-            Governance::Transfer { id: transferId, package: id, current: pkg.admin, proposed: proposed,
-                expectedEpoch: pkg.authorityEpoch, notBefore: now + holdHours,
-                expiresAt: now + holdHours + acceptanceWindowHours,
-                acceptance: Maybe::none(), status: Governance::Pending }) } }
+                    Governance::Transfer { id: transferId, package: id, current: pkg.admin, proposed: proposed,
+                        expectedEpoch: pkg.authorityEpoch, notBefore: now + holdHours,
+                        expiresAt: now + holdHours + acceptanceWindowHours,
+                        acceptance: Maybe::none(), status: Governance::Pending }) } }
     }
 
     /// The proposed recipient's fresh acceptance [PACKAGE-OWNERSHIP-ADMIN],
@@ -39,9 +39,9 @@ module GovernanceHandover {
         use _ <- andThen(Governance::requireHumanCeremony(proof))
         use pkg <- andThen(Governance::packageOf(registry, t.package))
         use _ <- andThen(Governance::requireProof(proof, m.principal, t.proposed,
-            Governance::handoverAcceptanceStatement(t.id, pkg.key, t.expectedEpoch, t.current, t.proposed)))
+                Governance::handoverAcceptanceStatement(t.id, pkg.key, t.expectedEpoch, t.current, t.proposed)))
         Success { value: Governance::replaceTransfer(registry,
-            t { acceptance: Maybe::some(proof), status: Governance::Accepted }) }
+                t { acceptance: Maybe::some(proof), status: Governance::Accepted }) }
     }
 
     /// Guarded atomic completion [PACKAGE-OWNERSHIP-ADMIN]: one update moves
@@ -72,15 +72,15 @@ module GovernanceHandover {
 
     /// The current administrator cancels a live proposal.
     export fn cancelHandover(registry, transferId, proof) = restated(registry, transferId, fn(t) => {
-        use pkg <- andThen(Governance::packageOf(registry, t.package))
-        Governance::requireAdmin(registry, pkg, proof, Governance::cancelStatement(transferId))
-    }, Governance::Cancelled)
+            use pkg <- andThen(Governance::packageOf(registry, t.package))
+            Governance::requireAdmin(registry, pkg, proof, Governance::cancelStatement(transferId))
+        }, Governance::Cancelled)
 
     /// The intended recipient declines a live proposal.
     export fn declineHandover(registry, transferId, proof) = restated(registry, transferId, fn(t) => {
-        use actor <- andThen(recipientPrincipal(registry, t.proposed))
-        Governance::requireProof(proof, actor, t.proposed, Governance::declineStatement(transferId))
-    }, Governance::Declined)
+            use actor <- andThen(recipientPrincipal(registry, t.proposed))
+            Governance::requireProof(proof, actor, t.proposed, Governance::declineStatement(transferId))
+        }, Governance::Declined)
 
     /// Mark a live proposal expired once its window has passed; it can never
     /// replace a newer admin.

@@ -69,10 +69,10 @@ module ManifestJson {
     fn typescript(sources) = if isEmpty(sources) { [] } else { [Json::member("typescriptSources", strings(sources))] }
 
     fn optionals(m: ManifestModel::Manifest) = listConcat(listConcat(listConcat(listConcat(
-        optional("defaultNamespace", m.defaultNamespace, Json::str),
-        optional("entry", m.entry, Json::str)),
-        optional("flavor", m.flavor, flavor)),
-        optional("publication", m.publication, publication)),
+                    optional("defaultNamespace", m.defaultNamespace, Json::str),
+                    optional("entry", m.entry, Json::str)),
+                optional("flavor", m.flavor, flavor)),
+            optional("publication", m.publication, publication)),
         typescript(m.typescriptSources))
 
     /// The JSON value; member order is irrelevant because serialization sorts.

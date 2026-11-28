@@ -27,17 +27,17 @@ module PackageView {
 
     /// Organization and lifecycle fields shared by package listings.
     export fn listingFields(l) = join([
-        Html::field("Organization", "@${l.orgHandle}"),
-        Html::field("Status", "${Model::stateName(l.pkg)}, ${Model::careName(l.care)}")
-    ], "")
+            Html::field("Organization", "@${l.orgHandle}"),
+            Html::field("Status", "${Model::stateName(l.pkg)}, ${Model::careName(l.care)}")
+        ], "")
 
     fn body(l, access, now) = join([
-        "<main id=\"package\"><h1>${escapedKey(l)}</h1>",
-        listingFields(l),
-        Html::field("Security review evidence", Model::reviewOf(l.evidence)),
-        warningsSection(l),
-        accessSection(l, access, now),
-        "</main>"], "")
+            "<main id=\"package\"><h1>${escapedKey(l)}</h1>",
+            listingFields(l),
+            Html::field("Security review evidence", Model::reviewOf(l.evidence)),
+            warningsSection(l),
+            accessSection(l, access, now),
+            "</main>"], "")
 
     fn warningsSection(l) = Html::section("warnings", "Security warnings", Warnings::block(Model::warningsOf(l.evidence)))
 
@@ -48,9 +48,9 @@ module PackageView {
     } else { "" }
 
     fn context(access, pkg, now) = join([
-        Html::field("Package administrator", pkg.admin),
-        Html::field("Your effective permissions", Model::permissionsOf(access, pkg, now)),
-        publishNotice(access, pkg, now)], "")
+            Html::field("Package administrator", pkg.admin),
+            Html::field("Your effective permissions", Model::permissionsOf(access, pkg, now)),
+            publishNotice(access, pkg, now)], "")
 
     /// The admin-without-grant warning: an administrator seat alone never
     /// implies a publishing capability [PACKAGE-OWNERSHIP-ADMIN].

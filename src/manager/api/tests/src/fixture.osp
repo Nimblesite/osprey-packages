@@ -106,23 +106,23 @@ module Fixture {
     /// One grant decision attempted through the real transition: the result
     /// `grantOn` keeps the world from and `grantCode` reads the reason of.
     export fn grantAttempt(world, id, grantId, membership, permission, expiresAt, now) =
-        GovernanceTransitions::grantPermission(world, id, grantId,
-            adminProof(world, id, grantStatementFor(world, id, membership, permission, expiresAt)),
-            membership, permission, expiresAt, now)
+    GovernanceTransitions::grantPermission(world, id, grantId,
+        adminProof(world, id, grantStatementFor(world, id, membership, permission, expiresAt)),
+        membership, permission, expiresAt, now)
 
     /// Record one grant through the real transition; on failure keep `world`.
     export fn grantOn(world, id, grantId, membership, permission, expiresAt, now) =
-        grantAttempt(world, id, grantId, membership, permission, expiresAt, now) ?: world
+    grantAttempt(world, id, grantId, membership, permission, expiresAt, now) ?: world
 
     /// Record `member`'s `permission` on `id` under `grantId` from the fixture
     /// moment (100), never expiring; on failure keep `world`.
     export fn standingGrant(world, id, grantId, member, permission) =
-        grantOn(world, id, grantId, member, permission, Maybe::none(), 100)
+    grantOn(world, id, grantId, member, permission, Maybe::none(), 100)
 
     /// The reason code of one grant decision, or "" when it was recorded:
     /// the failure a refusal test asserts on.
     export fn grantCode(world, id, grantId, membership, permission, expiresAt, now) =
-        code(grantAttempt(world, id, grantId, membership, permission, expiresAt, now))
+    code(grantAttempt(world, id, grantId, membership, permission, expiresAt, now))
 
     /// Apply `step(world)` when it succeeds, else keep `world`.
     export fn orKeep(world, step) = step(world) ?: world

@@ -56,7 +56,6 @@ module Explain {
     /// Every requirement on `key`: the root's, then every release's active edges.
     fn edgesTo(graph, key) = filterList(listConcat(requirementsOf(graph.rootDeps), catalogRequirements(graph)), fn(r) => Names::same(ManifestModel::packageOf(r), key))
 
-
     fn reqEpochOf(graph, key) = match listGet(edgesTo(graph, key), 0) {
         Success { value } => ManifestModel::requirementEpoch(value)
         Error => 0
@@ -120,19 +119,19 @@ module Explain {
     /// The first cause, in the spec order, that holds for one of `keys`; the
     /// floor code over all of them when none does.
     fn within(graph, keys) = firstCause([
-        keyCause(graph, keys, missing, missingAt),
-        keyCause(graph, keys, epochConflict, epochConflictAt),
-        fn() => cycleOutcome(graph, keys),
-        keyCause(graph, keys, revoked, revokedAt),
-        keyCause(graph, keys, noTarget, noTargetAt),
-        keyCause(graph, keys, capability, capabilityAt),
-        keyCause(graph, keys, floor, floorAt)
-    ], Resolution::Explain { code: floor, packages: keys })
+            keyCause(graph, keys, missing, missingAt),
+            keyCause(graph, keys, epochConflict, epochConflictAt),
+            fn() => cycleOutcome(graph, keys),
+            keyCause(graph, keys, revoked, revokedAt),
+            keyCause(graph, keys, noTarget, noTargetAt),
+            keyCause(graph, keys, capability, capabilityAt),
+            keyCause(graph, keys, floor, floorAt)
+        ], Resolution::Explain { code: floor, packages: keys })
 
     /// The first cause that holds, in order, else `fallback`.
     fn firstCause(causes, fallback) = match foldList(causes, none(), fn(acc, cause) => match acc {
-        Success => acc
-        Error => cause()
+            Success => acc
+            Error => cause()
     }) {
         Success { value } => value
         Error => fallback

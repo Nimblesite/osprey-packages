@@ -22,34 +22,34 @@ module Source {
 
     /// Why a collected entry of this kind rejects the tree; `""` for a regular file.
     export fn kindCode(kind) = if kind == regularKind { "" }
-        else if listContains(forbiddenKinds, kind) { "source.kind.${kind}" }
-        else { "source.kind.unknown" }
+    else if listContains(forbiddenKinds, kind) { "source.kind.${kind}" }
+    else { "source.kind.unknown" }
 
     /// True when the bytes are a Git LFS pointer instead of the file ([PACKAGE-IDENTITY]).
     export fn lfsPointer(content) = startsWith(content, lfsPrefix)
 
     /// Why a submission exceeds the fixed bounds of [PACKAGE-PUBLISH]; `""` within them.
     export fn limitCode(fileCount, totalBytes, assetBytes) = if fileCount > maxFiles { "source.too-many-files" }
-        else if totalBytes > maxTotalBytes { "source.too-large" }
-        else if assetBytes > maxAssetBytes { "source.assets-too-large" }
-        else { "" }
+    else if totalBytes > maxTotalBytes { "source.too-large" }
+    else if assetBytes > maxAssetBytes { "source.assets-too-large" }
+    else { "" }
 
     // `Entry` shares `digest` with `Identity::ReleaseId`; issue #273 makes an
     // untracked receiver a codegen error, so these spell the record out.
     fn entryBytes(entry: Entry) = Bytes::concatAll([
-        Bytes::u32be(byteLength(entry.path)),
-        Bytes::ofString(entry.path),
-        [regularFile],
-        Bytes::u64be(entry.byteLength),
-        entry.digest
+            Bytes::u32be(byteLength(entry.path)),
+            Bytes::ofString(entry.path),
+            [regularFile],
+            Bytes::u64be(entry.byteLength),
+            entry.digest
     ])
 
     fn entryCode(entry: Entry) = match Paths::validate(entry.path) {
         Error { message } => message
         Success => if Paths::excluded(entry.path) { "source.excluded-path" }
-            else if entry.byteLength < 0 { "source.negative-length" }
-            else if !Digests::rawWellFormed(entry.digest) { "source.digest-length" }
-            else { "" }
+        else if entry.byteLength < 0 { "source.negative-length" }
+        else if !Digests::rawWellFormed(entry.digest) { "source.digest-length" }
+        else { "" }
     }
 
     fn pathKey(entry: Entry) = Bytes::hex(Bytes::ofString(entry.path))

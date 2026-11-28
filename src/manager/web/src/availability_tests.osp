@@ -10,8 +10,8 @@ module AvailabilityTests {
         fn(html) => contains(html, expectation) && contains(html, "scoped to @${org} only"))
 
     fn scopedAnswers() = checkAll("web: availability scoped per org", [
-        scopedAnswer("atlas", true, "already taken within @atlas"),
-        scopedAnswer("border", false, "available under @border")
+            scopedAnswer("atlas", true, "already taken within @atlas"),
+            scopedAnswer("border", false, "available under @border")
     ])
 
     /// No rendering may claim anything about the leaf name globally.

@@ -35,8 +35,8 @@ module FixtureTests {
     fn releaseIds() = {
         let fx = Fixtures::load("release-ids.json")
         Fixtures::report("release ids valid", Fixtures::textsOf(fx, "valid"), fn(t) => match Identity::parse(t) {
-            Success { value } => Identity::display(value) == t
-            Error => false
+                Success { value } => Identity::display(value) == t
+                Error => false
         })
         invalid("release ids invalid", Fixtures::itemsOf(fx, "invalid"), "text", Identity::parse)
     }
@@ -78,14 +78,14 @@ module FixtureTests {
         let entries = mapList(Fixtures::itemsOf(fx, "files"), entryOf)
         let envelope = Source::envelope(entries) ?: []
         checkAll("source tree ${name}", [
-            fileDigestsMatch(fx),
-            length(envelope) == Fixtures::numberOf(fx, "envelopeLength"),
-            Bytes::hex(envelope) == Fixtures::textOf(fx, "envelopeHex"),
-            digestMatches(entries, Fixtures::textOf(fx, "sourceDigest")),
-            match Json::get(fx, "digestSubstitution") {
-                Success => tampered(fx, entries)
-                Error => true
-            }
+                fileDigestsMatch(fx),
+                length(envelope) == Fixtures::numberOf(fx, "envelopeLength"),
+                Bytes::hex(envelope) == Fixtures::textOf(fx, "envelopeHex"),
+                digestMatches(entries, Fixtures::textOf(fx, "sourceDigest")),
+                match Json::get(fx, "digestSubstitution") {
+                    Success => tampered(fx, entries)
+                    Error => true
+                }
         ])
     }
 

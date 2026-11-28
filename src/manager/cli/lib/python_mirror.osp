@@ -15,12 +15,12 @@ module PythonMirror {
     fn normalize() = "normalize() ( set -f; IFS=/; set -- $1; out=; for part do case \"$part\" in ''|.) ;; ..) out=$(dirname \"$out\"); [ \"$out\" != . ] || out= ;; *) out=\"$out/$part\" ;; esac; done; [ -n \"$out\" ] || out=/; printf '%s\\n' \"$out\"; )"
 
     fn copyMember(path) = join([
-        "source=\"$origin/.osprey/python/\"${Host::shellWord(path)}",
-        "destination=$(normalize \"$source\")",
-        "mkdir -p \"$stage$destination\"", checkedPath(path),
-        "( cd \"$source\" && ${selected("! -type d ! -type f -print")} > \"$stage/special\" && [ ! -s \"$stage/special\" ] && ${selected("-type f -print0")} > \"$stage/files\" && tar --null -T \"$stage/files\" -cf \"$stage/input.tar\" )",
-        "tar -C \"$stage$destination\" -xf \"$stage/input.tar\""
-    ], " && ")
+            "source=\"$origin/.osprey/python/\"${Host::shellWord(path)}",
+            "destination=$(normalize \"$source\")",
+            "mkdir -p \"$stage$destination\"", checkedPath(path),
+            "( cd \"$source\" && ${selected("! -type d ! -type f -print")} > \"$stage/special\" && [ ! -s \"$stage/special\" ] && ${selected("-type f -print0")} > \"$stage/files\" && tar --null -T \"$stage/files\" -cf \"$stage/input.tar\" )",
+            "tar -C \"$stage$destination\" -xf \"$stage/input.tar\""
+        ], " && ")
 
     fn setup(project) = [
         "set -eu", normalize(), "cd ${Host::shellWord(if isEmpty(project) { "." } else { project })}",

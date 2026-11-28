@@ -7,8 +7,8 @@ namespace registry;
 module Bytes {
     /// Compare every byte of equal-length tokens without stopping at the first difference.
     export fn equalToken(expected, actual) = byteLength(expected) == byteLength(actual)
-        && fold(range(0, byteLength(expected)), 0, fn(difference, i) =>
-            bitOr(difference, bitXor(byteAt(expected, i) ?: 0, byteAt(actual, i) ?: 0))) == 0
+    && fold(range(0, byteLength(expected)), 0, fn(difference, i) =>
+        bitOr(difference, bitXor(byteAt(expected, i) ?: 0, byteAt(actual, i) ?: 0))) == 0
 
     /// True when `b` lies in `lo`..`hi`: the range test behind every byte class.
     export fn inRange(b, lo, hi) = b >= lo && b <= hi
@@ -65,9 +65,9 @@ module Bytes {
 
     /// Numeric value of an ASCII hexadecimal digit, or -1 for any other byte.
     export fn hexValue(b) = if inRange(b, 48, 57) { b - 48 }
-        else if inRange(b, 97, 102) { b - 87 }
-        else if inRange(b, 65, 70) { b - 55 }
-        else { -1 }
+    else if inRange(b, 97, 102) { b - 87 }
+    else if inRange(b, 65, 70) { b - 55 }
+    else { -1 }
 
     fn lowerHexValue(b) = if lowerHexDigit(b) { hexValue(b) } else { 0 }
 

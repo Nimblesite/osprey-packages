@@ -19,7 +19,7 @@ module SchemaOrder {
     }
 
     fn walkItems(model, element, field, items, pointer) = Order::firstText(range(0, length(items)) |> map(fn(i) =>
-        walkTyped(model, element, field, listGet(items, i) ?: Json::Null, child(pointer, "${i}"))) |> toList)
+            walkTyped(model, element, field, listGet(items, i) ?: Json::Null, child(pointer, "${i}"))) |> toList)
 
     fn walkList(model, element, field, json, pointer) = {
         let code = SetOrder::listCode(elementName(element), field, itemsOf(json))

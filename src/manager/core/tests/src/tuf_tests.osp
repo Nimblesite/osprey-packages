@@ -58,7 +58,7 @@ module TufTests {
 
     fn vectorTable(name, label) = Fixtures::report(label,
         JsonRead::items(JsonRead::field(Fixtures::load(name), "cases")), fn(case) =>
-            vectorCode(case) == Fixtures::textOf(case, "expect"))
+        vectorCode(case) == Fixtures::textOf(case, "expect"))
 
     fn chains() = Fixtures::loadItems("transitions/release-status.json", "chains")
 
@@ -71,7 +71,7 @@ module TufTests {
 
     fn transitionTable() = Fixtures::report("release-status transitions", chainSteps(listConcat(chains(), malformedChains())), fn(step) =>
         TufCheck::statusTransition(JsonRead::field(step, "previous"), JsonRead::field(step, "next"))
-            == Fixtures::textOf(step, "expect"))
+        == Fixtures::textOf(step, "expect"))
 
     fn previousStatus(step) = JsonRead::text(JsonRead::field(JsonRead::field(step, "next"), "previousStatus"))
 
@@ -87,7 +87,7 @@ module TufTests {
 
     fn goldenHolds(step) = Digests::hashText(Domains::releaseStatusDomain(),
         Canonical::serialize(JsonRead::field(step, "previous")) ?: "")
-        == previousStatus(step)
+    == previousStatus(step)
 
     fn goldenTable() = {
         let steps = foldList(chains(), [], fn(all, chain) => listConcat(all, goldenSteps(chain)))

@@ -32,42 +32,42 @@ unavailableTitle = "Package data unavailable"
 // ---- the host fixtures: the CLI and registry output as completion text ----
 
 catalogItem (key, epoch, ordinal, findings) = JsonObject [
-    Doc::str ("key", key),
-    JsonMember "releases" (JsonArray (listPrepend [] (JsonObject [Doc::num ("epoch", epoch), Doc::num ("ordinal", ordinal)]))),
-    JsonMember "findings" (Doc::strings findings),
+Doc::str ("key", key),
+JsonMember "releases" (JsonArray (listPrepend [] (JsonObject [Doc::num ("epoch", epoch), Doc::num ("ordinal", ordinal)]))),
+JsonMember "findings" (Doc::strings findings),
 ]
 
 catalogDoc () = JsonObject [JsonMember "packages" (JsonArray ([
-    catalogItem (reportKey, 1, 1, []),
-    catalogItem ("@demo/new", 2, 0, []),
-    catalogItem ("@demo/risky", 2, 3, [cve]),
+catalogItem (reportKey, 1, 1, []),
+catalogItem ("@demo/new", 2, 0, []),
+catalogItem ("@demo/risky", 2, 3, [cve]),
 ]))]
 
 packageJson (key, version, direct, present, dependencies, dependents, findings) = JsonObject [
-    Doc::str ("key", key),
-    Doc::str ("version", version),
-    Doc::str ("digest", "sha256:${key}"),
-    Doc::bit ("direct", direct),
-    Doc::bit ("present", present),
-    JsonMember "dependencies" (Doc::strings dependencies),
-    JsonMember "dependents" (Doc::strings dependents),
-    JsonMember "findings" (Doc::strings findings),
+Doc::str ("key", key),
+Doc::str ("version", version),
+Doc::str ("digest", "sha256:${key}"),
+Doc::bit ("direct", direct),
+Doc::bit ("present", present),
+JsonMember "dependencies" (Doc::strings dependencies),
+JsonMember "dependents" (Doc::strings dependents),
+JsonMember "findings" (Doc::strings findings),
 ]
 
 graphDoc findings = JsonObject [
-    Doc::str ("project", workspace),
-    JsonMember "direct" (Doc::strings ([reportKey])),
-    JsonMember "packages" (JsonArray ([
-        packageJson (reportKey, "e1.r1", true, true, ["@demo/base"], [], []),
-        packageJson ("@demo/base", "e1.r0", false, true, [], [reportKey], [cve]),
-        packageJson ("@demo/ghost", "e1.r2", false, false, [], [], []),
-    ])),
-    JsonMember "findings" (Doc::strings findings),
+Doc::str ("project", workspace),
+JsonMember "direct" (Doc::strings ([reportKey])),
+JsonMember "packages" (JsonArray ([
+packageJson (reportKey, "e1.r1", true, true, ["@demo/base"], [], []),
+packageJson ("@demo/base", "e1.r0", false, true, [], [reportKey], [cve]),
+packageJson ("@demo/ghost", "e1.r2", false, false, [], [], []),
+])),
+JsonMember "findings" (Doc::strings findings),
 ]
 
 graphResult findings = Doc::write (JsonObject [
-    JsonMember "lines" (JsonArray ([JsonString (Doc::write (graphDoc findings))])),
-    Doc::num ("status", 0),
+JsonMember "lines" (JsonArray ([JsonString (Doc::write (graphDoc findings))])),
+Doc::num ("status", 0),
 ])
 
 // ---- driving the surface ----
@@ -262,9 +262,9 @@ missingFooter () =
 installedCounts () =
     after = completeBoth (started loopback, [])
     expectEvidence (after, "root", [
-        { label = "Installed", want = "2" },
-        { label = "Direct", want = "1" },
-        { label = "Missing", want = "1" },
+    { label = "Installed", want = "2" },
+    { label = "Direct", want = "1" },
+    { label = "Missing", want = "1" },
     ])
     hidesIn (after, "packages", "@demo/ghost")
     showsIn (after, "root", "@demo/ghost · missing from disk")
@@ -377,26 +377,24 @@ verifiedFetch () =
     expect (pairValue (regionWalk (failed, "root"), "Installed"), "")
 
 exactTests [
-    { name = "missing workspace graph never reports zero installed in the package footer", work = missingFooter },
-    { name = "installed counts only present entries while missing lock entries warn", work = installedCounts },
-    { name = "empty findings read as unverified caution and never as an audit", work = emptyFindings },
-    { name = "missing direct dependencies can be inspected and removed without hiding findings", work = missingDirect },
-    { name = "recorded findings are visible danger warnings that block adding", work = recordedFindings },
-    { name = "a local unverified add needs explicit confirmation and pending work blocks it", work = unverifiedAdd },
-    { name = "confirming a local add issues one change request and stale completions are ignored", work = confirmedAdd },
-    { name = "hosted unverified installs are blocked with a visible warning", work = hostedAdd },
-    { name = "removing a direct dependency warns and names the project before confirming", work = removeDirect },
-    { name = "installed and workspace security findings stay visible", work = securityFindings },
-    { name = "unavailable package data hides counts and keeps the selected project", work = unavailableData },
-    { name = "add waits for verified fetch before refreshing installed packages", work = verifiedFetch },
-    { name = "editor accepts canonical report followed by native status line", work = wire1 },
-    { name = "editor rejects crashed and ambiguous subprocess reports", work = wire2 },
-    { name = "editor rejects loopback hostname prefix spoofs", work = wire3 },
-    { name = "editor never interprets empty findings as audit evidence", work = wire4 },
-    { name = "editor blocks recorded findings even in a local registry", work = wire5 },
-    { name = "editor cannot bypass audit safeguards by promoting a transitive dependency", work = wire6 },
-    { name = "changing package selection cancels the previous confirmation", work = wire7 },
-    { name = "a missing lock leaves installation counts unknown", work = wire8 }
+{ name = "missing workspace graph never reports zero installed in the package footer", work = missingFooter },
+{ name = "installed counts only present entries while missing lock entries warn", work = installedCounts },
+{ name = "empty findings read as unverified caution and never as an audit", work = emptyFindings },
+{ name = "missing direct dependencies can be inspected and removed without hiding findings", work = missingDirect },
+{ name = "recorded findings are visible danger warnings that block adding", work = recordedFindings },
+{ name = "a local unverified add needs explicit confirmation and pending work blocks it", work = unverifiedAdd },
+{ name = "confirming a local add issues one change request and stale completions are ignored", work = confirmedAdd },
+{ name = "hosted unverified installs are blocked with a visible warning", work = hostedAdd },
+{ name = "removing a direct dependency warns and names the project before confirming", work = removeDirect },
+{ name = "installed and workspace security findings stay visible", work = securityFindings },
+{ name = "unavailable package data hides counts and keeps the selected project", work = unavailableData },
+{ name = "add waits for verified fetch before refreshing installed packages", work = verifiedFetch },
+{ name = "editor accepts canonical report followed by native status line", work = wire1 },
+{ name = "editor rejects crashed and ambiguous subprocess reports", work = wire2 },
+{ name = "editor rejects loopback hostname prefix spoofs", work = wire3 },
+{ name = "editor never interprets empty findings as audit evidence", work = wire4 },
+{ name = "editor blocks recorded findings even in a local registry", work = wire5 },
+{ name = "editor cannot bypass audit safeguards by promoting a transitive dependency", work = wire6 },
+{ name = "changing package selection cancels the previous confirmation", work = wire7 },
+{ name = "a missing lock leaves installation counts unknown", work = wire8 }
 ]
-
-

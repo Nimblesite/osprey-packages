@@ -31,8 +31,8 @@ module Supabase {
         let identity = listGet(identities, 0) ?: Json::Null
         let providerId = AuthText::field(identity, "id")
         if length(identities) != 1 || AuthText::field(identity, "provider") != "github" || !Bytes::canonicalUuid(subject)
-            || AuthText::field(identity, "user_id") != subject || providerId == "" || startsWith(providerId, "0")
-            || !Bytes::everyByte(providerId, Bytes::isDigit) { Error { message: "auth.github-identity" } }
+        || AuthText::field(identity, "user_id") != subject || providerId == "" || startsWith(providerId, "0")
+        || !Bytes::everyByte(providerId, Bytes::isDigit) { Error { message: "auth.github-identity" } }
         else { Success { value: Identity { authSubject: subject, githubId: providerId } } }
     }
 
@@ -102,5 +102,5 @@ module Supabase {
     export fn refresh(config, token) = if OAuth::configCode(config) != "" || bearerCode(token) != "" {
         Error { message: "auth.refresh-rejected" }
     } else { andThen(Canonical::serialize(Json::obj([Json::member(refreshGrant, Json::str(token))])), fn(body) =>
-        exchangeBody(config, refreshGrant, body)) }
+            exchangeBody(config, refreshGrant, body)) }
 }

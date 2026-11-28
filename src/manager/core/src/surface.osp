@@ -104,10 +104,10 @@ module Surface {
         if lineBreak(b) { c { boundary: c.previous != continuation } }
         else if listContains(horizontalWhitespace, b) { c }
         else { c {
-            boundary: listContains([123, 125, 59], b),
-            previous: if listContains(expressionDelimiters, b) && !(listContains(declarers, c.previous) && (b == 40 || b == 91)) { continuation }
+                boundary: listContains([123, 125, 59], b),
+                previous: if listContains(expressionDelimiters, b) && !(listContains(declarers, c.previous) && (b == 40 || b == 91)) { continuation }
                 else if c.previous == nativeDeclaration || c.previous == continuation { "" } else { c.previous }
-        } }
+            } }
     }
 
     fn pushed(s, mode, skip) = moved(s, mode, -1, listPrepend(s.frames, s.mode), skip)
@@ -138,7 +138,7 @@ module Surface {
     fn formattedPrefix(word) = {
         let prefix = toLowerCase(word)
         fold(range(0, byteLength(prefix)), false, fn(found, i) => found || byte(prefix, i) == 102) &&
-            fold(range(0, byteLength(prefix)), true, fn(valid, i) => valid && listContains([102, 114, 117], byte(prefix, i)))
+        fold(range(0, byteLength(prefix)), true, fn(valid, i) => valid && listContains([102, 114, 117], byte(prefix, i)))
     }
 
     fn stringStart(text, s, i, delimiter) = {
@@ -149,16 +149,16 @@ module Surface {
     }
 
     fn inCode(text, s, i, b) = if s.python && pythonSpaceAt(text, i) { moved(closed(text, s, i), codeMode, -1, s.frames, 2) }
-        else if identByte(s, b) { moved(s, codeMode, if s.start < 0 { i } else { s.start }, s.frames, 0) }
-        else if s.python && b == 64 { closedWord(closed(text, s, i), "@") }
-        else if s.ml && pairAt(text, i, b, 40, 42) { pushed(closed(text, s, i), blockCommentMode, 1) }
-        else if s.typescript && b == backslash { unclassified(closed(text, s, i)) }
-        else if s.typescript && pairAt(text, i, b, slash, star) { pushed(closed(text, s, i), flatCommentMode, 1) }
-        else if b == quote || ((s.python || s.typescript) && b == apostrophe) || (s.typescript && b == backtick) { stringStart(text, s, i, b) }
-        else if pairAt(text, i, b, slash, slash) || (s.python && b == 35) { pushed(closed(text, s, i), commentMode, 0) }
-        else if b == 123 { pushed(separated(text, s, i, b), codeMode, 0) }
-        else if b == 125 { popped(separated(text, s, i, b), 0) }
-        else { separated(text, s, i, b) }
+    else if identByte(s, b) { moved(s, codeMode, if s.start < 0 { i } else { s.start }, s.frames, 0) }
+    else if s.python && b == 64 { closedWord(closed(text, s, i), "@") }
+    else if s.ml && pairAt(text, i, b, 40, 42) { pushed(closed(text, s, i), blockCommentMode, 1) }
+    else if s.typescript && b == backslash { unclassified(closed(text, s, i)) }
+    else if s.typescript && pairAt(text, i, b, slash, star) { pushed(closed(text, s, i), flatCommentMode, 1) }
+    else if b == quote || ((s.python || s.typescript) && b == apostrophe) || (s.typescript && b == backtick) { stringStart(text, s, i, b) }
+    else if pairAt(text, i, b, slash, slash) || (s.python && b == 35) { pushed(closed(text, s, i), commentMode, 0) }
+    else if b == 123 { pushed(separated(text, s, i, b), codeMode, 0) }
+    else if b == 125 { popped(separated(text, s, i, b), 0) }
+    else { separated(text, s, i, b) }
 
     // Default strings interpolate `${}`; TypeScript only in backticks; Python
     // through its own formatted prefixes.
@@ -186,7 +186,7 @@ module Surface {
     fn inComment(s, b, closes) = if closes { closedComment(s) } else if lineBreak(b) { atBoundary(s) } else { s }
 
     fn inBlockComment(text, s, i, b) = if pairAt(text, i, b, 40, 42) { pushed(s, blockCommentMode, 1) }
-        else { inComment(s, b, pairAt(text, i, b, 42, 41)) }
+    else { inComment(s, b, pairAt(text, i, b, 42, 41)) }
 
     fn step(text, s, i) = {
         let b = byte(text, i)
@@ -201,7 +201,6 @@ module Surface {
     fn declaredIn(s: Scan) = s.declared
 
     fn foundIn(s: Scan) = s.found
-
 
     /// Sorted and duplicate-free: a surface is a set.
     fn canonicalOrEmpty(capabilities) = listSort(Order::distinctStrings(capabilities))

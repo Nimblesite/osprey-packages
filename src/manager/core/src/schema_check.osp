@@ -51,8 +51,8 @@ module SchemaCheck {
     fn isLeap(year) = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
 
     fn daysInMonth(year, month) = if month == 2 { if isLeap(year) { 29 } else { 28 } }
-        else if month == 4 || month == 6 || month == 9 || month == 11 { 30 }
-        else { 31 }
+    else if month == 4 || month == 6 || month == 9 || month == 11 { 30 }
+    else { 31 }
 
     /// `YYYY-MM-DDTHH:mm:ss.SSSZ`: four- then two-digit runs joined by `-`,
     /// `T`, `:` and `.`, closed by `Z`.
@@ -109,10 +109,10 @@ module SchemaCheck {
     }
 
     fn scalarCode(name, value) = if name == "String" { stringCode(value) }
-        else if name == "Int" { intCode(value) }
-        else if name == "Bool" { boolCode(value) }
-        else if name == "DateTime" { if dateTimeOk(value) { "" } else { dateTimeFailure } }
-        else { if uuidOk(value) { "" } else { uuidFailure } }
+    else if name == "Int" { intCode(value) }
+    else if name == "Bool" { boolCode(value) }
+    else if name == "DateTime" { if dateTimeOk(value) { "" } else { dateTimeFailure } }
+    else { if uuidOk(value) { "" } else { uuidFailure } }
 
     /// `value` when `code` is `""`, else the code at `pointer`.
     fn checked(code, value, pointer) = if code == "" { Success { value: value } } else { err(code, pointer) }
@@ -131,10 +131,10 @@ module SchemaCheck {
     /// key components ([PACKAGE-NAMES]) and root-confined relative paths
     /// ([PACKAGE-SOURCE-CANONICAL]); "" when it adds none or the text obeys it.
     fn aliasCode(aliasName, value) = if aliasName == "Digest" { if digestOk(value) { "" } else { digestCode } }
-        else if aliasName == "ScopeName" { Names::scopeCode(JsonRead::text(value)) }
-        else if aliasName == "PackageName" { Names::nameCode(JsonRead::text(value)) }
-        else if aliasName == "RelativePath" { pathCode(JsonRead::text(value)) }
-        else { "" }
+    else if aliasName == "ScopeName" { Names::scopeCode(JsonRead::text(value)) }
+    else if aliasName == "PackageName" { Names::nameCode(JsonRead::text(value)) }
+    else if aliasName == "RelativePath" { pathCode(JsonRead::text(value)) }
+    else { "" }
 
     fn validateAlias(model, aliasName, target, value, pointer) = andThen(validateRef(model, target, value, pointer), fn(_) => checked(aliasCode(aliasName, value), value, pointer))
 
@@ -159,8 +159,8 @@ module SchemaCheck {
     }
 
     fn checkUnknown(members, fields, pointer) = foldList(members, Success { value: members }, fn(acc, m) => match acc {
-        Error => acc
-        Success => if anyOf(fields, fn(f) => f.name == m.key) { acc } else { err(unknownField, child(pointer, m.key)) }
+            Error => acc
+            Success => if anyOf(fields, fn(f) => f.name == m.key) { acc } else { err(unknownField, child(pointer, m.key)) }
     })
 
     fn checkField(model, f, members, pointer) = if !anyOf(members, fn(m) => m.key == f.name) {
@@ -170,8 +170,8 @@ module SchemaCheck {
     }
 
     fn checkMissing(model, fields, members, pointer) = foldList(fields, Success { value: members }, fn(acc, f) => match acc {
-        Error => acc
-        Success => checkField(model, f, members, pointer)
+            Error => acc
+            Success => checkField(model, f, members, pointer)
     })
 
     fn validateFields(model, fields, members, pointer) = andThen(checkUnknown(members, fields, pointer), fn(_) => checkMissing(model, fields, members, pointer))

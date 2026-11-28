@@ -21,7 +21,7 @@ module CatalogTests {
     /// One served release `@scope/name` at `epoch.rordinal` under `digest`,
     /// with the empty files at `paths`.
     fn servedRelease(scope, name, epoch, ordinal, digest, paths) =
-        Release::Served { id: Fixtures::releaseId("@${scope}/${name}", epoch, ordinal, digest), files: mapList(paths, file) }
+    Release::Served { id: Fixtures::releaseId("@${scope}/${name}", epoch, ordinal, digest), files: mapList(paths, file) }
 
     /// `@finch/ledger` e1.r1 as the registry serves it: `osprey.toml` and
     /// `src/lib.osp`, both empty.
@@ -49,20 +49,20 @@ module CatalogTests {
         digestsOf(fixture().served))
 
     fn lookupByDigest() = checkAll("catalog: byDigest", [
-        match Catalog::byDigest(fixture(), digestB()) {
-            Success { value } => servedDisplay(value) == "@finch/ledger@e2.r5#${digestB()}"
-            Error => false
-        },
-        match Catalog::byDigest(fixture(), "sha256:zz") {
-            Success => false
-            Error { message } => message == "catalog.unknown-release"
-        }
+            match Catalog::byDigest(fixture(), digestB()) {
+                Success { value } => servedDisplay(value) == "@finch/ledger@e2.r5#${digestB()}"
+                Error => false
+            },
+            match Catalog::byDigest(fixture(), "sha256:zz") {
+                Success => false
+                Error { message } => message == "catalog.unknown-release"
+            }
     ])
 
     fn releases() = checkAll("catalog: releasesOf", [
-        releaseDigestsOf("finch", "ledger") == join([digestA(), digestB()], ","),
-        releaseDigestsOf("finch", "util") == digestC(),
-        isEmpty(Catalog::releasesOf(fixture(), "nope", "ledger"))
+            releaseDigestsOf("finch", "ledger") == join([digestA(), digestB()], ","),
+            releaseDigestsOf("finch", "util") == digestC(),
+            isEmpty(Catalog::releasesOf(fixture(), "nope", "ledger"))
     ])
 
     fn health() = check("catalog: healthJson byte-exact",
@@ -74,11 +74,11 @@ module CatalogTests {
         Catalog::packagesJson(fixture()) ?: "?")
 
     fn onePackage() = checkAll("catalog: packageJson", [
-        (Catalog::packageJson(fixture(), "finch", "util") ?: "?") == "{\"key\":\"@finch/util\",\"releases\":[{\"digest\":\"${digestC()}\",\"epoch\":1,\"ordinal\":1}]}",
-        match Catalog::packageJson(fixture(), "finch", "gone") {
-            Success => false
-            Error { message } => message == "catalog.unknown-package"
-        }
+            (Catalog::packageJson(fixture(), "finch", "util") ?: "?") == "{\"key\":\"@finch/util\",\"releases\":[{\"digest\":\"${digestC()}\",\"epoch\":1,\"ordinal\":1}]}",
+            match Catalog::packageJson(fixture(), "finch", "gone") {
+                Success => false
+                Error { message } => message == "catalog.unknown-package"
+            }
     ])
 
     fn oneRelease() = check("catalog: releaseJson byte-exact",

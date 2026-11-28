@@ -4,5 +4,5 @@ namespace registry;
 module Kms {
     /// Whether a request is the metadata-server service-account token lookup.
     export fn isMetadataRequest(method, base, path, headers) = method == "GET" && base == "http://metadata.google.internal"
-        && path == "/computeMetadata/v1/instance/service-accounts/default/token" && headers == "Metadata-Flavor: Google"
+    && path == "/computeMetadata/v1/instance/service-accounts/default/token" && headers == "Metadata-Flavor: Google"
 }

@@ -115,22 +115,22 @@ module TomlTree {
     fn keyPath(parent, seg) = listAppend(parent.path, Key { name: seg.name })
 
     fn missingParent(parent, seg, table) = Success { value: Parent {
-        root: setTableAt(parent.root, parent.path, setChildKey(table, seg.name, seg.span, Toml::emptyTable)),
-        path: keyPath(parent, seg)
-    } }
+            root: setTableAt(parent.root, parent.path, setChildKey(table, seg.name, seg.span, Toml::emptyTable)),
+            path: keyPath(parent, seg)
+        } }
 
     fn existingParent(parent, arrays, seg, child) = if Toml::isTable(child) {
         Success { value: Parent { root: parent.root, path: keyPath(parent, seg) } }
     } else { match child {
-        Toml::Arr { items } => if !isEmpty(items) && knownArray(arrays, keyPath(parent, seg)) {
-            Success { value: Parent { root: parent.root, path: listAppend(keyPath(parent, seg), Item { index: length(items) - 1 }) } }
-        } else { Error { message: Toml::failSpan(seg.span, tomlNotATable) } }
-        _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
-    } }
+            Toml::Arr { items } => if !isEmpty(items) && knownArray(arrays, keyPath(parent, seg)) {
+                Success { value: Parent { root: parent.root, path: listAppend(keyPath(parent, seg), Item { index: length(items) - 1 }) } }
+            } else { Error { message: Toml::failSpan(seg.span, tomlNotATable) } }
+            _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
+        } }
 
     fn descendParent(parent, arrays, seg) = match tableAt(parent.root, parent.path) {
         Toml::Table { pairs } => if findPair(pairs, seg.name) < 0 { missingParent(parent, seg, Toml::Table { pairs: pairs }) }
-            else { existingParent(parent, arrays, seg, pairAt(pairs, findPair(pairs, seg.name)).value) }
+        else { existingParent(parent, arrays, seg, pairAt(pairs, findPair(pairs, seg.name)).value) }
         _ => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
     }
 
@@ -160,7 +160,7 @@ module TomlTree {
     fn defineHeader(doc, segs, array) = match headerParent(Parent { root: doc.root, path: [] }, doc.arrays, parentSegs(segs)) {
         Error { message } => Error { message: message }
         Success { value } => if array { arrayHeader(doc, value, listGet(segs, length(segs) - 1) ?: TomlValues::missingKeySeg) }
-            else { tableHeader(doc, value, listGet(segs, length(segs) - 1) ?: TomlValues::missingKeySeg) }
+        else { tableHeader(doc, value, listGet(segs, length(segs) - 1) ?: TomlValues::missingKeySeg) }
     }
 
     /// Define a table header, descending into the latest declared array elements. [PACKAGE-MANIFEST]

@@ -24,17 +24,17 @@ module GraphTests {
     fn keyJson(k: Names::Key) = obj([member("scope", str(k.scope)), member("name", str(k.name))])
 
     fn releaseJson(r: Identity::ReleaseId) = obj([
-        member("package", keyJson(r.key)),
-        member("epoch", num(r.epoch)),
-        member("ordinal", num(r.ordinal)),
-        member("digest", str(r.digest))
+            member("package", keyJson(r.key)),
+            member("epoch", num(r.epoch)),
+            member("ordinal", num(r.ordinal)),
+            member("digest", str(r.digest))
     ])
 
     fn lockJson(releases) = arr(mapList(releases, releaseJson))
 
     fn explainJson(code, packages) = obj([
-        member("code", str(code)),
-        member("packages", arr(mapList(packages, keyJson)))
+            member("code", str(code)),
+            member("packages", arr(mapList(packages, keyJson)))
     ])
 
     fn canonEq(a, b) = (Canonical::serialize(a) ?: "left-error") == (Canonical::serialize(b) ?: "right-error")
@@ -90,8 +90,8 @@ module GraphTests {
         let fx = Fixtures::load("graphs/index.json")
         let cases = mapList(Fixtures::itemsOf(fx, "cases"), JsonRead::text)
         checkAll("graphs: index lists exactly the checked-in fixtures", [
-            structuralEquals(listSort(cases), listSort(expectedCases())),
-            length(cases) == length(expectedCases())
+                structuralEquals(listSort(cases), listSort(expectedCases())),
+                length(cases) == length(expectedCases())
         ])
     }
 

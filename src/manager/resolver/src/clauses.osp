@@ -32,7 +32,6 @@ module Clauses {
     fn activeOf(e: Resolution::Entry) = ManifestModel::activeEdges(e.dependencies)
     fn mentionsAt(problem: Problem, i) = listGet(problem.mentions, i) ?: []
 
-
     fn indexes(xs) = range(0, length(xs)) |> toList
 
     /// Distinct keys of the root deps, catalog releases and their deps,
@@ -58,8 +57,8 @@ module Clauses {
     /// edge, about the candidate's key and the required key; non-root Test
     /// edges are never activated.
     fn edgeClauses(entries) = foldList(indexes(entries), [], fn(acc, i) => {
-        let entry = Resolution::entryAt(entries, i)
-        listConcat(acc, mapList(activeOf(entry), fn(d) => tagged(listPrepend(matchingVars(entries, ManifestModel::requirementOf(d)), SatClauses::neg(i + 1)), [keyOf(entry), ManifestModel::requirementKey(d)])))
+            let entry = Resolution::entryAt(entries, i)
+            listConcat(acc, mapList(activeOf(entry), fn(d) => tagged(listPrepend(matchingVars(entries, ManifestModel::requirementOf(d)), SatClauses::neg(i + 1)), [keyOf(entry), ManifestModel::requirementKey(d)])))
     })
 
     /// One release per package key across all epochs: pairwise at-most-one.
@@ -80,8 +79,8 @@ module Clauses {
     /// Anti-spurious closure clauses: a candidate with no root edge and no
     /// selected supporter may not be selected.
     fn supportClauses(graph, entries) = foldList(indexes(entries), [], fn(acc, i) => {
-        let key = keyOf(Resolution::entryAt(entries, i))
-        if rootSupports(graph, key) { acc } else { listAppend(acc, tagged(listPrepend(supportersOf(entries, key), SatClauses::neg(i + 1)), [key])) }
+            let key = keyOf(Resolution::entryAt(entries, i))
+            if rootSupports(graph, key) { acc } else { listAppend(acc, tagged(listPrepend(supportersOf(entries, key), SatClauses::neg(i + 1)), [key])) }
     })
 
     fn reachVar(n, k, u, v) = n + u * k + v + 1
@@ -92,9 +91,9 @@ module Clauses {
         let n = length(entries)
         let k = length(keys)
         foldList(indexes(entries), [], fn(acc, i) => {
-            let entry = Resolution::entryAt(entries, i)
-            let u = keyIndexOf(keys, keyOf(entry))
-            listConcat(acc, mapList(activeOf(entry), fn(d) => tagged([SatClauses::neg(i + 1), reachVar(n, k, u, keyIndexOf(keys, ManifestModel::requirementKey(d)))], [keyOf(entry), ManifestModel::requirementKey(d)])))
+                let entry = Resolution::entryAt(entries, i)
+                let u = keyIndexOf(keys, keyOf(entry))
+                listConcat(acc, mapList(activeOf(entry), fn(d) => tagged([SatClauses::neg(i + 1), reachVar(n, k, u, keyIndexOf(keys, ManifestModel::requirementKey(d)))], [keyOf(entry), ManifestModel::requirementKey(d)])))
         })
     }
 

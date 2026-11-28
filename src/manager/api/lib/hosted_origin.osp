@@ -29,7 +29,7 @@ module HostedOrigin {
     /// `Ok` only when the presented CSRF token is non-empty and equal to the
     /// expected token.
     export fn csrf(presented, expected) = if expected == "" { reject("req.csrf-unconfigured") }
-        else if presented == "" { reject("req.csrf-missing") }
-        else if Bytes::equalToken(expected, presented) { passed() }
-        else { reject("req.csrf-mismatch") }
+    else if presented == "" { reject("req.csrf-missing") }
+    else if Bytes::equalToken(expected, presented) { passed() }
+    else { reject("req.csrf-mismatch") }
 }

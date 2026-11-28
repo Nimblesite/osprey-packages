@@ -49,8 +49,8 @@ module RegistryFixture {
 
     /// The reply of the route serving `path` under `b`, else the transport's own refusal.
     export fn replyFor(webs, b, path) = foldList(webs, Error { message: "http.transport: no route ${b}${path}" }, fn(answer, w) => match answer {
-        Success => answer
-        Error => if w.base == b && webPath(w) == path { Success { value: replyOf(w) } } else { answer }
+            Success => answer
+            Error => if w.base == b && webPath(w) == path { Success { value: replyOf(w) } } else { answer }
     })
 
     /// The writes of a run, latest first: the order a read of a path written twice must meet.

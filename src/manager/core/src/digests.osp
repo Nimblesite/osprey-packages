@@ -38,10 +38,10 @@ module Digests {
 
     /// `ASCII(domain) || 0x00 || u64be(length(payload)) || payload`.
     export fn preimage(domain, payload) = Bytes::concatAll([
-        Bytes::ofString(domain),
-        [0],
-        Bytes::u64be(length(payload)),
-        payload
+            Bytes::ofString(domain),
+            [0],
+            Bytes::u64be(length(payload)),
+            payload
     ])
 
     /// `H(domain, payload)`: the envelope of SHA-256 over the domain-separated preimage.

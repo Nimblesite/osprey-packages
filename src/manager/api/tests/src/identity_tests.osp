@@ -26,7 +26,7 @@ module IdentityTests {
 
     /// The reason code of that creation: "" once the package exists.
     fn createCode(world, org, custodian, k, id, admin, adminPrincipal) =
-        Fixture::code(create(world, org, custodian, k, id, admin, adminPrincipal))
+    Fixture::code(create(world, org, custodian, k, id, admin, adminPrincipal))
 
     /// The reason code of finch's custodian creating `k`'s package `id`, administered by bob.
     fn finchCode(world, k, id) = createCode(world, "o-finch", "alice", k, id, "m-bob", "p-bob")
@@ -46,15 +46,15 @@ module IdentityTests {
         let finchToolkit = Fixture::orKeep(world, fn(w) => create(w, "o-finch", "alice", finchToolkitKey, "pkg-f2", "m-bob", "p-bob"))
         let bothToolkit = Fixture::orKeep(finchToolkit, fn(w) => create(w, "o-wren", "dave", wrenToolkitKey, "pkg-w2", "m-dave", "p-dave"))
         checkAll("the same leaf name serves two organizations independently", [
-            finchCode(world, finchToolkitKey, "pkg-f2") == "",
-            finchCode(world, key("finch", "ledger"), "pkg-f9") == governancePackageDuplicateName,
-            wrenCode(finchToolkit, wrenToolkitKey, "pkg-w2", "m-dave", "p-dave") == "",
-            wrenCode(world, key("wren", "ledger"), "pkg-w9", "m-dave", "p-dave") == governancePackageDuplicateName,
-            // A workflow principal is refused the seat, so it never creates a package.
-            wrenCode(world, wrenToolkitKey, "pkg-w2", "m-ci", "p-ci") == "governance.principal.workflow",
-            Names::same(finchToolkitKey, wrenToolkitKey) == false,
-            Names::compare(finchToolkitKey, wrenToolkitKey) != 0,
-            length(bothToolkit.packages) == 4
+                finchCode(world, finchToolkitKey, "pkg-f2") == "",
+                finchCode(world, key("finch", "ledger"), "pkg-f9") == governancePackageDuplicateName,
+                wrenCode(finchToolkit, wrenToolkitKey, "pkg-w2", "m-dave", "p-dave") == "",
+                wrenCode(world, key("wren", "ledger"), "pkg-w9", "m-dave", "p-dave") == governancePackageDuplicateName,
+                // A workflow principal is refused the seat, so it never creates a package.
+                wrenCode(world, wrenToolkitKey, "pkg-w2", "m-ci", "p-ci") == "governance.principal.workflow",
+                Names::same(finchToolkitKey, wrenToolkitKey) == false,
+                Names::compare(finchToolkitKey, wrenToolkitKey) != 0,
+                length(bothToolkit.packages) == 4
         ])
     }
 
@@ -66,16 +66,16 @@ module IdentityTests {
     /// components keep the canonical grammar; unscoped and global spellings
     /// have no creation path at all.
     fn orgBoundKeys() = checkAll("a package key is bound to its organization's handle", [
-        structuralEquals([keyProblem("wren", "ledger"), keyProblem("Finch", "toolkit"), keyProblem("finch", "Toolkit"), keyProblem("finch", "")],
-            ["governance.package.org-handle-mismatch", "name.scope.chars", "name.name.chars", "name.name.length"]),
-        Fixture::code(Names::parse("ledger")) == nameMissingAt,
-        Fixture::code(Names::parse("finch/ledger")) == nameMissingAt,
-        Fixture::code(Names::parse("HelperFunctions")) == nameMissingAt
+            structuralEquals([keyProblem("wren", "ledger"), keyProblem("Finch", "toolkit"), keyProblem("finch", "Toolkit"), keyProblem("finch", "")],
+                ["governance.package.org-handle-mismatch", "name.scope.chars", "name.name.chars", "name.name.length"]),
+            Fixture::code(Names::parse("ledger")) == nameMissingAt,
+            Fixture::code(Names::parse("finch/ledger")) == nameMissingAt,
+            Fixture::code(Names::parse("HelperFunctions")) == nameMissingAt
     ])
 
     /// `wren`'s custodian tombstones `ledger`, the package `pkg-w1`: the transition's result.
     fn tombstone(world, statement) =
-        GovernanceTransitions::tombstone(world, "pkg-w1", Fixture::verified("p-dave", "m-dave", statement))
+    GovernanceTransitions::tombstone(world, "pkg-w1", Fixture::verified("p-dave", "m-dave", statement))
 
     /// A tombstone keeps occupying its organization's key forever.
     fn tombstonedKeysStayTaken() = {
@@ -83,10 +83,10 @@ module IdentityTests {
         let statement = Governance::tombstoneStatement(Names::Key { scope: "wren", name: "ledger" }, 1)
         let tombstoned = Fixture::orKeep(world, fn(w) => tombstone(w, statement))
         checkAll("tombstoned packages never free their key", [
-            Fixture::code(tombstone(world, statement)) == "",
-            wrenCode(tombstoned, key("wren", "ledger"), "pkg-w3", "m-ci", "p-ci") == governancePackageDuplicateName,
-            finchCode(tombstoned, key("finch", "ledger"), "pkg-f3") == governancePackageDuplicateName,
-            finchCode(tombstoned, key("finch", "ledger2"), "pkg-f4") == ""
+                Fixture::code(tombstone(world, statement)) == "",
+                wrenCode(tombstoned, key("wren", "ledger"), "pkg-w3", "m-ci", "p-ci") == governancePackageDuplicateName,
+                finchCode(tombstoned, key("finch", "ledger"), "pkg-f3") == governancePackageDuplicateName,
+                finchCode(tombstoned, key("finch", "ledger2"), "pkg-f4") == ""
         ])
     }
 

@@ -56,14 +56,13 @@ module Reports {
     /// One line per entry of `label: value`.
     export fn field(label, value) = "${label}: ${value}"
 
-
     /// The report as one canonical JSON line, `{"lines":[…],"status":N}`, for
     /// editors and automation ([PACKAGE-API]): the very value the terminal
     /// rendering shows, so there is no second semantic API to keep in step.
     export fn json(report: Report) = Canonical::serialize(Json::Obj { members: [
-        Json::member("lines", Json::Arr { items: mapList(report.lines, fn(text) => Json::Str { text: text }) }),
-        Json::member("status", Json::Num { value: report.status })
-    ] }) ?: "{}"
+                Json::member("lines", Json::Arr { items: mapList(report.lines, fn(text) => Json::Str { text: text }) }),
+                Json::member("status", Json::Num { value: report.status })
+            ] }) ?: "{}"
 
     let replacement = "?"
     let space = 32

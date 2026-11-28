@@ -81,7 +81,6 @@ module Install {
         Error { message } => failedLine(tally, message)
     }
 
-
     /// An overridden key lives in its checkout: nothing to install.
     fn localLine(tally, pkg: Lockfile::Package, o: Lockfile::Override) = line(tally, "local ${Lockfile::compact(pkg.release)} (${o.path})")
 
@@ -90,11 +89,10 @@ module Install {
         Error => installOne(base, project, tally, pkg)
     }
 
-
     /// With the uv plane pinned, `uv sync --frozen` creates the environment ([PACKAGE-PYTHON-UV]).
     fn synced(project, lock, tally) = Maybe::fold(Lockfile::pinsOf(lock), tally, fn(pins) => match PythonPlane::synced(project, pins) {
-        Success { value } => line(tally, value)
-        Error { message } => failedLine(tally, message)
+            Success { value } => line(tally, value)
+            Error { message } => failedLine(tally, message)
     })
 
     fn installLock(base, project, lock) = {

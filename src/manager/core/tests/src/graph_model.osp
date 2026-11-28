@@ -27,8 +27,8 @@ module GraphModel {
     /// `ManifestModel::Edge` variant: `Runtime` outranks `Build`, and a body
     /// naming neither is a `Test` edge whose requirement may be absent.
     fn edge(v) = if has(v, "Runtime") { ManifestModel::Runtime { requirement: required(JsonRead::field(v, "Runtime")) } }
-        else if has(v, "Build") { ManifestModel::Build { requirement: required(JsonRead::field(v, "Build")) } }
-        else { ManifestModel::Test { requirement: required(JsonRead::field(v, "Test")) } }
+    else if has(v, "Build") { ManifestModel::Build { requirement: required(JsonRead::field(v, "Build")) } }
+    else { ManifestModel::Test { requirement: required(JsonRead::field(v, "Test")) } }
 
     fn releaseState(v) = match Json::get(v, "Eligible") {
         Success => "Eligible"

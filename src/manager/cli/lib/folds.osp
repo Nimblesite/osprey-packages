@@ -36,7 +36,7 @@ module Folds {
     /// `foldList` over a `Result` accumulator that stops at its first
     /// failure: `step` only ever sees the success so far.
     export fn collect(items, first, step) = foldList(items, first, fn(acc, item) => match acc {
-        Error => acc
-        Success { value } => step(value, item)
+            Error => acc
+            Success { value } => step(value, item)
     })
 }

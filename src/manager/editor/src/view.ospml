@@ -45,8 +45,8 @@ module View
     installedBadges item = [Ui::badge (item.entryIdentity.entryVersion, "tag", ui::Accent), presenceBadge item, dependencyBadge item]
 
     installedRow item = Ui::entry (installedKey item, "shippingbox", groupOf item, Ui::column [
-        Ui::styled (installedKey item, ui::Headline, ui::Primary),
-        Ui::row (listAppend (installedBadges item, findingsBadge item.entryFindings)),
+    Ui::styled (installedKey item, ui::Headline, ui::Primary),
+    Ui::row (listAppend (installedBadges item, findingsBadge item.entryFindings)),
     ])
 
     groupOf item = match item.entryDirect
@@ -54,8 +54,8 @@ module View
         false => "Transitive dependencies"
 
     catalogRow item = Ui::entry (catalogKey item, "globe", "Registry", Ui::column [
-        Ui::styled (catalogKey item, ui::Headline, ui::Primary),
-        catalogBadges item,
+    Ui::styled (catalogKey item, ui::Headline, ui::Primary),
+    catalogBadges item,
     ])
 
     searchField snapshot = ui::Field(label = "Search packages", value = snapshot.packageSearch, prompt = "Search @organization/package", secure = false, multiline = false, commit = ui::OnEdit, bind = Search)
@@ -87,11 +87,11 @@ module View
     export listView () =
         snapshot = current ()
         Ui::section ("Packages", footer snapshot, [
-            searchField snapshot,
-            ui::Tabs(tabs = [
-                Ui::tab ("installed", "Installed", "shippingbox", installedPage snapshot),
-                Ui::tab ("browse", "Browse registry", "globe", catalogPage snapshot),
-            ], selected = snapshot.packageTab, bind = TabSwitch),
+        searchField snapshot,
+        ui::Tabs(tabs = [
+        Ui::tab ("installed", "Installed", "shippingbox", installedPage snapshot),
+        Ui::tab ("browse", "Browse registry", "globe", catalogPage snapshot),
+        ], selected = snapshot.packageTab, bind = TabSwitch),
         ])
 
     styledAll (texts, style, tone) = mapList (texts, \text => Ui::styled (text, style, tone))
@@ -115,20 +115,20 @@ module View
     projectNode snapshot = Ui::pair ("Project", projectOf snapshot)
 
     installedFacts item = Ui::column [
-        Ui::row (installedBadges item),
-        Ui::pair ("Digest", item.entryIdentity.entryDigest),
+    Ui::row (installedBadges item),
+    Ui::pair ("Digest", item.entryIdentity.entryDigest),
     ]
 
     packageBody (snapshot, key, facts, findings) = [
-        Ui::styled (key, ui::Large, ui::Primary),
-        facts,
-        projectNode snapshot,
-        findingsSection findings,
+    Ui::styled (key, ui::Large, ui::Primary),
+    facts,
+    projectNode snapshot,
+    findingsSection findings,
     ]
 
     installedBody (snapshot, item) = listConcat (packageBody (snapshot, installedKey item, installedFacts item, item.entryFindings)) [
-        keyList ("Dependencies", item.entryDependencies),
-        keyList ("Required by", item.entryDependents),
+    keyList ("Dependencies", item.entryDependencies),
+    keyList ("Required by", item.entryDependents),
     ]
 
     idle snapshot = snapshot.packagePending == false
@@ -138,8 +138,8 @@ module View
     removeInstalledEnabled (snapshot, item) = idle snapshot && item.entryDirect
 
     packageActions (addEnabled, removeEnabled) = [
-        Ui::action ("Add to project", "plus", ui::Plain, addEnabled, Add),
-        Ui::action ("Remove dependency", "trash", ui::Destructive, removeEnabled, Remove),
+    Ui::action ("Add to project", "plus", ui::Plain, addEnabled, Add),
+    Ui::action ("Remove dependency", "trash", ui::Destructive, removeEnabled, Remove),
     ]
 
     installedActions (snapshot, item) = packageActions (addInstalledEnabled (snapshot, item), removeInstalledEnabled (snapshot, item))
@@ -153,9 +153,9 @@ module View
     catalogBadges item = Ui::row [Ui::badge (Packages::newest item, "tag", ui::Accent), findingsBadge item.catalogFindings]
 
     catalogFacts (snapshot, item) = Ui::column [
-        catalogBadges item,
-        Ui::pair ("Releases", join item.catalogVersions ", "),
-        Ui::pair ("Registry", snapshot.packageRegistry),
+    catalogBadges item,
+    Ui::pair ("Releases", join item.catalogVersions ", "),
+    Ui::pair ("Registry", snapshot.packageRegistry),
     ]
 
     catalogBody (snapshot, item) = listConcat (packageBody (snapshot, catalogKey item, catalogFacts (snapshot, item), item.catalogFindings)) [catalogNote (snapshot, item)]
@@ -177,11 +177,11 @@ module View
         _ => "Audit status unverified: no findings are recorded, which is not proof of an audit. This adds ${snapshot.packageConfirmKey} from ${snapshot.packageRegistry} to ${projectOf snapshot} and changes its direct dependencies."
 
     confirmation snapshot = Ui::column [
-        ui::Alert(title = "Confirm ${snapshot.packageConfirming} ${snapshot.packageConfirmKey}", message = confirmationMessage snapshot, visible = true, dismiss = DismissAlert),
-        Ui::row [
-            Ui::action ("Confirm ${snapshot.packageConfirming} ${snapshot.packageConfirmKey}", installedSymbol, ui::Destructive, true, Confirm),
-            Ui::button ("Cancel", "xmark", DismissAlert),
-        ],
+    ui::Alert(title = "Confirm ${snapshot.packageConfirming} ${snapshot.packageConfirmKey}", message = confirmationMessage snapshot, visible = true, dismiss = DismissAlert),
+    Ui::row [
+    Ui::action ("Confirm ${snapshot.packageConfirming} ${snapshot.packageConfirmKey}", installedSymbol, ui::Destructive, true, Confirm),
+    Ui::button ("Cancel", "xmark", DismissAlert),
+    ],
     ]
 
     withConfirmation (snapshot, nodes) = match snapshot.packageConfirming == ""
@@ -209,11 +209,11 @@ module View
             false => Ui::badge (snapshot.packageNotice, installedSymbol, ui::Secondary)
 
     metrics snapshot = Ui::row [
-        Ui::pair ("Installed", "${installedCount snapshot}"),
-        Ui::pair ("Direct", "${directCount snapshot}"),
-        Ui::pair ("Missing", "${length (missingItems snapshot)}"),
-        Ui::pair ("Findings", "${findingsCount snapshot}"),
-        Ui::pair ("Catalog", "${length snapshot.packageCatalog}"),
+    Ui::pair ("Installed", "${installedCount snapshot}"),
+    Ui::pair ("Direct", "${directCount snapshot}"),
+    Ui::pair ("Missing", "${length (missingItems snapshot)}"),
+    Ui::pair ("Findings", "${findingsCount snapshot}"),
+    Ui::pair ("Catalog", "${length snapshot.packageCatalog}"),
     ]
 
     missingBadge item = Ui::badge ("${installedKey item} · missing from disk", missingSymbol, ui::Caution)
@@ -237,13 +237,13 @@ module View
         false => noticeNode snapshot
 
     availableBody snapshot = [
-        Ui::row [Ui::badge ("Audit unverified", unverifiedSymbol, ui::Caution), Ui::caption snapshot.packageRegistry],
-        Ui::caption auditBanner,
-        dataMetrics snapshot,
-        availableNotice snapshot,
-        missingSection snapshot,
-        graphFindings snapshot,
-        Ui::split [Ui::slot "packages", Ui::slot "details"],
+    Ui::row [Ui::badge ("Audit unverified", unverifiedSymbol, ui::Caution), Ui::caption snapshot.packageRegistry],
+    Ui::caption auditBanner,
+    dataMetrics snapshot,
+    availableNotice snapshot,
+    missingSection snapshot,
+    graphFindings snapshot,
+    Ui::split [Ui::slot "packages", Ui::slot "details"],
     ]
 
     screenBody snapshot = match snapshot.packageFault

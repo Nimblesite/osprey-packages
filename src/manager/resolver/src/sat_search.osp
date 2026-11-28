@@ -72,8 +72,8 @@ module SatSearch {
     fn assign(s, l, level, reason) = {
         let t = s.track
         withTrack(s, t {
-            slots: mapSet(t.slots, "${SatClauses::absLit(l)}", Slot { value: signOf(l), level: level, reason: reason }),
-            trail: listAppend(t.trail, SatClauses::absLit(l))
+                slots: mapSet(t.slots, "${SatClauses::absLit(l)}", Slot { value: signOf(l), level: level, reason: reason }),
+                trail: listAppend(t.trail, SatClauses::absLit(l))
         })
     }
 
@@ -140,8 +140,8 @@ module SatSearch {
     /// reference `-(i+1)` for the i-th assumption unit, or the stored
     /// antecedent set for a learned clause.
     fn rootIdsOf(s, ci) = if ci < s.inputCount { [ci] }
-        else if ci < s.inputCount + s.pseudoCount { [SatClauses::neg(ci - s.inputCount + 1)] }
-        else { clauseOrEmpty(s.db.learnedRoots, ci - s.inputCount - s.pseudoCount) }
+    else if ci < s.inputCount + s.pseudoCount { [SatClauses::neg(ci - s.inputCount + 1)] }
+    else { clauseOrEmpty(s.db.learnedRoots, ci - s.inputCount - s.pseudoCount) }
 
     fn fresh(vars, clauses, pseudos) = State {
         vars: vars,
@@ -245,7 +245,7 @@ module SatSearch {
         match acc {
             Clear { at } => if at.track.qhead >= length(at.track.trail) { acc } else { advance(at) }
             Clash => acc
-        })
+    })
 
     // ---- conflict analysis to the first unique implication point ----
 
@@ -404,14 +404,14 @@ module SatSearch {
         match foldList(range(0, length(clauses) + length(pseudos)) |> toList, Clear { at: fresh(vars, clauses, pseudos) }, settle) {
             Clash { at, ci } => unsatVerdict(at, ci)
             Clear { at } => finish(fold(range(0, roundCapBase + roundCapScale * vars), Live { at: at }, fn(acc, _r) =>
-                match acc {
-                    Ended { _ } => acc
-                    Live { at } => fold(range(0, roundBase + roundScale * at.vars), acc, fn(step, _i) =>
-                        match step {
-                            Ended { _ } => step
-                            Live { at } => oneStep(at)
+                    match acc {
+                        Ended { _ } => acc
+                        Live { at } => fold(range(0, roundBase + roundScale * at.vars), acc, fn(step, _i) =>
+                            match step {
+                                Ended { _ } => step
+                                Live { at } => oneStep(at)
                         })
-                }))
+            }))
         }
     }
 }

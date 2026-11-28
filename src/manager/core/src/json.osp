@@ -266,8 +266,8 @@ module Json {
 
     /// The value of the member named `key`, or `code` when it is absent.
     export fn memberOr(members, key, code) = foldList(members, Error { message: code }, fn(acc, m) => match acc {
-        Success => acc
-        Error => if m.key == key { Success { value: m.value } } else { acc }
+            Success => acc
+            Error => if m.key == key { Success { value: m.value } } else { acc }
     })
 
     /// The value at `key`, or `"json.missing-key"` / `"json.not-an-object"`.

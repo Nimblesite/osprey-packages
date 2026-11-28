@@ -46,7 +46,7 @@ module Jwt {
     fn validHeader(header) = {
         let alg = AuthText::field(header, "alg")
         (alg == "ES256" || alg == "RS256") && keyId(AuthText::field(header, "kid"))
-            && !foldList(["crit", "b64", "jku", "jwk", "x5u", "x5c"], false, fn(found, name) => found || has(header, name))
+        && !foldList(["crit", "b64", "jku", "jwk", "x5u", "x5c"], false, fn(found, name) => found || has(header, name))
     }
 
     fn keyFor(header, doc) = {
@@ -55,16 +55,16 @@ module Jwt {
         let selected = filterList(keys, fn(key) => AuthText::field(key, "kid") == ident)
         let key = listGet(selected, 0) ?: Json::Null
         if length(selected) != 1 || length(keys) > 32 || AuthText::field(key, "alg") != AuthText::field(header, "alg")
-            || (has(key, "use") && AuthText::field(key, "use") != "sig")
-            || (has(key, "key_ops") && !listContains(JsonRead::texts(JsonRead::field(key, "key_ops")), "verify")) {
+        || (has(key, "use") && AuthText::field(key, "use") != "sig")
+        || (has(key, "key_ops") && !listContains(JsonRead::texts(JsonRead::field(key, "key_ops")), "verify")) {
             Error { message: "auth.jwt-key" }
         } else { Success { value: key } }
     }
 
     fn fetchKey(config, header) = andThen(perform Supabase::Provider.request("GET", config.supabaseOrigin,
-        "/auth/v1/.well-known/jwks.json", "", ""), fn(reply) =>
-            if reply.status != 200 || byteLength(reply.body) > 65536 { Error { message: "auth.jwt-key" } }
-            else { andThen(Json::parse(reply.body), fn(doc) => keyFor(header, doc)) })
+            "/auth/v1/.well-known/jwks.json", "", ""), fn(reply) =>
+        if reply.status != 200 || byteLength(reply.body) > 65536 { Error { message: "auth.jwt-key" } }
+        else { andThen(Json::parse(reply.body), fn(doc) => keyFor(header, doc)) })
 
     fn beforeWindow(doc, now) = match Json::get(doc, "nbf") {
         Error => true
@@ -80,9 +80,9 @@ module Jwt {
         let starts = JsonRead::number(JsonRead::field(doc, "iat"))
         let expires = JsonRead::number(JsonRead::field(doc, "exp"))
         if !Bytes::canonicalUuid(subject) || AuthText::field(doc, "iss") != config.supabaseOrigin + "/auth/v1"
-            || (JsonRead::text(aud) != audience && !structuralEquals(JsonRead::texts(aud), [audience]))
-            || starts < 1 || starts > now + clockSkew || expires <= now - clockSkew - refreshWindow || expires <= starts
-            || expires - starts > tokenLife || !beforeWindow(doc, now) { Error { message: invalid } }
+        || (JsonRead::text(aud) != audience && !structuralEquals(JsonRead::texts(aud), [audience]))
+        || starts < 1 || starts > now + clockSkew || expires <= now - clockSkew - refreshWindow || expires <= starts
+        || expires - starts > tokenLife || !beforeWindow(doc, now) { Error { message: invalid } }
         else { Success { value: subject } }
     }
 
@@ -92,18 +92,18 @@ module Jwt {
 
     fn checked(config, now, header, doc, signingInput, encodedSignature) = andThen(claims(config, now, doc), fn(subject) =>
         andThen(Dsse::decodeBase64Url(encodedSignature), fn(signed) => andThen(fetchKey(config, header), fn(key) =>
-            andThen(JwtKeys::verify(AuthText::field(header, "alg"), key, signed, Sha256::digest(Bytes::ofString(signingInput))),
-                fn(_) => if JsonRead::number(JsonRead::field(doc, "exp")) <= now - clockSkew { Error { message: expired } }
+                andThen(JwtKeys::verify(AuthText::field(header, "alg"), key, signed, Sha256::digest(Bytes::ofString(signingInput))),
+                    fn(_) => if JsonRead::number(JsonRead::field(doc, "exp")) <= now - clockSkew { Error { message: expired } }
                     else { Success { value: subject } }))))
 
     /// Each verification obtains one fresh key set, so a rotated key needs no stale local cache.
     export fn verify(config, now, token) = if OAuth::configCode(config) != "" || now <= 0 || now > 253402300799 || byteLength(token) > 16384 {
         Error { message: invalid }
     } else { match split(token, ".") {
-        Success { value } => if length(value) != 3 { Error { message: invalid } }
+            Success { value } => if length(value) != 3 { Error { message: invalid } }
             else { verifyParts(config, now, listGet(value, 0) ?: "", listGet(value, 1) ?: "", listGet(value, 2) ?: "") }
-        Error => Error { message: invalid }
-    } }
+            Error => Error { message: invalid }
+        } }
 
     /// The signed subject must match the immutable identity returned by Supabase /user.
     export fn verifySession(config, now, session: Supabase::Session) = andThen(verify(config, now, session.accessToken), fn(subject) =>

@@ -29,9 +29,9 @@ module CanonicalFixtureTests {
         let fx = fixture(name)
         let bytes = canonical(JsonRead::field(fx, "value"))
         checkAll("canonical ${name}", [
-            bytes == Fixtures::textOf(fx, "canonical"),
-            byteLength(bytes) == Fixtures::numberOf(fx, "canonicalLength"),
-            domainDigestHolds(fx)
+                bytes == Fixtures::textOf(fx, "canonical"),
+                byteLength(bytes) == Fixtures::numberOf(fx, "canonicalLength"),
+                domainDigestHolds(fx)
         ])
     }
 

@@ -91,8 +91,8 @@ module HostedRequest {
     fn uriBytesOk(uri) = Bytes::everyByte(uri, uriByte)
 
     fn uriStage(uri) = if byteLength(uri) > maxUri { stop(uriTooLong, "req.uri") }
-        else if !startsWith(uri, "/") || !uriBytesOk(uri) { stop(badRequest, "req.uri") }
-        else { Pass }
+    else if !startsWith(uri, "/") || !uriBytesOk(uri) { stop(badRequest, "req.uri") }
+    else { Pass }
 
     fn digits(s) = byteLength(s) > 0 && Bytes::everyByte(s, Bytes::isDigit)
 
@@ -102,8 +102,8 @@ module HostedRequest {
     }
 
     fn bodyStage(headers, incoming, policy) = if byteLength(incoming.body) > policy.maxBody { stop(bodyStatus, "req.body-size") }
-        else if !lengthHeaderOk(headers, incoming.body) { stop(badRequest, "req.content-length") }
-        else { Pass }
+    else if !lengthHeaderOk(headers, incoming.body) { stop(badRequest, "req.content-length") }
+    else { Pass }
 
     /// Credentialed requests: a present session cookie forces the exact
     /// website origin, and mutations additionally force the CSRF token.

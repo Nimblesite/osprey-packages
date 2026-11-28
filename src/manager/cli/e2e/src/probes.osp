@@ -63,8 +63,8 @@ module Probes {
             run command => {
                 let selectedCommand = compilerCommand(command, selected)
                 perform Host::Process.run(if startsWith(selectedCommand, Host::shellWord(selected) + " ") {
-                    selectedCommand + " --memory=" + Host::shellWord(mode)
-                } else { selectedCommand })
+                        selectedCommand + " --memory=" + Host::shellWord(mode)
+                    } else { selectedCommand })
             }
         }
     }
@@ -102,11 +102,11 @@ module Probes {
         match perform Host::Web.get(base, path) {
             Success { value } => replyText(value)
             Error { message } => message
-        })
+    })
 
     fn paths(catalog) = listConcat(
         ["/v1/health", "/v1/packages", "/v1/packages/demo/maths", "/v1/packages/@demo/report", "/v1/packages/demo/missing", "/v1/nowhere",
-         "/v1/releases/sha256:0000000000000000000000000000000000000000000000000000000000000000"],
+            "/v1/releases/sha256:0000000000000000000000000000000000000000000000000000000000000000"],
         foldList(Release::servedOf(catalog), [], fn(out, s) => listConcat(out, ["/v1/releases/${Release::digestOf(s)}", "/v1/releases/${Release::digestOf(s)}/source"])))
 
     fn fetched(target) = observation("fetch ${target}", "0", "${Fetch::run([target, "--registry", base]).status}")
@@ -190,8 +190,8 @@ module Probes {
     ]
 
     fn writePythonBuild(dir, lock) = foldList(pythonBuildFiles(lock), Success { value: 0 }, fn(acc, f) => match acc {
-        Error => acc
-        Success => perform Host::Files.write("${dir}/${f.relPath}", f.content)
+            Error => acc
+            Success => perform Host::Files.write("${dir}/${f.relPath}", f.content)
     })
 
     fn preparePythonBuild(dir) = {
@@ -275,8 +275,8 @@ module Probes {
     fn pythonPinned(dir) = contains(readFile("${dir}/osprey.lock") ?: "", "\"python\":{\"pyprojectDigest\":\"sha256:")
 
     fn rootPythonFiles(dir) = andThen(perform Host::Tree.walk(dir), fn(value) => {
-        let kept = fn(paths) => filterList(paths, fn(path) => !Paths::excluded(path))
-        Install::filesOfWalked(Host::Walk { regular: kept(value.regular), executable: kept(value.executable), special: kept(value.special) }, dir)
+            let kept = fn(paths) => filterList(paths, fn(path) => !Paths::excluded(path))
+            Install::filesOfWalked(Host::Walk { regular: kept(value.regular), executable: kept(value.executable), special: kept(value.special) }, dir)
     })
 
     fn pythonFiles(dir) = andThen(perform Host::Tree.walk("${dir}/.osprey/packages"), fn(value) =>
@@ -343,7 +343,7 @@ module Probes {
 
     /// The newest release of each package: the ones `fetch @scope/name` installs.
     fn newest(catalog) = Release::Catalog { served: filterList(Release::servedOf(catalog), fn(s) =>
-        !foldList(Release::servedOf(catalog), false, fn(newer, o) => newer || (keyOf(o) == keyOf(s) && ordinalOf(o) > ordinalOf(s)))), refused: [] }
+            !foldList(Release::servedOf(catalog), false, fn(newer, o) => newer || (keyOf(o) == keyOf(s) && ordinalOf(o) > ordinalOf(s)))), refused: [] }
 
     fn stop() = {
         let _killed = sh("kill $(cat ${work}/server.pid)")

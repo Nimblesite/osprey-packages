@@ -14,21 +14,21 @@ module OriginTests {
     fn origins() = {
         let codeOf = fn(origin, method) => outcome(HostedOrigin::check(origin, site, method))
         checkAll("origin: exact site origin only", [
-            codeOf("${site}", "POST") == "",
-            codeOf("HTTPS://PACKAGES.EXAMPLE.TEST", "POST") == "",
-            codeOf("${site}/", "POST") == originMismatch,
-            codeOf("https://evil.test", "POST") == originMismatch,
-            codeOf("", "POST") == "req.origin-required",
-            codeOf("", "GET") == "",
-            codeOf("https://evil.test", "GET") == originMismatch
+                codeOf("${site}", "POST") == "",
+                codeOf("HTTPS://PACKAGES.EXAMPLE.TEST", "POST") == "",
+                codeOf("${site}/", "POST") == originMismatch,
+                codeOf("https://evil.test", "POST") == originMismatch,
+                codeOf("", "POST") == "req.origin-required",
+                codeOf("", "GET") == "",
+                codeOf("https://evil.test", "GET") == originMismatch
         ])
     }
 
     fn tokens() = checkAll("csrf: token equality on mutations", [
-        outcome(HostedOrigin::csrf("tok", "tok")) == "",
-        outcome(HostedOrigin::csrf("tok", "other")) == "req.csrf-mismatch",
-        outcome(HostedOrigin::csrf("", "tok")) == "req.csrf-missing",
-        outcome(HostedOrigin::csrf("tok", "")) == "req.csrf-unconfigured"
+            outcome(HostedOrigin::csrf("tok", "tok")) == "",
+            outcome(HostedOrigin::csrf("tok", "other")) == "req.csrf-mismatch",
+            outcome(HostedOrigin::csrf("", "tok")) == "req.csrf-missing",
+            outcome(HostedOrigin::csrf("tok", "")) == "req.csrf-unconfigured"
     ])
 
     /// Site-origin validation for credentialed mutations, and CSRF token checks.

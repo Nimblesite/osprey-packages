@@ -56,44 +56,44 @@ module JsonTests {
     ]
 
     fn values() = checkAll("scalars, containers, whitespace and escapes decode", [
-        structuralEquals([canon(" \t\r\nnull\n "), canon("true"), canon("false")], ["null", "true", "false"]),
-        structuralEquals([canon("0"), canon("-1"), canon("\"\""), canon("\"a\"")], ["0", "-1", "\"\"", "\"a\""]),
-        canon("\"a\\tb\"") == "\"a\\tb\"",
-        canon("\"\\/\\\"\\\\\"") == "\"" + "/" + "\\\"" + "\\\\" + "\"",
-        structuralEquals([canon("[]"), canon("[ ]"), canon("[1, 2,3]"), canon("{}")], ["[]", "[]", "[1,2,3]", "{}"]),
-        structuralEquals([canon("{ \"a\" : 1 }"), canon("[[[]]]")], ["{\"a\":1}", "[[[]]]"]),
-        canon("{\"a\":[1,{\"b\":null,\"c\":true},\"x\"],\"d\":[]}") == "{\"a\":[1,{\"b\":null,\"c\":true},\"x\"],\"d\":[]}",
-        canon("\"\\u0041\\u00e9\\ud83d\\ude00\"") == "\"Aé😀\""
+            structuralEquals([canon(" \t\r\nnull\n "), canon("true"), canon("false")], ["null", "true", "false"]),
+            structuralEquals([canon("0"), canon("-1"), canon("\"\""), canon("\"a\"")], ["0", "-1", "\"\"", "\"a\""]),
+            canon("\"a\\tb\"") == "\"a\\tb\"",
+            canon("\"\\/\\\"\\\\\"") == "\"" + "/" + "\\\"" + "\\\\" + "\"",
+            structuralEquals([canon("[]"), canon("[ ]"), canon("[1, 2,3]"), canon("{}")], ["[]", "[]", "[1,2,3]", "{}"]),
+            structuralEquals([canon("{ \"a\" : 1 }"), canon("[[[]]]")], ["{\"a\":1}", "[[[]]]"]),
+            canon("{\"a\":[1,{\"b\":null,\"c\":true},\"x\"],\"d\":[]}") == "{\"a\":[1,{\"b\":null,\"c\":true},\"x\"],\"d\":[]}",
+            canon("\"\\u0041\\u00e9\\ud83d\\ude00\"") == "\"Aé😀\""
     ])
 
     fn integers() = checkAll("64-bit integer edges stay in range", [
-        structuralEquals([canon("0"), canon("9223372036854775807")], ["0", "9223372036854775807"]),
-        canon("-9223372036854775808") == "-9223372036854775808",
-        problemsAt(["9223372036854775808", "-9223372036854775809", "99999999999999999999"], "json.integer-range", [0, 0, 0])
+            structuralEquals([canon("0"), canon("9223372036854775807")], ["0", "9223372036854775807"]),
+            canon("-9223372036854775808") == "-9223372036854775808",
+            problemsAt(["9223372036854775808", "-9223372036854775809", "99999999999999999999"], "json.integer-range", [0, 0, 0])
     ])
 
     fn shapes() = checkAll("non-integer numbers report at the number start", [
-        problemsAt(["1.5", "1e3", "1E3", "01", "-0", "-01"], nonInteger, [0, 0, 0, 0, 0, 0]),
-        problemsAt(["[1.0]", "0.0"], nonInteger, [1, 0])
+            problemsAt(["1.5", "1e3", "1E3", "01", "-0", "-01"], nonInteger, [0, 0, 0, 0, 0, 0]),
+            problemsAt(["[1.0]", "0.0"], nonInteger, [1, 0])
     ])
 
     fn problems() = checkAll("structural problems carry exact byte offsets", [
-        problemsAt(["", "   ", "[1,", "{\"a\"", "\"abc", "\"ab\\uD8", "tru", "-"], "json.unexpected-end", [0, 3, 3, 4, 4, 7, 3, 1]),
-        problemsAt(["x", "{1:2}", "[1 2]", "{\"a\" 1}", "[1,]", "{\"a\":1,}"], "json.unexpected-token", [0, 1, 3, 5, 3, 7]),
-        problemsAt(["nullx", "1 x", "{}[]"], "json.trailing-text", [4, 2, 2]),
-        problem("{\"a\":1,\"a\":2}") == "json.duplicate-key@7"
+            problemsAt(["", "   ", "[1,", "{\"a\"", "\"abc", "\"ab\\uD8", "tru", "-"], "json.unexpected-end", [0, 3, 3, 4, 4, 7, 3, 1]),
+            problemsAt(["x", "{1:2}", "[1 2]", "{\"a\" 1}", "[1,]", "{\"a\":1,}"], "json.unexpected-token", [0, 1, 3, 5, 3, 7]),
+            problemsAt(["nullx", "1 x", "{}[]"], "json.trailing-text", [4, 2, 2]),
+            problem("{\"a\":1,\"a\":2}") == "json.duplicate-key@7"
     ])
 
     fn depth() = checkAll("nesting is capped at 64 containers", [
-        canon(nested(64)) == nested(64),
-        problem(nested(65)) == "json.depth@64"
+            canon(nested(64)) == nested(64),
+            problem(nested(65)) == "json.depth@64"
     ])
 
     fn strings() = checkAll("string content problems carry exact offsets", [
-        problemsAt([quoted("a" + cp(1) + "b"), quoted("\\u0000")], "json.control-character", [2, 1]),
-        problemsAt([quoted("a\\qb"), quoted("a\\u12x4"), quoted("a\\uzz")], "json.bad-escape", [2, 2, 2]),
-        problemsAt([quoted("\\uD800"), quoted("\\uDC00"), quoted("\\uDC00\\uD800"), quoted("\\uD800x"), quoted("\\uD800\\u0041"), quoted("\\uD800\\uD800")], "json.bad-surrogate", [1, 1, 1, 1, 1, 1]),
-        structuralEquals([problem(quoted("\\uD800\\uD")), problem(quoted("\\ud83d\\ude00"))], ["json.bad-escape@1", "ok"])
+            problemsAt([quoted("a" + cp(1) + "b"), quoted("\\u0000")], "json.control-character", [2, 1]),
+            problemsAt([quoted("a\\qb"), quoted("a\\u12x4"), quoted("a\\uzz")], "json.bad-escape", [2, 2, 2]),
+            problemsAt([quoted("\\uD800"), quoted("\\uDC00"), quoted("\\uDC00\\uD800"), quoted("\\uD800x"), quoted("\\uD800\\u0041"), quoted("\\uD800\\uD800")], "json.bad-surrogate", [1, 1, 1, 1, 1, 1]),
+            structuralEquals([problem(quoted("\\uD800\\uD")), problem(quoted("\\ud83d\\ude00"))], ["json.bad-escape@1", "ok"])
     ])
 
     /// `substring` slices bytes, so mid-codepoint cuts are raw invalid UTF-8.
@@ -101,8 +101,8 @@ module JsonTests {
         let lone = substring("é", 1, 2) ?: ""
         let truncated = substring("é", 0, 1) ?: ""
         checkAll("invalid UTF-8 in string content", [
-            problemsAt([quoted(lone), quoted(truncated)], "json.utf8", [1, 1]),
-            problem(quoted("ok" + lone)) == "json.utf8@3"
+                problemsAt([quoted(lone), quoted(truncated)], "json.utf8", [1, 1]),
+                problem(quoted("ok" + lone)) == "json.utf8@3"
         ])
     }
 
@@ -112,8 +112,8 @@ module JsonTests {
         let input = cp(1) + cp(8) + cp(9) + cp(10) + cp(12) + cp(13) + cp(31) + "\"" + "\\" + "/" + cp(233) + cp(128512)
         let body = join(["\\u0001", "\\b", "\\t", "\\n", "\\f", "\\r", "\\u001f", "\\\"", "\\\\", "/" + cp(233) + cp(128512)], "")
         checkAll("string escaping per RFC 8785 3.2.2.2", [
-            ser(Json::Str { text: input }) == "\"" + body + "\"",
-            ser(Json::Str { text: cp(8232) + cp(8233) }) == "\"" + cp(8232) + cp(8233) + "\""
+                ser(Json::Str { text: input }) == "\"" + body + "\"",
+                ser(Json::Str { text: cp(8232) + cp(8233) }) == "\"" + cp(8232) + cp(8233) + "\""
         ])
     }
 
@@ -140,25 +140,25 @@ module JsonTests {
         let text = "{ \"b\" : 1, \"a\" : [2, { \"d\" : null, \"c\" : true }] }"
         let once = canon(text)
         checkAll("sorting, duplicate keys and idempotence", [
-            once == "{\"a\":[2,{\"c\":true,\"d\":null}],\"b\":1}",
-            canon(once) == once,
-            Fixtures::valueOrMessage(Canonical::canonicalize(once)) == once,
-            refusesDuplicates(Json::Obj { members: dupMembers() }),
-            refusesDuplicates(Json::Arr { items: [Json::Obj { members: dupMembers() }] }),
-            Fixtures::valueOrMessage(Canonical::canonicalize("01")) == "json.non-integer at byte 0",
-            Fixtures::valueOrMessage(Canonical::canonicalize("{\"a\":1,\"a\":2}")) == "json.duplicate-key at byte 7"
+                once == "{\"a\":[2,{\"c\":true,\"d\":null}],\"b\":1}",
+                canon(once) == once,
+                Fixtures::valueOrMessage(Canonical::canonicalize(once)) == once,
+                refusesDuplicates(Json::Obj { members: dupMembers() }),
+                refusesDuplicates(Json::Arr { items: [Json::Obj { members: dupMembers() }] }),
+                Fixtures::valueOrMessage(Canonical::canonicalize("01")) == "json.non-integer at byte 0",
+                Fixtures::valueOrMessage(Canonical::canonicalize("{\"a\":1,\"a\":2}")) == "json.duplicate-key at byte 7"
         ])
     }
 
     fn lookups() = checkAll("member lookup and problem description", [
-        structuralEquals([found("{\"a\":1}", "a"), found("{\"a\":{\"b\":2}}", "a")], ["1", "{\"b\":2}"]),
-        structuralEquals([found("{\"a\":1}", "b"), found("[1]", "a")], [missingKey, "json.not-an-object"]),
-        found("null", "a") == "json.not-an-object",
-        Json::describe("json.depth@12") == "json.depth at byte 12",
-        Json::problemCode("json.non-integer@3") == nonInteger,
-        Json::problemOffset("json.non-integer@3") == 3,
-        Json::problemCode(missingKey) == missingKey,
-        Json::problemOffset(missingKey) == -1
+            structuralEquals([found("{\"a\":1}", "a"), found("{\"a\":{\"b\":2}}", "a")], ["1", "{\"b\":2}"]),
+            structuralEquals([found("{\"a\":1}", "b"), found("[1]", "a")], [missingKey, "json.not-an-object"]),
+            found("null", "a") == "json.not-an-object",
+            Json::describe("json.depth@12") == "json.depth at byte 12",
+            Json::problemCode("json.non-integer@3") == nonInteger,
+            Json::problemOffset("json.non-integer@3") == 3,
+            Json::problemCode(missingKey) == missingKey,
+            Json::problemOffset(missingKey) == -1
     ])
 
     let longRun = 100000
@@ -180,31 +180,31 @@ module JsonTests {
     /// Strings and whitespace far longer than one stack frame per byte
     /// allows: a scanner that recursed per byte overflowed near 6,000 bytes.
     fn longInputs() = checkAll("long strings parse and render", [
-        structuralEquals([parsedLength(quoted(longText())), parsedLength(quoted(repeated("\\n")))], [longRun, longRun]),
-        parsedLength(repeated(" ") + quoted("x") + repeated("\n")) == 1,
-        parsedLength(quoted(longText() + "\\n" + longText())) == 2 * longRun + 1,
-        parsedLength(quoted(repeated("é"))) == 2 * longRun,
-        problem(quoted(repeated("\\n") + "\\q")) == "json.bad-escape@${2 * longRun + 1}",
-        canonicalLength(longText()) == longRun + 2,
-        structuralEquals([canonicalLength(repeated("\n")), canonicalLength(repeated("é"))], [2 * longRun + 2, 2 * longRun + 2]),
-        canonicalLength(longText() + "\n" + longText()) == 2 * longRun + 4
+            structuralEquals([parsedLength(quoted(longText())), parsedLength(quoted(repeated("\\n")))], [longRun, longRun]),
+            parsedLength(repeated(" ") + quoted("x") + repeated("\n")) == 1,
+            parsedLength(quoted(longText() + "\\n" + longText())) == 2 * longRun + 1,
+            parsedLength(quoted(repeated("é"))) == 2 * longRun,
+            problem(quoted(repeated("\\n") + "\\q")) == "json.bad-escape@${2 * longRun + 1}",
+            canonicalLength(longText()) == longRun + 2,
+            structuralEquals([canonicalLength(repeated("\n")), canonicalLength(repeated("é"))], [2 * longRun + 2, 2 * longRun + 2]),
+            canonicalLength(longText() + "\n" + longText()) == 2 * longRun + 4
     ])
 
     /// The JSON suite: values, integer edges, problem offsets, nesting depth,
     /// string escapes, UTF-8, member lookup, RFC 8785 escaping and ordering, and
     /// long inputs.
     export fn run() = testCases([
-        Fixtures::case("json: values and whitespace", values),
-        Fixtures::case("json: integer edges", integers),
-        Fixtures::case("json: number shapes", shapes),
-        Fixtures::case("json: problems and offsets", problems),
-        Fixtures::case("json: nesting depth", depth),
-        Fixtures::case("json: string escapes", strings),
-        Fixtures::case("json: utf8 validation", utf8),
-        Fixtures::case("json: member lookup", lookups),
-        Fixtures::case("canonical: escaping", escaping),
-        Fixtures::case("canonical: key ordering", ordering),
-        Fixtures::case("canonical: duplicates and idempotence", roundTrip),
-        Fixtures::case("json: 100,000-byte strings and whitespace", longInputs)
+            Fixtures::case("json: values and whitespace", values),
+            Fixtures::case("json: integer edges", integers),
+            Fixtures::case("json: number shapes", shapes),
+            Fixtures::case("json: problems and offsets", problems),
+            Fixtures::case("json: nesting depth", depth),
+            Fixtures::case("json: string escapes", strings),
+            Fixtures::case("json: utf8 validation", utf8),
+            Fixtures::case("json: member lookup", lookups),
+            Fixtures::case("canonical: escaping", escaping),
+            Fixtures::case("canonical: key ordering", ordering),
+            Fixtures::case("canonical: duplicates and idempotence", roundTrip),
+            Fixtures::case("json: 100,000-byte strings and whitespace", longInputs)
     ])
 }

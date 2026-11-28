@@ -139,9 +139,9 @@ module TomlValues {
         let b = TomlLexer::cur(c)
         if Bytes::isDigit(b) { parseNumber(c) }
         else if b == bytePlus || b == byteMinus { match Bytes::isDigit(TomlLexer::peek(c, 1)) {
-            true => parseNumber(c)
-            false => unexpected(c)
-        } }
+                true => parseNumber(c)
+                false => unexpected(c)
+            } }
         else if b >= 128 { Error { message: Toml::fail(c, tomlNonAscii) } }
         else { Error { message: Toml::fail(c, tomlUnexpectedToken) } }
     }

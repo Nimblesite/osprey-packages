@@ -91,7 +91,7 @@ module Flags {
     /// `dispatch` for a command with a settings record: the parsed flags go
     /// through `commandLine` first, then `withCommand` runs over the record.
     export fn dispatchWith(args, valued, switches, code, text, commandLine, withCommand) =
-        dispatch(args, valued, switches, code, text, fn(parsed) => withCommand(commandLine(parsed)))
+    dispatch(args, valued, switches, code, text, fn(parsed) => withCommand(commandLine(parsed)))
 
     /// `withKey(key)` when `word` names a package key, else the usage report
     /// of the command owning `code`: the one spelling of a key word.

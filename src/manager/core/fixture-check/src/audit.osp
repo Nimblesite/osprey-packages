@@ -78,7 +78,7 @@ module Audit {
     }
 
     fn siblingCases(walked, dir) = listSort(mapList(filterList(jsonFiles(walked), fn(p) =>
-        directory(p) == dir && !endsWith(p, "/index.json") && !endsWith(p, "/relations.json")), fn(p) => drop(take(p, byteLength(p) - 5), byteLength(dir) + 1)))
+                directory(p) == dir && !endsWith(p, "/index.json") && !endsWith(p, "/relations.json")), fn(p) => drop(take(p, byteLength(p) - 5), byteLength(dir) + 1)))
 
     fn indexProblem(walked, path) = {
         let listed = listSort(mapList(JsonRead::items(JsonRead::field(load(path), "cases")), JsonRead::text))

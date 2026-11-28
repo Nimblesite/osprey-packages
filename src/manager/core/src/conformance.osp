@@ -20,12 +20,12 @@ module Conformance {
 
     /// What a path under the package system is allowed to be.
     export fn classify(path) = if hasAny(path, ospreyExtensions) { OspreySource }
-        else if hasAny(path, declarativeExtensions) || listContains(deploymentInputs, path) { Declarative }
-        else { Forbidden }
+    else if hasAny(path, declarativeExtensions) || listContains(deploymentInputs, path) { Declarative }
+    else { Forbidden }
 
     /// The paths that violate the gate, in input order.
     export fn violations(paths) = filterList(paths, fn(path) => match classify(path) {
-        Forbidden => true
-        _ => false
+            Forbidden => true
+            _ => false
     })
 }

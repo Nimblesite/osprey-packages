@@ -109,7 +109,6 @@ module Lockfile {
     let duplicateCode = "lock.duplicate-key"
     let orderCode = "lock.order"
 
-
     // The edge/requirement/key projection is `ManifestJson`'s, member for
     // member; the canonical serializer sorts members, so spelling order is
     // irrelevant to the bytes.
@@ -119,16 +118,16 @@ module Lockfile {
     export fn dependenciesCanonical(edges) = Canonical::serialize(ManifestJson::dependenciesJson(edges)) ?: ""
 
     fn releaseJson(id: Identity::ReleaseId) = Json::obj([
-        Json::member("package", ManifestJson::key(id.key)),
-        Json::member("epoch", Json::num(id.epoch)),
-        Json::member("ordinal", Json::num(id.ordinal)),
-        Json::member("digest", Json::str(id.digest))
+            Json::member("package", ManifestJson::key(id.key)),
+            Json::member("epoch", Json::num(id.epoch)),
+            Json::member("ordinal", Json::num(id.ordinal)),
+            Json::member("digest", Json::str(id.digest))
     ])
 
     fn packageJson(p: Package) = Json::obj([
-        Json::member(dependenciesKey, ManifestJson::dependenciesJson(p.dependencies)),
-        Json::member("release", releaseJson(p.release)),
-        arrayMember("surface", p.surface, Json::str)
+            Json::member(dependenciesKey, ManifestJson::dependenciesJson(p.dependencies)),
+            Json::member("release", releaseJson(p.release)),
+            arrayMember("surface", p.surface, Json::str)
     ])
 
     /// A JSON array member: `name` holding `items` rendered by `toJson`.
@@ -139,9 +138,9 @@ module Lockfile {
     fn pythonMembers(python) = Maybe::fold(python, [], fn(p) => [Json::member("python", pinsJson(p))])
 
     fn rootJson(root: Root, python) = Json::obj(listConcat([
-        Json::member(dependenciesKey, ManifestJson::dependenciesJson(root.dependencies)),
-        Json::member(manifestDigestKey, Json::str(root.manifestDigest))
-    ], pythonMembers(python)))
+                Json::member(dependenciesKey, ManifestJson::dependenciesJson(root.dependencies)),
+                Json::member(manifestDigestKey, Json::str(root.manifestDigest))
+            ], pythonMembers(python)))
 
     // `Package` shares `dependencies` with `Root` and `ManifestModel::Manifest`;
     // issue #273 needs the receiver spelled out.
@@ -156,10 +155,10 @@ module Lockfile {
     fn overrideKey(o: Override) = o.package
 
     fn overrideJson(o: Override) = Json::obj([
-        Json::member("epoch", Json::num(o.epoch)),
-        Json::member(manifestDigestKey, Json::str(o.manifestDigest)),
-        Json::member("package", ManifestJson::key(o.package)),
-        Json::member("path", Json::str(o.path))
+            Json::member("epoch", Json::num(o.epoch)),
+            Json::member(manifestDigestKey, Json::str(o.manifestDigest)),
+            Json::member("package", ManifestJson::key(o.package)),
+            Json::member("path", Json::str(o.path))
     ])
 
     fn sortedOverrides(overrides) = Folds::sortedBy(overrides, overrideAt, overrideKey, Names::compare)
@@ -169,10 +168,10 @@ module Lockfile {
     fn overridesMembers(lock: Lock) = if isEmpty(lock.overrides) { [] } else { [arrayMember("overrides", sortedOverrides(lock.overrides), overrideJson)] }
 
     fn encodeValue(lock) = Json::obj(listConcat([
-        Json::member("format", Json::num(formatValue)),
-        arrayMember("packages", sortedPackages(lock.packages), packageJson),
-        Json::member("root", rootJson(lock.root, lock.python))
-    ], overridesMembers(lock)))
+                Json::member("format", Json::num(formatValue)),
+                arrayMember("packages", sortedPackages(lock.packages), packageJson),
+                Json::member("root", rootJson(lock.root, lock.python))
+            ], overridesMembers(lock)))
 
     /// The RFC 8785 bytes of `lock`.
     export fn encode(lock) = Canonical::serialize(encodeValue(lock))
@@ -292,9 +291,9 @@ module Lockfile {
     fn overridesFrom(root) = {
         let value = JsonRead::field(root, "overrides")
         if Json::isNull(value) { Success { value: [] } } else { match value {
-            Json::Arr { items } => Checked::collectAll(items, readOverride)
-            _ => Error { message: shapeCode }
-        } }
+                Json::Arr { items } => Checked::collectAll(items, readOverride)
+                _ => Error { message: shapeCode }
+            } }
     }
 
     fn overrideKeyText(o: Override) = Names::display(o.package)
@@ -311,9 +310,9 @@ module Lockfile {
     }
 
     fn finish(packages, root, overrides, python) = if !keysUnique(packages) { Error { message: duplicateCode } }
-        else if !inOrder(packages) { Error { message: orderCode } }
-        else if !overridesOrdered(overrides) { Error { message: shapeCode } }
-        else { Success { value: Lock { root: root, packages: packages, overrides: overrides, python: python } } }
+    else if !inOrder(packages) { Error { message: orderCode } }
+    else if !overridesOrdered(overrides) { Error { message: shapeCode } }
+    else { Success { value: Lock { root: root, packages: packages, overrides: overrides, python: python } } }
 
     /// Strictly parse a folder-lock document; the first problem is one of
     /// `lock.format`, `lock.shape`, `lock.duplicate-key` or `lock.order`.

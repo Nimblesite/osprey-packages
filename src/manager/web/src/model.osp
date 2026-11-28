@@ -72,8 +72,8 @@ module Model {
     /// The gate over a whole listing: the first item without evidence names
     /// itself and fails the entire screen — no partial listings.
     export fn gateAll(items, labelOf, evidenceOf) = foldList(items, Success { value: "" }, fn(acc, item) => match acc {
-        Error => acc
-        Success => gate(evidenceOf(item), labelOf(item))
+            Error => acc
+            Success => gate(evidenceOf(item), labelOf(item))
     })
 
     fn none() = {
@@ -110,7 +110,7 @@ module Model {
     }
 
     fn liveGrant(grant, now) = Governance::isActiveGrant(grant)
-        && Maybe::fold(grant.expiresAt, true, fn(expires) => expires > now)
+    && Maybe::fold(grant.expiresAt, true, fn(expires) => expires > now)
 
     /// Whether the viewer holds an active, unexpired grant for exactly this
     /// permission at `now`.

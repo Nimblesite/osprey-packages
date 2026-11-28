@@ -65,8 +65,8 @@ module Manifest {
 
     // The refusal for a flavor source outside `source_roots`, or "" for none.
     fn unrootedCode(project: ManifestSections::Project) = if anyUnrooted(project.pythonSources, project.sourceRoots) { "manifest.python-source-unrooted" }
-        else if anyUnrooted(project.typescriptSources, project.sourceRoots) { "manifest.typescript-source-unrooted" }
-        else { "" }
+    else if anyUnrooted(project.typescriptSources, project.sourceRoots) { "manifest.typescript-source-unrooted" }
+    else { "" }
 
     fn projectLine(root) = ManifestSections::spanOf(ManifestSections::pairsOf(root), "project", ManifestSections::rootSpan()).line
 

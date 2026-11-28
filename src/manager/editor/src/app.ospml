@@ -12,12 +12,12 @@ module App
 
     // The store as the region comparison reads it: every slice, so any change refreshes the regions that read the store.
     stateJson current = JsonObject [
-        Packages::strings ("text", [current.packageSearch, current.packageSelection, current.packageTab, current.packageRegistry,
-            current.packageWorkspace, current.packageNotice, current.packageConfirming, current.packageConfirmKey]),
-        JsonMember "catalog" (Packages::encodeCatalog current.packageCatalog),
-        JsonMember "graph" (Store::encodeWorkspace current.packageGraph),
-        Packages::strings ("flags", ["${current.packagePending}", "${current.packageFault}"]),
-        Packages::strings ("counters", ["${current.packageGeneration}", "${current.packageWaiting}"]),
+    Packages::strings ("text", [current.packageSearch, current.packageSelection, current.packageTab, current.packageRegistry,
+    current.packageWorkspace, current.packageNotice, current.packageConfirming, current.packageConfirmKey]),
+    JsonMember "catalog" (Packages::encodeCatalog current.packageCatalog),
+    JsonMember "graph" (Store::encodeWorkspace current.packageGraph),
+    Packages::strings ("flags", ["${current.packagePending}", "${current.packageFault}"]),
+    Packages::strings ("counters", ["${current.packageGeneration}", "${current.packageWaiting}"]),
     ]
 
     regions (before, current, frames, _) =

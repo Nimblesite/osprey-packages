@@ -17,7 +17,6 @@ module VectorTests {
     /// The Merkle inclusion vector file the tree cases load.
     let merkleVectors = "vectors/merkle.json"
 
-
     fn shaCases() = Fixtures::report("sha256 FIPS 180-4 vectors", Fixtures::loadItems("vectors/sha256.json", "cases"), fn(c) =>
         Sha256::ofString(Fixtures::textOf(c, "text")) == Fixtures::textOf(c, "sha256"))
 
@@ -73,8 +72,8 @@ module VectorTests {
         let intent = JsonRead::field(fx, "releaseIntent")
         Fixtures::report("dsse PAE bytes", Fixtures::itemsOf(fx, "pae"), paeOk)
         checkAll("dsse release intent detached forms", [
-            structuralEquals([intentPae(intent), intentCanonical(intent), intentChallenge(intent)], [true, true, true]),
-            intentEnvelope(intent)
+                structuralEquals([intentPae(intent), intentCanonical(intent), intentChallenge(intent)], [true, true, true]),
+                intentEnvelope(intent)
         ])
     }
 
@@ -130,7 +129,7 @@ module VectorTests {
     fn consistencyRoot(c, root, other, swapped) = Bytes::fromHex(rootAt(if swapped && Fixtures::textOf(c, "label") == "swapped roots" { other } else { root }))
 
     fn merkleCases(kind) = Fixtures::report("merkle ${kind}", foldList(Fixtures::loadItems(merkleVectors, "negative"), [],
-        fn(acc, c) => if Fixtures::textOf(c, "kind") == kind { listAppend(acc, c) } else { acc }), fn(c) => merkleCase(c, kind, true))
+            fn(acc, c) => if Fixtures::textOf(c, "kind") == kind { listAppend(acc, c) } else { acc }), fn(c) => merkleCase(c, kind, true))
 
     fn positiveMerkle(fx, kind) = FixtureTests::reportCases(fx, "merkle ${kind} proofs", kind, fn(c) => merkleCase(c, kind, false))
 
@@ -145,8 +144,8 @@ module VectorTests {
         test("vector: merkle inclusion", fn() => positiveMerkle(fx, "inclusion"))
         test("vector: merkle consistency", fn() => positiveMerkle(fx, "consistency"))
         test("vector: merkle rejection", fn() => {
-            merkleCases("inclusion")
-            merkleCases("consistency")
+                merkleCases("inclusion")
+                merkleCases("consistency")
         })
     }
 }

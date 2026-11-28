@@ -13,7 +13,6 @@ module Folder {
     let releaseDepth = 3
     let straySegments = "release-path.segments"
 
-
     fn segmentsOf(path) = split(path, "/") ?: [path]
 
     /// The release directory holding `path`, or `""` for a file outside one.
@@ -35,8 +34,8 @@ module Folder {
     fn refusedKind(paths, kind) = mapList(paths, fn(p) => refusal(p, Source::kindCode(kind)))
 
     fn refusals(regular, executable, special) = listConcat(listConcat(
-        mapList(filterList(regular, fn(p) => releaseDirOf(p) == ""), fn(p) => refusal(p, straySegments)),
-        refusedKind(executable, "executable")),
+            mapList(filterList(regular, fn(p) => releaseDirOf(p) == ""), fn(p) => refusal(p, straySegments)),
+            refusedKind(executable, "executable")),
         refusedKind(special, "special"))
 
     // `Release::Refused` and `Pending` both carry a directory; the receiver is

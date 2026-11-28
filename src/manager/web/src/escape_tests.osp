@@ -14,22 +14,22 @@ module EscapeTests {
 
     // Each line is one case: the hostile or plain text, and what it must become.
     fn entities() = checkAll("web: escape neutralizes markup, quotes and control bytes", [
-        escaped("<script>alert(1)</script>", "&lt;script&gt;alert(1)&lt;/script&gt;"),
-        escaped("AT&T", "AT&amp;T"),
-        escaped("'", "&#39;"),
-        escaped("\"", "&quot;"),
-        escaped("<a href=\"x\">y</a>", "&lt;a href=&quot;x&quot;&gt;y&lt;/a&gt;"),
-        escaped((fromCodePoint(27) ?: "?") + "[31m", "?[31m"),
-        escaped((fromCodePoint(127) ?: "?") + "x", "?x"),
-        escaped("", ""),
-        escaped("plain ascii", "plain ascii")
+            escaped("<script>alert(1)</script>", "&lt;script&gt;alert(1)&lt;/script&gt;"),
+            escaped("AT&T", "AT&amp;T"),
+            escaped("'", "&#39;"),
+            escaped("\"", "&quot;"),
+            escaped("<a href=\"x\">y</a>", "&lt;a href=&quot;x&quot;&gt;y&lt;/a&gt;"),
+            escaped((fromCodePoint(27) ?: "?") + "[31m", "?[31m"),
+            escaped((fromCodePoint(127) ?: "?") + "x", "?x"),
+            escaped("", ""),
+            escaped("plain ascii", "plain ascii")
     ])
 
     fn identifiers() = checkAll("web: heading identifiers collapse to the name grammar", [
-        identified("@atlas/util", "-atlas-util"),
-        identified("ok-name-1", "ok-name-1"),
-        identified("<img src=x>", "-img-src-x-"),
-        identified("\" onload=\"alert(1)", "--onload--alert-1-")
+            identified("@atlas/util", "-atlas-util"),
+            identified("ok-name-1", "ok-name-1"),
+            identified("<img src=x>", "-img-src-x-"),
+            identified("\" onload=\"alert(1)", "--onload--alert-1-")
     ])
 
     /// The search value rides in an attribute: quote injection must fail.
@@ -42,9 +42,9 @@ module EscapeTests {
     fn hostileStrings() = WebFixtures::shows("web: browse hostile strings",
         Browse::render([WebFixtures::hostileOrgHandleListing(), WebFixtures::warnedAtlasUtil()], ""),
         fn(html) => contains(html, "Organization: @atlas&quot; onload=&quot;alert(1)") &&
-            !contains(html, "onload=\"alert") &&
-            contains(html, "&lt;/code&gt;&lt;script&gt;alert(1)&lt;/script&gt;") &&
-            !contains(html, "<script>"))
+        !contains(html, "onload=\"alert") &&
+        contains(html, "&lt;/code&gt;&lt;script&gt;alert(1)&lt;/script&gt;") &&
+        !contains(html, "<script>"))
 
     /// The suite.
     export fn run() = {

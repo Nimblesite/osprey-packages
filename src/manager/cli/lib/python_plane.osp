@@ -113,8 +113,8 @@ module PythonPlane {
 
     /// The member's name once its tree passes P2 of `[PACKAGE-HARDENING]`.
     fn named(root) = if has(uvTable(root), "index") { Error { message: indexForbidden } }
-        else if !sourcesOk(uvTable(root)) { Error { message: sourceForbidden } }
-        else { projectIn(root) }
+    else if !sourcesOk(uvTable(root)) { Error { message: sourceForbidden } }
+    else { projectIn(root) }
 
     fn pep621Name(pyprojectText) = Checked::orElseCode(Toml::parse(pyprojectText), pyprojectMissing, named)
 
@@ -122,9 +122,9 @@ module PythonPlane {
     /// declare the plane; `python.pyproject-missing <path>` when it does but
     /// `pyprojectText` is not a PEP 621 project.
     export fn memberOf(m, path, pyprojectText) = if !declares(m) { Success { value: Maybe::none() } } else { match pep621Name(pyprojectText) {
-        Error { message } => Error { message: "${message} ${path}" }
-        Success { value } => Success { value: Maybe::some(Member { name: value, path: path, floor: declaredFloor(m) }) }
-    } }
+            Error { message } => Error { message: "${message} ${path}" }
+            Success { value } => Success { value: Maybe::some(Member { name: value, path: path, floor: declaredFloor(m) }) }
+        } }
 
     fn appendMember(done, member) = Folds::mapped(member, fn(value) => Maybe::fold(value, done, fn(m) => listAppend(done, m)))
 
@@ -206,7 +206,7 @@ module PythonPlane {
     // ---- lock ----
 
     fn pinned(text, uvLockText) = if !isEmpty(hashFindings(uvLockText)) { Error { message: uvLockHashes } }
-        else { Success { value: Lockfile::PythonPins { pyprojectDigest: digestOf(text), uvLockDigest: digestOf(uvLockText) } } }
+    else { Success { value: Lockfile::PythonPins { pyprojectDigest: digestOf(text), uvLockDigest: digestOf(uvLockText) } } }
 
     fn uvLocked(project, paths, text) = {
         let r = uv(project, paths, "lock", true, digestOf(text), "")

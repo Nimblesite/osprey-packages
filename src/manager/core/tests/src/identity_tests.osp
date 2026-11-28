@@ -15,64 +15,64 @@ module IdentityTests {
     let digest = "sha256:7c4a8d09ca3762af61e59520943dc26494f8941b7c4a8d09ca3762af61e59520"
 
     fn digests() = checkAll("digest envelopes carry one algorithm and 64 lowercase hex digits", [
-        Fixtures::mapsTo([
-            digest, "sha512:${hex}", hex, "sha256:${take(hex, 63)}",
-            "sha256:${toUpperCase(hex)}", "sha256:${take(hex, 63)}g"
-        ], [digest, badDigest, badDigest, "digest.length", "digest.hex", "digest.hex"], fn(text) => Fixtures::valueOrMessage(Digests::parse(text))),
-        structuralEquals([Digests::format([0, 255]), Digests::algorithmName()], ["sha256:00ff", "sha256"]),
-        Fixtures::ints(Digests::preimage("d", [9])) == "100,0,0,0,0,0,0,0,0,1,9",
-        Fixtures::ints(Digests::preimage("", [])) == "0,0,0,0,0,0,0,0,0",
-        Digests::hexOf(digest) == hex
+            Fixtures::mapsTo([
+                    digest, "sha512:${hex}", hex, "sha256:${take(hex, 63)}",
+                    "sha256:${toUpperCase(hex)}", "sha256:${take(hex, 63)}g"
+                ], [digest, badDigest, badDigest, "digest.length", "digest.hex", "digest.hex"], fn(text) => Fixtures::valueOrMessage(Digests::parse(text))),
+            structuralEquals([Digests::format([0, 255]), Digests::algorithmName()], ["sha256:00ff", "sha256"]),
+            Fixtures::ints(Digests::preimage("d", [9])) == "100,0,0,0,0,0,0,0,0,1,9",
+            Fixtures::ints(Digests::preimage("", [])) == "0,0,0,0,0,0,0,0,0",
+            Digests::hexOf(digest) == hex
     ])
 
     fn displayForms() = checkAll("release ids round-trip and reject every malformed part", [
-        Fixtures::mapsTo([
-            "@finch/ledger@e3.r42#${digest}", "@finch/ledger@e1.r1#${digest}",
-            "@finch/ledger@e3.r42", "@finch/ledger@e3.r42#${digest}#x",
-            "@finch/ledger@e3.r42#sha1:${hex}", "@finch/ledger#${digest}",
-            "@finch/ledger@3.r42#${digest}", "@finch/ledger@e3r42#${digest}",
-            "@finch/ledger@e3.r42.x#${digest}", "@finch/ledger@e0.r42#${digest}",
-            "@finch/ledger@e03.r42#${digest}", "@finch/ledger@e3.r0#${digest}",
-            "@finch/ledger@e3.r+4#${digest}", "@finch/ledger@e3.rx#${digest}",
-            "@Finch/ledger@e3.r42#${digest}", "finch/ledger@e3.r42#${digest}"
-        ], [
-            "@finch/ledger@e3.r42#${digest}", "@finch/ledger@e1.r1#${digest}",
-            "release.missing-digest", "release.missing-digest", badDigest, "release.missing-version",
-            "release.version", "release.version", badOrdinal, "release.epoch", "release.epoch",
-            badOrdinal, badOrdinal, badOrdinal, "name.scope.chars", "name.missing-at"
-        ], fn(text) => Fixtures::shown(Identity::parse, Identity::display, text))
+            Fixtures::mapsTo([
+                    "@finch/ledger@e3.r42#${digest}", "@finch/ledger@e1.r1#${digest}",
+                    "@finch/ledger@e3.r42", "@finch/ledger@e3.r42#${digest}#x",
+                    "@finch/ledger@e3.r42#sha1:${hex}", "@finch/ledger#${digest}",
+                    "@finch/ledger@3.r42#${digest}", "@finch/ledger@e3r42#${digest}",
+                    "@finch/ledger@e3.r42.x#${digest}", "@finch/ledger@e0.r42#${digest}",
+                    "@finch/ledger@e03.r42#${digest}", "@finch/ledger@e3.r0#${digest}",
+                    "@finch/ledger@e3.r+4#${digest}", "@finch/ledger@e3.rx#${digest}",
+                    "@Finch/ledger@e3.r42#${digest}", "finch/ledger@e3.r42#${digest}"
+                ], [
+                    "@finch/ledger@e3.r42#${digest}", "@finch/ledger@e1.r1#${digest}",
+                    "release.missing-digest", "release.missing-digest", badDigest, "release.missing-version",
+                    "release.version", "release.version", badOrdinal, "release.epoch", "release.epoch",
+                    badOrdinal, badOrdinal, badOrdinal, "name.scope.chars", "name.missing-at"
+                ], fn(text) => Fixtures::shown(Identity::parse, Identity::display, text))
     ])
 
     fn ordering() = {
         let ids = [Fixtures::releaseId("@b/a", 1, 1, "sha256:aa"), Fixtures::releaseId("@a/a", 2, 1, "sha256:aa"), Fixtures::releaseId("@a/a", 1, 9, "sha256:aa"), Fixtures::releaseId("@a/a", 1, 9, "sha256:ab"), Fixtures::releaseId("@a/a", 1, 2, "sha256:zz")]
         checkAll("releases order by (package, epoch, ordinal, digest)", [
-            Fixtures::sortedText(ids, Identity::compare, Identity::blank(), Identity::display) == "@a/a@e1.r2#sha256:zz @a/a@e1.r9#sha256:aa @a/a@e1.r9#sha256:ab @a/a@e2.r1#sha256:aa @b/a@e1.r1#sha256:aa",
-            Identity::compare(Fixtures::releaseId("@a/a", 1, 1, "sha256:aa"), Fixtures::releaseId("@a/a", 1, 1, "sha256:aa")) == 0
+                Fixtures::sortedText(ids, Identity::compare, Identity::blank(), Identity::display) == "@a/a@e1.r2#sha256:zz @a/a@e1.r9#sha256:aa @a/a@e1.r9#sha256:ab @a/a@e2.r1#sha256:aa @b/a@e1.r1#sha256:aa",
+                Identity::compare(Fixtures::releaseId("@a/a", 1, 1, "sha256:aa"), Fixtures::releaseId("@a/a", 1, 1, "sha256:aa")) == 0
         ])
     }
 
     /// Goldens from src/manager/core/tests/fixtures/digests.json, computed independently.
     fn domainHashes() = checkAll("H(d, x) matches the independently computed fixtures", [
-        Digests::hashText("osprey.manifest.v1", "{}") == "sha256:093779013e49dd05655baaa226991f473ee20b565ec4e1e6bb928e35168834ce",
-        Digests::hashText("osprey.release.v1", "") == "sha256:aafe09e1f2092a5b3c0069c66242d6c13be0c745d0cbc55da67715a037cd33d4",
-        Digests::hashText("", "abc") == "sha256:3ff3f22b0f8c2a1553022e4cba10e16915655cf0d3f4c908c950ab539ec2d9b6"
+            Digests::hashText("osprey.manifest.v1", "{}") == "sha256:093779013e49dd05655baaa226991f473ee20b565ec4e1e6bb928e35168834ce",
+            Digests::hashText("osprey.release.v1", "") == "sha256:aafe09e1f2092a5b3c0069c66242d6c13be0c745d0cbc55da67715a037cd33d4",
+            Digests::hashText("", "abc") == "sha256:3ff3f22b0f8c2a1553022e4cba10e16915655cf0d3f4c908c950ab539ec2d9b6"
     ])
 
     fn modelDomains() = {
         let all = Domains::all()
         checkAll("every H(d, x) domain is spelled as the Package Domain Model spec writes it, once", [
-            structuralEquals([length(all), length(Order::canonicalSet(all) ?: [])], [26, 26]),
-            foldList(all, true, fn(ok, d) => ok && startsWith(d, "osprey.") && endsWith(d, ".v1")),
-            Fixtures::mapsTo([
-                Domains::manifestDomain, Domains::buildPlanDomain, Domains::releaseDomain,
-                Domains::releaseLockDomain, Domains::developmentLockDomain, Domains::logCheckpointRecordDomain,
-                Domains::developmentBuildReceiptDomain, Domains::releaseStatusDomain, Domains::envelopeDomain,
-                Domains::webAuthnDomain, Domains::sourceTreeDomain
-            ], [
-                "osprey.manifest.v1", "osprey.build-plan.v1", "osprey.release.v1", "osprey.release-lock.v1",
-                "osprey.development-lock.v1", "osprey.log-checkpoint-record.v1", "osprey.development-build-receipt.v1",
-                "osprey.release-status.v1", "osprey.envelope.v1", "osprey.webauthn.v1", "osprey.source.v1"
-            ], fn(domain) => domain())
+                structuralEquals([length(all), length(Order::canonicalSet(all) ?: [])], [26, 26]),
+                foldList(all, true, fn(ok, d) => ok && startsWith(d, "osprey.") && endsWith(d, ".v1")),
+                Fixtures::mapsTo([
+                        Domains::manifestDomain, Domains::buildPlanDomain, Domains::releaseDomain,
+                        Domains::releaseLockDomain, Domains::developmentLockDomain, Domains::logCheckpointRecordDomain,
+                        Domains::developmentBuildReceiptDomain, Domains::releaseStatusDomain, Domains::envelopeDomain,
+                        Domains::webAuthnDomain, Domains::sourceTreeDomain
+                    ], [
+                        "osprey.manifest.v1", "osprey.build-plan.v1", "osprey.release.v1", "osprey.release-lock.v1",
+                        "osprey.development-lock.v1", "osprey.log-checkpoint-record.v1", "osprey.development-build-receipt.v1",
+                        "osprey.release-status.v1", "osprey.envelope.v1", "osprey.webauthn.v1", "osprey.source.v1"
+                    ], fn(domain) => domain())
         ])
     }
 

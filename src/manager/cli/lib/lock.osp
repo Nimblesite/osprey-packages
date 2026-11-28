@@ -273,8 +273,8 @@ module Lock {
     fn manifestOf(plan: Plan) = plan.manifest
 
     fn writtenWith(plan, digest, packages, python) =
-        Reports::checked(writeLock(plan.cmd, lockOf(manifestOf(plan), digest, packages, plan.locals, python)),
-            fn(_written) => Reports::success(listConcat(listConcat(plan.catalog.warnings, deltaLines(packages, plan.prev.locked, plan.locals)), pythonLines(plan.cmd, python))))
+    Reports::checked(writeLock(plan.cmd, lockOf(manifestOf(plan), digest, packages, plan.locals, python)),
+        fn(_written) => Reports::success(listConcat(listConcat(plan.catalog.warnings, deltaLines(packages, plan.prev.locked, plan.locals)), pythonLines(plan.cmd, python))))
 
     fn withMembers(plan, digest, packages, memberList) = Reports::checked(pythonPins(plan.cmd, memberList), fn(value) => writtenWith(plan, digest, packages, value))
 

@@ -163,18 +163,18 @@ module Packages
 
     // Each entry is encoded by kind, in a fixed order, for the region comparison.
     encodePackage item = JsonObject [
-        strings ("identity", [item.entryIdentity.entryKey, item.entryIdentity.entryVersion, item.entryIdentity.entryDigest]),
-        strings ("flags", ["${item.entryDirect}", "${item.entryPresent}"]),
-        strings ("dependencies", item.entryDependencies),
-        strings ("dependents", item.entryDependents),
-        strings ("findings", item.entryFindings),
+    strings ("identity", [item.entryIdentity.entryKey, item.entryIdentity.entryVersion, item.entryIdentity.entryDigest]),
+    strings ("flags", ["${item.entryDirect}", "${item.entryPresent}"]),
+    strings ("dependencies", item.entryDependencies),
+    strings ("dependents", item.entryDependents),
+    strings ("findings", item.entryFindings),
     ]
 
     encodeCatalogEntry item = JsonObject [
-        Doc::str ("key", item.catalogKey),
-        strings ("versions", item.catalogVersions),
-        strings ("findings", item.catalogFindings),
-        Doc::bit ("evidence", item.catalogEvidence),
+    Doc::str ("key", item.catalogKey),
+    strings ("versions", item.catalogVersions),
+    strings ("findings", item.catalogFindings),
+    Doc::bit ("evidence", item.catalogEvidence),
     ]
 
     encoded (items, encode) = JsonArray (mapList (items, encode))

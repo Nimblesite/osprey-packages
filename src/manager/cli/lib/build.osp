@@ -166,8 +166,8 @@ module Build {
         afterVerify(Verify::verifyLocalAt(cmd.project), cmd, Success { value: value }))
 
     fn withOverlay(cmd, mappings) = if cmd.release { releaseBuild(cmd, mappings) }
-        else if Overlay::active(mappings) { localBuild(cmd) }
-        else { releaseVerified(cmd) }
+    else if Overlay::active(mappings) { localBuild(cmd) }
+    else { releaseVerified(cmd) }
 
     fn build(cmd) = Reports::checked(Overlay::readAt(cmd.project), fn(value) => withOverlay(cmd, value))
 

@@ -22,8 +22,8 @@ module PublishTests {
     fn projectWalk() = Fixture::walkRoute(project, projectEntries)
 
     fn projectReads() = listConcat(RegistryFixture::readRoutesAt(project, files()), [
-        Fixture::readRoute("${project}/notes.md", "scratch"),
-        Fixture::readRoute("${project}/osprey.lock", "{}")
+            Fixture::readRoute("${project}/notes.md", "scratch"),
+            Fixture::readRoute("${project}/osprey.lock", "{}")
     ])
 
     fn existingWalk() = Fixture::walkRoute("${folder}/@demo/one", ["1.1/osprey.toml", "1.1/src/main.osp", "1.2/osprey.toml", "1.2/src/main.osp"])
@@ -44,8 +44,8 @@ module PublishTests {
 
     /// The release landed at `dir`: its manifest and entry file, nothing else the project holds.
     fn publishedAt(a, dir) = RegistryFixture::writtenTo(a, "${folder}/${dir}/osprey.toml") == manifestText()
-        && RegistryFixture::writtenTo(a, "${folder}/${dir}/src/main.osp") == "fn main() = 0\n"
-        && excludedAt(a, dir)
+    && RegistryFixture::writtenTo(a, "${folder}/${dir}/src/main.osp") == "fn main() = 0\n"
+    && excludedAt(a, dir)
 
     /// `publishedAt`, and line 0 announces `@demo/one` `release` with the server's digest.
     fn publishedWithDigest(a, dir, release) = publishedAt(a, dir) && RegistryFixture::lineOf(a, 0) == "published @demo/one ${release} ${expectedDigest(dir)}"
@@ -54,9 +54,9 @@ module PublishTests {
     fn nextOrdinal() = {
         let a = publishExisting(["publish", "--folder", folder, "--project", project])
         checkAll("publish places the release at the next ordinal with the server's digest", [
-            RegistryFixture::statusOf(a) == 0,
-            publishedWithDigest(a, "@demo/one/1.3", "e1.r3"),
-            RegistryFixture::lineOf(a, 2) == "files: 2"
+                RegistryFixture::statusOf(a) == 0,
+                publishedWithDigest(a, "@demo/one/1.3", "e1.r3"),
+                RegistryFixture::lineOf(a, 2) == "files: 2"
         ])
     }
 
@@ -65,9 +65,9 @@ module PublishTests {
         let breaking = publishExisting(["publish", "--folder", folder, "--breaking", "--project", project])
         let first = publish(projectReads())
         checkAll("--breaking opens epoch 2; a new package is 1.1", [
-            structuralEquals([RegistryFixture::statusOf(breaking), RegistryFixture::statusOf(first)], [0, 0]),
-            publishedWithDigest(breaking, "@demo/one/2.1", "e2.r1"),
-            publishedAt(first, "@demo/one/1.1")
+                structuralEquals([RegistryFixture::statusOf(breaking), RegistryFixture::statusOf(first)], [0, 0]),
+                publishedWithDigest(breaking, "@demo/one/2.1", "e2.r1"),
+                publishedAt(first, "@demo/one/1.1")
         ])
     }
 
@@ -77,12 +77,12 @@ module PublishTests {
         let noFolder = RegistryFixture::runWith(projectReads(), [projectWalk()], [], ["publish", "--project", project])
         let badPython = RegistryFixture::runWith(listAppend(projectReads(), Fixture::readRoute("${project}/src/model.py", "print(1)\n")), [Fixture::walkRoute(project, ["osprey.toml", mainPath, "src/model.py"])], [], ["publish", "--folder", folder, "--project", project])
         checkAll("publish.no-package, publish.usage and the source rules refuse before writing", [
-            structuralEquals([RegistryFixture::statusOf(plain), RegistryFixture::statusOf(noFolder)], [1, 2]),
-            RegistryFixture::statusOf(badPython) == 1,
-            RegistryFixture::lineOf(plain, 0) == "publish.no-package",
-            RegistryFixture::lineOf(noFolder, 0) == "publish.usage",
-            RegistryFixture::lineOf(badPython, 0) == "source.python-flavor-header",
-            isEmpty(RegistryFixture::linesOf(plain)) == false && RegistryFixture::writesTo(badPython, "${folder}/@demo/one/1.1/osprey.toml") == 0
+                structuralEquals([RegistryFixture::statusOf(plain), RegistryFixture::statusOf(noFolder)], [1, 2]),
+                RegistryFixture::statusOf(badPython) == 1,
+                RegistryFixture::lineOf(plain, 0) == "publish.no-package",
+                RegistryFixture::lineOf(noFolder, 0) == "publish.usage",
+                RegistryFixture::lineOf(badPython, 0) == "source.python-flavor-header",
+                isEmpty(RegistryFixture::linesOf(plain)) == false && RegistryFixture::writesTo(badPython, "${folder}/@demo/one/1.1/osprey.toml") == 0
         ])
     }
 
@@ -93,9 +93,9 @@ module PublishTests {
         let reads = [RegistryFixture::rootRead(manifestText()), Fixture::readRoute("${project}/src/main.osp", source)]
         let a = publish(reads)
         checkAll("unclassified native externs are refused before registry writes", [
-            RegistryFixture::statusOf(a) == 1,
-            RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/osprey.toml") == 0,
-            RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/src/main.osp") == 0
+                RegistryFixture::statusOf(a) == 1,
+                RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/osprey.toml") == 0,
+                RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/src/main.osp") == 0
         ])
     }
 
@@ -113,10 +113,10 @@ module PublishTests {
         let paths = listConcat(mapList(source, fn(f) => f.relPath), ["LICENSES-backup/private.txt", "docs/notes.md"])
         let a = RegistryFixture::runWith(reads, [Fixture::walkRoute(project, paths)], [], ["publish", "--folder", folder, "--project", project])
         checkAll("publishing retains MIT, upstream licenses and modification notices", [
-            RegistryFixture::statusOf(a) == 0,
-            foldList(legalFiles(), true, fn(ok, f) => ok && RegistryFixture::writtenTo(a, "${folder}/@demo/one/1.1/${f.relPath}") == f.content),
-            RegistryFixture::lineOf(a, 0) == "published @demo/one e1.r1 ${Fixture::digestOf(Fixture::served("@demo/one/1.1", source))}",
-            RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/LICENSES-backup/private.txt") == 0
+                RegistryFixture::statusOf(a) == 0,
+                foldList(legalFiles(), true, fn(ok, f) => ok && RegistryFixture::writtenTo(a, "${folder}/@demo/one/1.1/${f.relPath}") == f.content),
+                RegistryFixture::lineOf(a, 0) == "published @demo/one e1.r1 ${Fixture::digestOf(Fixture::served("@demo/one/1.1", source))}",
+                RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/LICENSES-backup/private.txt") == 0
         ])
     }
 

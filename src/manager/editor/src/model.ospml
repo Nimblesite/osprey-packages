@@ -71,7 +71,6 @@ module Store
             false => ""
         Workspace(workspaceProject = graph.graphProject, workspacePackages = graph.graphPackages, workspaceDirect = graph.graphDirect, workspaceFindings = filterList (graph.graphFindings, \code => code != "tree.no-lock"), workspaceMissing = missing, workspaceReason = reason)
 
-
     (** A missing workspace view for a project whose graph is unknown, showing `reason`. *)
     export absent reason = emptyWorkspace reason
 

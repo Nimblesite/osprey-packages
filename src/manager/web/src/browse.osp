@@ -32,10 +32,10 @@ module Browse {
     fn item(l) = {
         let key = Names::display(l.pkg.key)
         join([
-            "<article class=\"package\" aria-labelledby=\"${Html::id(key)}-h\"><h3 id=\"${Html::id(key)}-h\">${Html::escape(key)}</h3>",
-            PackageView::listingFields(l),
-            Html::field("Security review evidence", Model::reviewOf(l.evidence)),
-            Warnings::block(Model::warningsOf(l.evidence)),
-            "</article>"], "")
+                "<article class=\"package\" aria-labelledby=\"${Html::id(key)}-h\"><h3 id=\"${Html::id(key)}-h\">${Html::escape(key)}</h3>",
+                PackageView::listingFields(l),
+                Html::field("Security review evidence", Model::reviewOf(l.evidence)),
+                Warnings::block(Model::warningsOf(l.evidence)),
+                "</article>"], "")
     }
 }

@@ -47,27 +47,27 @@ module Fixture {
 
     /// The content routed for `path`, else the fixture's own refusal.
     export fn readFor(reads, path) = foldList(reads, Error { message: "fixture: no read ${path}" }, fn(answer, r) => match answer {
-        Success => answer
-        Error => if readPath(r) == path { Success { value: readContent(r) } } else { answer }
+            Success => answer
+            Error => if readPath(r) == path { Success { value: readContent(r) } } else { answer }
     })
 
     /// Presence in this fixture's explicit file table, including empty files.
     export fn existsIn(reads, path) = Success { value: match readFor(reads, path) {
-        Success => true
-        Error => false
-    } }
+            Success => true
+            Error => false
+        } }
 
     /// The walk routed for `dir`, all files regular, else the fixture's own refusal.
     export fn walkFor(walks, dir) = foldList(walks, Error { message: "fixture: no tree ${dir}" }, fn(answer, w: WalkRoute) => match answer {
-        Success => answer
-        Error => if w.dir == dir { Success { value: Host::Walk { regular: w.files, executable: [], special: [] } } } else { answer }
+            Success => answer
+            Error => if w.dir == dir { Success { value: Host::Walk { regular: w.files, executable: [], special: [] } } } else { answer }
     })
 
     fn pathsUnder(written, dir) = mapList(filterList(written, fn(r) => startsWith(r.path, "${dir}/")),
         fn(r: ReadRoute) => drop(r.path, byteLength(dir) + 1))
 
     fn joinedPaths(before, after) = listSort(foldList(after, before, fn(paths, path) =>
-        if listContains(paths, path) { paths } else { listAppend(paths, path) }))
+            if listContains(paths, path) { paths } else { listAppend(paths, path) }))
 
     fn withWrites(walk: Host::Walk, paths) = Host::Walk {
         regular: joinedPaths(walk.regular, paths), executable: walk.executable, special: walk.special

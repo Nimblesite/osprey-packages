@@ -55,34 +55,34 @@ module DispatchTests {
         let planned = reportOf(["audit"])
         let release = reportOf(["build", "--bogus"])
         checkAll("help is the default, unknown commands are usage errors, specified ones say not implemented", [
-            structuralEquals([help.status, explicit.status, unknown.status], [0, 0, 2]),
-            structuralEquals([planned.status, release.status], [3, 2]),
-            Fixture::line(help, 0) == "usage: osprey-pkg [--json] <command>",
-            length(explicit.lines) == length(help.lines),
-            structuralEquals([Fixture::line(unknown, 0), Fixture::line(unknown, 1)],
-                ["unknown command: frobnicate", "usage: osprey-pkg [--json] <command>"]),
-            Fixture::line(planned, 0) == "not implemented: audit ([PLAN-ENGINE])",
-            Fixture::line(release, 0) == "build.usage"
+                structuralEquals([help.status, explicit.status, unknown.status], [0, 0, 2]),
+                structuralEquals([planned.status, release.status], [3, 2]),
+                Fixture::line(help, 0) == "usage: osprey-pkg [--json] <command>",
+                length(explicit.lines) == length(help.lines),
+                structuralEquals([Fixture::line(unknown, 0), Fixture::line(unknown, 1)],
+                    ["unknown command: frobnicate", "usage: osprey-pkg [--json] <command>"]),
+                Fixture::line(planned, 0) == "not implemented: audit ([PLAN-ENGINE])",
+                Fixture::line(release, 0) == "build.usage"
         ])
     }
 
     fn doctorHealthy() = {
         let report = reportOf(["doctor"])
         checkAll("doctor reports a healthy host and every blocked capability", [
-            report.status == 0,
-            structuralEquals(mapList([0, 1, 2, 3], fn(k) => Fixture::line(report, k)),
-                ["process: ok", "files: ok", "compiler: /usr/local/bin/osprey", "uv: missing (python/uv: needed only by packages declaring python/interop)"]),
-            length(report.lines) == 4 + length(Capabilities::blocked()),
-            startsWith(Fixture::line(report, 4), "blocked: process.argv")
+                report.status == 0,
+                structuralEquals(mapList([0, 1, 2, 3], fn(k) => Fixture::line(report, k)),
+                    ["process: ok", "files: ok", "compiler: /usr/local/bin/osprey", "uv: missing (python/uv: needed only by packages declaring python/interop)"]),
+                length(report.lines) == 4 + length(Capabilities::blocked()),
+                startsWith(Fixture::line(report, 4), "blocked: process.argv")
         ])
     }
 
     fn doctorBroken() = {
         let report = RegistryFixture::runHosted(brokenProcess(), brokenFiles(), healthyTree(), healthyWeb(), fn() => Dispatch::run(["doctor"]))
         checkAll("doctor names each failing probe", [
-            Fixture::line(report, 0) == "process: failed (status 1)",
-            Fixture::line(report, 1) == "files: write failed: writeFile: denied",
-            Fixture::line(report, 2) == "compiler: missing (osprey is not on PATH)"
+                Fixture::line(report, 0) == "process: failed (status 1)",
+                Fixture::line(report, 1) == "files: write failed: writeFile: denied",
+                Fixture::line(report, 2) == "compiler: missing (osprey is not on PATH)"
         ])
     }
 
@@ -92,10 +92,10 @@ module DispatchTests {
         let rendered = reportOf(["--json", "help"])
         let failing = reportOf(["--json", "frobnicate"])
         checkAll("--json is the report as one canonical JSON line with the same status", [
-            rendered.status == plain.status,
-            structuralEquals([length(rendered.lines), failing.status], [1, 2]),
-            jsonLine(rendered, "{\"lines\":[\"usage: osprey-pkg [--json] <command>\",", "],\"status\":0}"),
-            jsonLine(failing, "{\"lines\":[\"unknown command: frobnicate\",", "],\"status\":2}")
+                rendered.status == plain.status,
+                structuralEquals([length(rendered.lines), failing.status], [1, 2]),
+                jsonLine(rendered, "{\"lines\":[\"usage: osprey-pkg [--json] <command>\",", "],\"status\":0}"),
+                jsonLine(failing, "{\"lines\":[\"unknown command: frobnicate\",", "],\"status\":2}")
         ])
     }
 

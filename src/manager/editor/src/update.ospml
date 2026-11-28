@@ -19,7 +19,6 @@ module Update
 
     knownTicket (current, ticket) = Lists::any (["package/catalog", "package/graph", "package/add", "package/remove", "package/fetch"], \prefix => ticket == currentTicket (current, prefix))
 
-
     withEntries (current, entries, waiting) = Runtime::step (Store::withCatalog (current, entries, waiting))
 
     catalogEntries (current, body, waiting) = stepOrFault (current, Packages::validCatalog (Doc::parse body), \entries => withEntries (current, entries, waiting))

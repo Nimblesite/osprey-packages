@@ -65,7 +65,7 @@ module LoaderTests {
     fn refusedRows(catalog: Release::Catalog) = join(listSort(mapList(catalog.refused, fn(r) => refusal(r.dir, r.code))), ",")
 
     fn expectedRows(fx) = join(listSort(mapList(Fixtures::itemsOf(fx, "refused"), fn(r) =>
-        refusal(Fixtures::textOf(r, "dir"), Fixtures::textOf(r, "code")))), ",")
+                refusal(Fixtures::textOf(r, "dir"), Fixtures::textOf(r, "code")))), ",")
 
     fn everyRefusal() = {
         let fx = fixture()

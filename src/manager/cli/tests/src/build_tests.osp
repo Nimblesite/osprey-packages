@@ -66,16 +66,16 @@ module BuildTests {
     fn twoManifest() = "[project]\nname = \"two\"\nsource_roots = [\"src\"]\ntypescript_sources = [\"src/app.ts\"]\n"
 
     fn one() = Fixture::served("@demo/one/1.1", [
-        Fixture::file("osprey.toml", oneManifest()),
-        Fixture::file("lib/one.osp", "fn one() = 1\n"),
-        Fixture::file("src/model.py", "# osprey: flavor=python\ndef model():\n    return 1\n")
+            Fixture::file("osprey.toml", oneManifest()),
+            Fixture::file("lib/one.osp", "fn one() = 1\n"),
+            Fixture::file("src/model.py", "# osprey: flavor=python\ndef model():\n    return 1\n")
     ])
 
     fn two() = Fixture::served("@demo/two/1.1", [Fixture::file("osprey.toml", twoManifest()), Fixture::file("src/two.osp", "fn two() = 2\n")])
 
     fn bad() = Fixture::served("@demo/one/1.1", [
-        Fixture::file("osprey.toml", "[project]\nname = \"\"\nsource_roots = [\"src\"]\n"),
-        Fixture::file("src/one.osp", "fn one() = 1\n")
+            Fixture::file("osprey.toml", "[project]\nname = \"\"\nsource_roots = [\"src\"]\n"),
+            Fixture::file("src/one.osp", "fn one() = 1\n")
     ])
 
     fn pkgOf(s) = Lockfile::Package { release: Fixture::idOf(s), dependencies: [], surface: [] }
@@ -107,16 +107,16 @@ module BuildTests {
         let python = [packagePath(one(), "src/model.py")]
         let typescript = [packagePath(two(), "src/app.ts")]
         join([
-            "[project]",
-            "name = \"app\"",
-            "source_roots = [${join(roots, ", ")}]",
-            "python_sources = [${join(python, ", ")}]",
-            "typescript_sources = [${join(typescript, ", ")}]",
-            "default_namespace = \"app\"",
-            "entry = " + quoted("../../src/main.osp"),
-            "[modules]",
-            "allow_wildcard_imports = false"
-        ], "\n")
+                "[project]",
+                "name = \"app\"",
+                "source_roots = [${join(roots, ", ")}]",
+                "python_sources = [${join(python, ", ")}]",
+                "typescript_sources = [${join(typescript, ", ")}]",
+                "default_namespace = \"app\"",
+                "entry = " + quoted("../../src/main.osp"),
+                "[modules]",
+                "allow_wildcard_imports = false"
+            ], "\n")
     }
 
     // ---- cases ----
@@ -134,12 +134,12 @@ module BuildTests {
         let packages = standardPackages()
         let a = buildAll(packages)
         checkAll("the derived osprey.toml is exact and the compiler runs", [
-            a.report.status == 0,
-            a.derived.content == derivedText(),
-            a.derived.path == "${project}/${derivedPath}",
-            a.ensures == "${project}/.osprey/build|",
-            a.commands == "'${compilerPath}' build '${project}/.osprey/build' -o '${project}/.osprey/build/app'|",
-            Fixture::line(a.report, 0) == "built"
+                a.report.status == 0,
+                a.derived.content == derivedText(),
+                a.derived.path == "${project}/${derivedPath}",
+                a.ensures == "${project}/.osprey/build|",
+                a.commands == "'${compilerPath}' build '${project}/.osprey/build' -o '${project}/.osprey/build/app'|",
+                Fixture::line(a.report, 0) == "built"
         ])
     }
 
@@ -147,8 +147,8 @@ module BuildTests {
     fn runForm() = {
         let a = buildWith(standardPackages(), ["--run", "--project", project])
         checkAll("build --run invokes the compiler run form", [
-            a.report.status == 0,
-            a.commands == "'${compilerPath}' '${project}/.osprey/build' --run|"
+                a.report.status == 0,
+                a.commands == "'${compilerPath}' '${project}/.osprey/build' --run|"
         ])
     }
 
@@ -158,10 +158,10 @@ module BuildTests {
         let reads = [Fixture::readRoute(Project::manifestPathAt(dir), text), Fixture::readRoute(Project::lockPathAt(dir), lock)]
         let a = runBuild(reads, [], args)
         checkAll("relative project ${dir} is rebased from the derived manifest", [
-            a.report.status == 0,
-            a.derived.path == Project::pathAt(dir, derivedPath),
-            containsAll(a.derived.content, ["source_roots = [\"../../src\"]", "python_sources = [\"../../src/model.py\"]", "typescript_sources = [\"../../src/view.ts\"]"]),
-            contains(a.derived.content, "entry = \"../../src/main.osp\"")
+                a.report.status == 0,
+                a.derived.path == Project::pathAt(dir, derivedPath),
+                containsAll(a.derived.content, ["source_roots = [\"../../src\"]", "python_sources = [\"../../src/model.py\"]", "typescript_sources = [\"../../src/view.ts\"]"]),
+                contains(a.derived.content, "entry = \"../../src/main.osp\"")
         ])
     }
 
@@ -174,9 +174,9 @@ module BuildTests {
     fn relativePythonSources() = {
         let a = buildAll(standardPackages())
         checkAll("derived Python sources obey the compiler's manifest-relative path contract", [
-            a.report.status == 0,
-            !contains(a.derived.content, "python_sources = [\"/"),
-            !contains(a.derived.content, "typescript_sources = [\"/")
+                a.report.status == 0,
+                !contains(a.derived.content, "python_sources = [\"/"),
+                !contains(a.derived.content, "typescript_sources = [\"/")
         ])
     }
 
@@ -185,9 +185,9 @@ module BuildTests {
         let packages = standardPackages()
         let a = runBuild(readsOf(RegistryFixture::lockText(RegistryFixture::otherDigest, [], mapList(packages, pkgOf)), packages), walksOf(packages), ["--project", project])
         checkAll("a verify failure is the build's failure and compiles nothing", [
-            a.report.status == 1,
-            structuralEquals([Fixture::line(a.report, 0), a.derived.path, a.ensures], ["verify.manifest-digest", "", ""]),
-            a.commands == ""
+                a.report.status == 1,
+                structuralEquals([Fixture::line(a.report, 0), a.derived.path, a.ensures], ["verify.manifest-digest", "", ""]),
+                a.commands == ""
         ])
     }
 
@@ -196,9 +196,9 @@ module BuildTests {
         let packages = [bad(), two()]
         let a = buildAll(packages)
         checkAll("a rejected package manifest is build.manifest with no compiler run", [
-            a.report.status == 1,
-            startsWith(Fixture::line(a.report, 0), "build.manifest @demo/one manifest.project.name at "),
-            structuralEquals([a.derived.path, a.commands], ["", ""])
+                a.report.status == 1,
+                startsWith(Fixture::line(a.report, 0), "build.manifest @demo/one manifest.project.name at "),
+                structuralEquals([a.derived.path, a.commands], ["", ""])
         ])
     }
 

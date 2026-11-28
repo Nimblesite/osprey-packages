@@ -61,15 +61,15 @@ module InstallTests {
     /// The report of a two-package install: accepted, exactly two lines, the
     /// first `= @demo/one` and the second `secondLine`, and no command run.
     fn reportedPair(a, secondLine) = RegistryFixture::accepted(a) && length(RegistryFixture::linesOf(a)) == 2 &&
-        startsWith(RegistryFixture::lineOf(a, 0), "= @demo/one") && startsWith(RegistryFixture::lineOf(a, 1), secondLine) && isEmpty(RegistryFixture::ranOf(a))
+    startsWith(RegistryFixture::lineOf(a, 0), "= @demo/one") && startsWith(RegistryFixture::lineOf(a, 1), secondLine) && isEmpty(RegistryFixture::ranOf(a))
 
     /// Both trees installed and matching: two `=` lines, no fetch, nothing written.
     fn allPresent() = {
         let os = both()
         let a = runInstall(listConcat([lockRead(os)], listConcat(readsOf(first()), readsOf(second()))), [walkOf(first()), walkOf(second())], [])
         checkAll("installed trees are skipped with = lines and no writes", [
-            reportedPair(a, "= @demo/two"),
-            idle(a)
+                reportedPair(a, "= @demo/two"),
+                idle(a)
         ])
     }
 
@@ -77,8 +77,8 @@ module InstallTests {
     fn oneMissing() = {
         let a = runInstall(listConcat([lockRead(both())], readsOf(first())), [walkOf(first())], [sourceWeb(second())])
         checkAll("a missing tree is fetched with a + line", [
-            reportedPair(a, "+ @demo/two"),
-            structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(second())])
+                reportedPair(a, "+ @demo/two"),
+                structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(second())])
         ])
     }
 
@@ -89,9 +89,9 @@ module InstallTests {
             [walkOf(first()), walkOf(second())],
             [sourceWeb(second())])
         checkAll("a corrupt installed tree is re-fetched", [
-            structuralEquals([RegistryFixture::accepted(a), startsWith(RegistryFixture::lineOf(a, 0), "= @demo/one")], [true, true]),
-            startsWith(RegistryFixture::lineOf(a, 1), "+ @demo/two"),
-            structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(second())])
+                structuralEquals([RegistryFixture::accepted(a), startsWith(RegistryFixture::lineOf(a, 0), "= @demo/one")], [true, true]),
+                startsWith(RegistryFixture::lineOf(a, 1), "+ @demo/two"),
+                structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(second())])
         ])
     }
 
@@ -100,10 +100,10 @@ module InstallTests {
         let broken = RegistryFixture::webRouteAt(localBase, RegistryFixture::sourcePath(first()), 404, "")
         let a = runInstall([lockRead(both())], [], [broken, sourceWeb(second())])
         checkAll("one failed fetch keeps the run going and ends status 1", [
-            structuralEquals([RegistryFixture::statusOf(a), length(RegistryFixture::linesOf(a))], [1, 2]),
-            RegistryFixture::lineOf(a, 0) == "fetch.not-found",
-            startsWith(RegistryFixture::lineOf(a, 1), "+ @demo/two"),
-            structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(first()), RegistryFixture::sourcePath(second())])
+                structuralEquals([RegistryFixture::statusOf(a), length(RegistryFixture::linesOf(a))], [1, 2]),
+                RegistryFixture::lineOf(a, 0) == "fetch.not-found",
+                startsWith(RegistryFixture::lineOf(a, 1), "+ @demo/two"),
+                structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(first()), RegistryFixture::sourcePath(second())])
         ])
     }
 
@@ -112,9 +112,9 @@ module InstallTests {
         let missing = runInstall([], [], [])
         let invalid = runInstall([Fixture::readRoute("osprey.lock", "not json")], [], [])
         checkAll("a missing or invalid lock is install.no-lock", [
-            structuralEquals([RegistryFixture::statusOf(missing), RegistryFixture::statusOf(invalid)], [1, 1]),
-            startsWith(RegistryFixture::lineOf(missing, 0), "install.no-lock "),
-            RegistryFixture::lineOf(invalid, 0) == "install.no-lock lock.shape"
+                structuralEquals([RegistryFixture::statusOf(missing), RegistryFixture::statusOf(invalid)], [1, 1]),
+                startsWith(RegistryFixture::lineOf(missing, 0), "install.no-lock "),
+                RegistryFixture::lineOf(invalid, 0) == "install.no-lock lock.shape"
         ])
     }
 

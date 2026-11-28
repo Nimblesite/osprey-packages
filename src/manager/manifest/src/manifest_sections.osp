@@ -55,8 +55,8 @@ module ManifestSections {
 
     /// The first pair whose key is not allowed, as `code`.
     export fn unknownKeys(pairs, allowed, code) = foldList(pairs, Success { value: 0 }, fn(acc, pair: Toml::Pair) => match acc {
-        Error { message } => Error { message: message }
-        Success => if listContains(allowed, pair.key) { Success { value: 0 } } else { fail(code, pair.span) }
+            Error { message } => Error { message: message }
+            Success => if listContains(allowed, pair.key) { Success { value: 0 } } else { fail(code, pair.span) }
     })
 
     /// The string of a pair, else `code` at its span.
@@ -77,14 +77,14 @@ module ManifestSections {
     fn optionalString(pairs, key, code) = withPair(pairs, key, Success { value: Maybe::none() }, fn(value) => Maybe::ofResult(stringOf(value, code)))
 
     fn stringItems(items, span, code) = Checked::collectAll(items, fn(item) => match item {
-        Toml::Str { text } => Success { value: text }
-        _ => fail(code, span)
+            Toml::Str { text } => Success { value: text }
+            _ => fail(code, span)
     })
 
     /// A string array pair, `fallback` when absent.
     export fn stringList(pairs, key, fallback, code) = withPair(pairs, key, Success { value: fallback }, fn(value) => match Toml::valueOf(value) {
-        Toml::Arr { items } => stringItems(items, Toml::pairSpan(value), code)
-        _ => fail(code, Toml::pairSpan(value))
+            Toml::Arr { items } => stringItems(items, Toml::pairSpan(value), code)
+            _ => fail(code, Toml::pairSpan(value))
     })
 
     fn allValidPaths(paths) = foldList(paths, true, fn(ok, path) => ok && Checked::succeeded(Paths::validate(path)))
@@ -130,8 +130,8 @@ module ManifestSections {
         use testRoots <- andThen(roots(pairs, "test_roots", [], "manifest.project.test-roots", span))
         use sources <- andThen(sourcesOf(pairs, span))
         Success { value: Project {
-            name: name, sourceRoots: sourceRoots, defaultNamespace: ns, entry: entry, flavor: flavor, testRoots: testRoots,
-            pythonSources: sources.python, typescriptSources: sources.typescript } }
+                name: name, sourceRoots: sourceRoots, defaultNamespace: ns, entry: entry, flavor: flavor, testRoots: testRoots,
+                pythonSources: sources.python, typescriptSources: sources.typescript } }
     }
 
     type FlavorSources = { python: List<string>, typescript: List<string> }
@@ -161,8 +161,8 @@ module ManifestSections {
     fn nonEmpty(pairs, key, code, span) = andThen(requiredString(pairs, key, code, span), fn(value) => if value == "" { fail(code, spanOf(pairs, key, span)) } else { Success { value: value } })
 
     fn disciplineBody(pairs, span) = andThen(nonEmpty(pairs, "name", "manifest.discipline.name", span), fn(_) => andThen(nonEmpty(pairs, "checker", "manifest.discipline.checker", span), fn(_) => match find(pairs, "timeout_seconds") {
-        Error => Success { value: 0 }
-        Success { value } => intOf(value, "manifest.discipline.timeout-seconds")
+                Error => Success { value: 0 }
+                Success { value } => intOf(value, "manifest.discipline.timeout-seconds")
     }))
 
     /// `[discipline]`: a type-discipline package's word and checker
@@ -172,8 +172,8 @@ module ManifestSections {
         fn(value) => sectionBody(value, disciplineKeys, "manifest.discipline.unknown-key", disciplineBody))
 
     fn boolOf(pairs, key, fallback, code) = withPair(pairs, key, Success { value: fallback }, fn(value) => match Toml::valueOf(value) {
-        Toml::Bool { flag } => Success { value: flag }
-        _ => fail(code, Toml::pairSpan(value))
+            Toml::Bool { flag } => Success { value: flag }
+            _ => fail(code, Toml::pairSpan(value))
     })
 
     /// `[modules]`: the wildcard-import policy.
@@ -181,7 +181,7 @@ module ManifestSections {
         match unknownKeys(pairsOf(Toml::valueOf(value)), modulesKeys, "manifest.modules.unknown-key") {
             Error { message } => Error { message: message }
             Success => modulesBody(pairsOf(Toml::valueOf(value)))
-        })
+    })
 
     fn modulesBody(pairs) = boolOf(pairs, "allow_wildcard_imports", false, "manifest.modules.allow-wildcard-imports")
 
@@ -199,13 +199,13 @@ module ManifestSections {
     }
 
     fn keywordsOk(keywords, span) = if length(keywords) > Names::keywordMax { fail("manifest.keywords.count", span) }
-        else if !foldList(keywords, true, fn(ok, k) => ok && Names::keywordOk(k)) { fail("manifest.keyword.grammar", span) }
-        else if !Order::strictlyAscending(keywords) { fail("manifest.keywords.order", span) }
-        else { Success { value: keywords } }
+    else if !foldList(keywords, true, fn(ok, k) => ok && Names::keywordOk(k)) { fail("manifest.keyword.grammar", span) }
+    else if !Order::strictlyAscending(keywords) { fail("manifest.keywords.order", span) }
+    else { Success { value: keywords } }
 
     fn summaryOk(summary, span) = if byteLength(summary) > summaryMax { fail("manifest.summary.length", span) }
-        else if !Utf8::wellFormed(summary) || !Utf8::noControls(summary) { fail("manifest.summary.text", span) }
-        else { Success { value: summary } }
+    else if !Utf8::wellFormed(summary) || !Utf8::noControls(summary) { fail("manifest.summary.text", span) }
+    else { Success { value: summary } }
 
     /// `result`'s success, or its failure re-located at `span`: a parsed
     /// value's own code, at the pair it came from.
@@ -228,7 +228,7 @@ module ManifestSections {
     }
 
     fn keywords(pairs, span) = if !has(pairs, "keywords") { fail("manifest.keywords.missing", span) }
-        else { andThen(stringList(pairs, "keywords", [], "manifest.keyword.grammar"), fn(value) => keywordsOk(value, spanOf(pairs, "keywords", span))) }
+    else { andThen(stringList(pairs, "keywords", [], "manifest.keyword.grammar"), fn(value) => keywordsOk(value, spanOf(pairs, "keywords", span))) }
 
     /// The `summary` and `keywords` of `[package]`, each checked at its own pair.
     fn discovery(pairs, span) = {

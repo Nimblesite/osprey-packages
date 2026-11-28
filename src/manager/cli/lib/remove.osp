@@ -10,7 +10,6 @@ module Remove {
     let missingCode = "remove.missing"
     let usageText = ["usage: osprey-pkg remove @scope/name [--registry <base-url>] [--project <dir>]"]
 
-
     fn withText(s, key, text) = if ManifestEdit::hasEdge(text, key) {
         Transaction::commit(s, text, ManifestEdit::withoutEdge(text, key), ["removed ${Names::display(key)}"])
     } else {

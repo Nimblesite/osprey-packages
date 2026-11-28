@@ -65,7 +65,7 @@ module LockfileTests {
         let requirement = ManifestModel::Requirement { package: Names::Key { scope: "finch", name: "http" }, epoch: 2, minimumOrdinal: 17 }
         let edge = ManifestModel::Runtime { requirement: requirement }
         checkAll("lockfile edge JSON is byte-identical to ManifestJson's projection", [
-            Lockfile::dependenciesCanonical([edge]) == dependenciesText(manifestWith([edge]))
+                Lockfile::dependenciesCanonical([edge]) == dependenciesText(manifestWith([edge]))
         ])
     }
 

@@ -137,10 +137,10 @@ module Use {
     // ---- routing ----
 
     fn withOverlay(s, parsed, word, mappings) = if Flags::has(parsed, listFlag) { listed(Transaction::projectOf(s), mappings) }
-        else if Flags::has(parsed, clearFlag) { cleared(s, mappings) }
-        else if word == "" { Reports::usageFor(usageCode, usageText) }
-        else if startsWith(word, "@") { useKey(s, parsed, word, mappings) }
-        else { usePath(s, mappings, word, Flags::given(parsed, epochFlag, "")) }
+    else if Flags::has(parsed, clearFlag) { cleared(s, mappings) }
+    else if word == "" { Reports::usageFor(usageCode, usageText) }
+    else if startsWith(word, "@") { useKey(s, parsed, word, mappings) }
+    else { usePath(s, mappings, word, Flags::given(parsed, epochFlag, "")) }
 
     fn useKey(s, parsed, word, mappings) = Flags::parsedKey(word, usageCode, usageText,
         fn(value) => if Flags::has(parsed, publishedFlag) { published(s, mappings, value) } else { Reports::usageFor(usageCode, usageText) })

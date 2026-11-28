@@ -29,8 +29,8 @@ module PublicCatalog {
     fn licenseOk(item) = Checked::succeeded(Spdx::validate(text(item, "licenseExpression")))
 
     fn validRelease(item) = exact(item, 7) && licenseOk(item) && noticesOk(item) && Bytes::canonicalUuid(text(item, "publisherId"))
-        && trim(text(item, "publisherName")) != "" && byteLength(text(item, "publisherName")) <= 128 && number(item, "epoch") > 0 && number(item, "ordinal") > 0
-        && Checked::succeeded(Digests::parse(text(item, "digest")))
+    && trim(text(item, "publisherName")) != "" && byteLength(text(item, "publisherName")) <= 128 && number(item, "epoch") > 0 && number(item, "ordinal") > 0
+    && Checked::succeeded(Digests::parse(text(item, "digest")))
     fn validReleases(item) = match field(item, "releases") {
         JsonArray(items) => !isEmpty(items) && allOf(items, validRelease)
         _ => false
@@ -41,7 +41,7 @@ module PublicCatalog {
     }
     fn validKeywords(item) = match field(item, "keywords") {
         JsonArray(items) => length(items) <= Names::keywordMax && allOf(keywords(item), Names::keywordOk)
-            && Order::strictlyAscending(keywords(item))
+        && Order::strictlyAscending(keywords(item))
         _ => false
     }
     export fn validEntry(item) = exact(item, 5) && validKeywords(item) && validReleases(item) && match Names::parse(text(item, "key")) {

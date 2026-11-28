@@ -20,8 +20,8 @@ module Loader {
     }
 
     fn readFiles(root, pending, i, files) -> Result<List<Release::File>, string> =
-        if i >= length(pending.relPaths) { Success { value: files } }
-        else { readNext(root, pending, i, files, listGet(pending.relPaths, i) ?: "") }
+    if i >= length(pending.relPaths) { Success { value: files } }
+    else { readNext(root, pending, i, files, listGet(pending.relPaths, i) ?: "") }
 
     fn outcome(root, pending) = match readFiles(root, pending, 0, []) {
         Success { value } => ReleaseFiles::assemble(pending.releaseDir, value)

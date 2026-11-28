@@ -87,14 +87,14 @@ module TreeGraphTests {
     fn checkPackage(doc, keyText, direct, deps, dependents, findings, present) = {
         let node = nodeFor(doc, keyText)
         checkAll("tree graph: ${keyText}", [
-            textField(node, "key") == keyText,
-            boolField(node, "direct") == direct,
-            textField(node, "version") == "e1.r1",
-            startsWith(textField(node, "digest"), "sha256:"),
-            structuralEquals(itemsField(node, "dependencies"), deps),
-            structuralEquals(itemsField(node, "dependents"), dependents),
-            structuralEquals(itemsField(node, "findings"), findings),
-            boolField(node, "present") == present
+                textField(node, "key") == keyText,
+                boolField(node, "direct") == direct,
+                textField(node, "version") == "e1.r1",
+                startsWith(textField(node, "digest"), "sha256:"),
+                structuralEquals(itemsField(node, "dependencies"), deps),
+                structuralEquals(itemsField(node, "dependents"), dependents),
+                structuralEquals(itemsField(node, "findings"), findings),
+                boolField(node, "present") == present
         ])
     }
 
@@ -102,10 +102,10 @@ module TreeGraphTests {
         let a = runAll(all(), treeGraph)
         let doc = graphOf(a)
         checkAll("tree graph: project, direct keys and empty findings", [
-            namesProject(a, doc, "app"),
-            structuralEquals(itemsField(doc, "direct"), [reportKey, "@demo/tool"]),
-            length(packagesOf(doc)) == 5,
-            structuralEquals(itemsField(doc, "findings"), [])
+                namesProject(a, doc, "app"),
+                structuralEquals(itemsField(doc, "direct"), [reportKey, "@demo/tool"]),
+                length(packagesOf(doc)) == 5,
+                structuralEquals(itemsField(doc, "findings"), [])
         ])
         checkPackage(doc, reportKey, true, [greetingKey, "@demo/maths"], [], [], true)
         checkPackage(doc, "@demo/maths", false, [greetingKey], [reportKey], [], true)
@@ -128,13 +128,13 @@ module TreeGraphTests {
         let plain = graphOf(runAll(all(), treeGraph))
         let broken = graphOverLocal("not a lock")
         checkAll("tree graph: local overrides", [
-            textField(nodeFor(doc, "@demo/maths"), "override") == "../maths",
-            textField(nodeFor(doc, reportKey), "override") == "",
-            textField(nodeFor(plain, "@demo/maths"), "override") == "",
-            structuralEquals(itemsField(doc, "findings"), []),
-            structuralEquals(itemsField(plain, "findings"), []),
-            structuralEquals(itemsField(broken, "findings"), ["lock.local-unreadable"]),
-            textField(nodeFor(broken, "@demo/maths"), "version") == "e1.r1"
+                textField(nodeFor(doc, "@demo/maths"), "override") == "../maths",
+                textField(nodeFor(doc, reportKey), "override") == "",
+                textField(nodeFor(plain, "@demo/maths"), "override") == "",
+                structuralEquals(itemsField(doc, "findings"), []),
+                structuralEquals(itemsField(plain, "findings"), []),
+                structuralEquals(itemsField(broken, "findings"), ["lock.local-unreadable"]),
+                textField(nodeFor(broken, "@demo/maths"), "version") == "e1.r1"
         ])
     }
 
@@ -144,9 +144,9 @@ module TreeGraphTests {
         let lines = itemsField(outer, "lines")
         let inner = Json::parse(listGet(lines, 0) ?: "") ?: Json::Null
         checkAll("tree graph: --json has one semantic graph line", [
-            oneLine(a, 0),
-            structuralEquals([length(lines), JsonRead::number(JsonRead::field(outer, "status"))], [1, 0]),
-            textField(inner, "project") == "app"
+                oneLine(a, 0),
+                structuralEquals([length(lines), JsonRead::number(JsonRead::field(outer, "status"))], [1, 0]),
+                textField(inner, "project") == "app"
         ])
     }
 
@@ -155,10 +155,10 @@ module TreeGraphTests {
         let a = runGraph([Fixture::readRoute("osprey.toml", fresh)], [], treeGraph)
         let doc = graphOf(a)
         checkAll("tree graph: a new project without a lock has an explicit state", [
-            namesProject(a, doc, "fresh"),
-            structuralEquals(itemsField(doc, "direct"), []),
-            isEmpty(packagesOf(doc)),
-            structuralEquals(itemsField(doc, "findings"), ["tree.no-lock"])
+                namesProject(a, doc, "fresh"),
+                structuralEquals(itemsField(doc, "direct"), []),
+                isEmpty(packagesOf(doc)),
+                structuralEquals(itemsField(doc, "findings"), ["tree.no-lock"])
         ])
     }
 
@@ -166,8 +166,8 @@ module TreeGraphTests {
     fn refusedBy(reads, label, code) = {
         let a = runGraph(reads, [], treeGraph)
         checkAll(label, [
-            oneLine(a, 1),
-            Fixture::line(a, 0) == code
+                oneLine(a, 1),
+                Fixture::line(a, 0) == code
         ])
     }
 
@@ -182,7 +182,7 @@ module TreeGraphTests {
         let a = runAll(present, treeGraph)
         let doc = graphOf(a)
         checkAll("tree graph: a locked package without a tree is not present", [
-            structuralEquals([a.status, length(packagesOf(doc))], [0, 5])
+                structuralEquals([a.status, length(packagesOf(doc))], [0, 5])
         ])
         checkPackage(doc, greetingKey, false, [], ["@demo/maths", reportKey], ["verify.missing"], false)
     }

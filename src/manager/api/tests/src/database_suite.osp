@@ -72,7 +72,7 @@ module DatabaseSuite {
         let cfg = Database::Connection { serviceFile: "/run/registry/config/db.conf", service: "registry", passfile: "/run/registry/secrets/.pgpass", rootCertificate: "/run/registry/ca.pem" }
         let paths = ["/run/registry/", "/run/registry/../other/file", "/run/registry/ca/..", "/run/registry/./file", "/run/registry//file", "/run/registry/ca/"]
         checkAll("canonical paths below the credential mount", [Database::configurationCode(cfg) == "", foldList(paths, true, fn(valid, path) => valid &&
-            Database::configurationCode(cfg { serviceFile: path }) == configurationRefused && Database::configurationCode(cfg { passfile: path }) == configurationRefused && deniedConfiguration(path) == configurationRefused)])
+                    Database::configurationCode(cfg { serviceFile: path }) == configurationRefused && Database::configurationCode(cfg { passfile: path }) == configurationRefused && deniedConfiguration(path) == configurationRefused)])
     }
 
     fn suite() = {

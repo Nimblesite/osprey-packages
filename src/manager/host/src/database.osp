@@ -31,7 +31,7 @@ module Database {
     export fn decoded(index) = "convert_from(decode($${index}, 'hex'), 'UTF8')"
 
     fn settingsSql(keys) = "SELECT " + join(mapList(range(0, length(keys)) |> toList, fn(i) =>
-        "set_config('registry.${listGet(keys, i) ?: ""}', ${decoded(i + 1)}, true)"), ", ")
+            "set_config('registry.${listGet(keys, i) ?: ""}', ${decoded(i + 1)}, true)"), ", ")
 
     fn contextSql() = settingsSql(["principal_id", "session_id", "organization_id", "auth_subject", "authority_epoch"])
 
@@ -58,8 +58,8 @@ module Database {
     fn mountedByte(b) = Bytes::isAlnumIn(b, [Bytes::slash, Bytes::dot, Bytes::underscore, Bytes::hyphen])
     let mount = "/run/registry/"
     fn mountedPath(text) = startsWith(text, mount) && byteLength(text) > byteLength(mount) && Bytes::everyByte(text, mountedByte)
-        && !endsWith(text, "/") && !contains(text, "//")
-        && foldList(split(text, "/") ?: [], true, fn(valid, part) => valid && part != "." && part != "..")
+    && !endsWith(text, "/") && !contains(text, "//")
+    && foldList(split(text, "/") ?: [], true, fn(valid, part) => valid && part != "." && part != "..")
 
     /// Validate mounted connection references before installing the transport.
     export fn configurationCode(config: Connection) = if !serviceCode(config.service) || !mountedPath(config.serviceFile)
@@ -71,7 +71,7 @@ module Database {
 
     /// A finished psql run: its trimmed stdout, or `failure` when psql stopped on an error.
     export fn completed(result, failure) = if result.status == 0 { Success { value: trim(result.stdout) } }
-        else { Error { message: failure } }
+    else { Error { message: failure } }
 
     fn executed(config, source) = completed(perform Host::Process.run(command(config, source)), "database.transaction-failed")
 
@@ -83,9 +83,9 @@ module Database {
     export fn publicCatalog() = executed(mountedConnection("catalog"), catalogScript())
 
     fn preAuthScript(role, keys, scope, statement, values) =
-        "BEGIN; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='2s';\n\\o /dev/null\n"
-        + roleGuard + "SELECT 1/((current_user='${role}')::int);\n"
-        + settingsSql(keys) + " " + binding(scope) + "\\o\n" + statement + " " + binding(values) + "COMMIT;\n"
+    "BEGIN; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='2s';\n\\o /dev/null\n"
+    + roleGuard + "SELECT 1/((current_user='${role}')::int);\n"
+    + settingsSql(keys) + " " + binding(scope) + "\\o\n" + statement + " " + binding(values) + "COMMIT;\n"
 
     /// No registry principal exists before login. Bind this transaction to one state/browser pair.
     export fn loginScript(flowState, browser, statement, values) = preAuthScript("registry_login_runtime",

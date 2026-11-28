@@ -18,13 +18,13 @@ module KmsTests {
     let decryptBody = "{\"additionalAuthenticatedData\":\"dGVzdA==\",\"ciphertext\":\"YQ==\"}"
 
     fn kms(metadata, operation, payload, code, reply) = handler Supabase::Provider {
-            request method base path headers body =>
-                if Kms::isMetadataRequest(method, base, path, headers) {
-                    Success { value: Supabase::Reply { status: 200, body: metadata } }
-                } else if method == "POST" && base == "https://cloudkms.googleapis.com" && path == "/v1/${key}:${operation}"
-                    && headers == tokenHeader && body == payload {
-                    Success { value: Supabase::Reply { status: code, body: reply } }
-                } else { Error { message: "fixture.unexpected-kms-request" } }
+        request method base path headers body =>
+        if Kms::isMetadataRequest(method, base, path, headers) {
+            Success { value: Supabase::Reply { status: 200, body: metadata } }
+        } else if method == "POST" && base == "https://cloudkms.googleapis.com" && path == "/v1/${key}:${operation}"
+        && headers == tokenHeader && body == payload {
+            Success { value: Supabase::Reply { status: code, body: reply } }
+        } else { Error { message: "fixture.unexpected-kms-request" } }
     }
 
     fn seal(metadata, code, reply) = kms(metadata, "encrypt", encryptBody, code, reply)(fn() => LoginKms::seal(key, aad, verifier))
@@ -47,9 +47,9 @@ module KmsTests {
             { metadata: "{\"access_token\":\"fixture-token\"}", status: 200, reply: sealedReply, expected: "denied" }
         ]
         checkAll("KMS sends padded base64 and accepts only ciphertext from a successful response", [
-            allHold(cases, sealCase),
-            !LoginKms::validKey(key + "/cryptoKeyVersions/1"),
-            !LoginKms::validKey("projects/fixture/locations/global/keyRings/registry/cryptoKeys/../key")
+                allHold(cases, sealCase),
+                !LoginKms::validKey(key + "/cryptoKeyVersions/1"),
+                !LoginKms::validKey("projects/fixture/locations/global/keyRings/registry/cryptoKeys/../key")
         ])
     }
 
@@ -94,14 +94,14 @@ module KmsTests {
     let receipt = "22222222-2222-4222-8222-222222222222"
 
     fn sessionSeal(aad, session) = if startsWith(aad, "registry.browser.session.tokens.v1\nhttps://project.supabase.co/auth/v1\nsha256:")
-        && session.accessToken == verified.accessToken && session.refreshToken == verified.refreshToken {
+    && session.accessToken == verified.accessToken && session.refreshToken == verified.refreshToken {
         Success { value: "YQ==" }
     } else { Error { message: "fixture.invalid-context" } }
 
     fn sessionStore(digest, issuer, subject, github, envelope) =
-        if startsWith(digest, "sha256:") && issuer == "https://project.supabase.co/auth/v1" && subject == verified.identity.authSubject
-            && github == "421" && envelope == "YQ==" { Success { value: receipt } }
-        else { Error { message: "fixture.invalid-storage" } }
+    if startsWith(digest, "sha256:") && issuer == "https://project.supabase.co/auth/v1" && subject == verified.identity.authSubject
+    && github == "421" && envelope == "YQ==" { Success { value: receipt } }
+    else { Error { message: "fixture.invalid-storage" } }
 
     fn sessionResponse() = match HostedLogin::issue(oauth(), verified, sessionSeal, sessionStore) {
         Error { message } => check("approved sign-in creates an opaque browser session", "issued", message)
@@ -109,10 +109,10 @@ module KmsTests {
             let cookie = Bytes::before(value.cookie, ";")
             let raw = drop(cookie, byteLength("__Host-registry="))
             checkAll("only a durable issuance can return a fixed redirect and an opaque cookie", [
-                value.location == "https://packages.example.test/upload/",
-                startsWith(cookie, "__Host-registry=") && OAuth::challengeCode(raw) == "",
-                endsWith(value.cookie, "; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax"),
-                !contains(value.cookie, "fixture") && !contains(value.cookie, receipt)
+                    value.location == "https://packages.example.test/upload/",
+                    startsWith(cookie, "__Host-registry=") && OAuth::challengeCode(raw) == "",
+                    endsWith(value.cookie, "; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax"),
+                    !contains(value.cookie, "fixture") && !contains(value.cookie, receipt)
             ])
         }
     }
@@ -123,9 +123,9 @@ module KmsTests {
     }
 
     fn issuanceFailures() = checkAll("token sealing and a committed approved session are required before setting a cookie", [
-        issueError(sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "" }) == HostedLogin::unapproved,
-        issueError(sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "invalid-receipt" }) == HostedLogin::sessionUnavailable,
-        issueError(fn(_context, _session) => Error { message: "fixture.kms-offline" }, sessionStore) == "fixture.kms-offline"
+            issueError(sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "" }) == HostedLogin::unapproved,
+            issueError(sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "invalid-receipt" }) == HostedLogin::sessionUnavailable,
+            issueError(fn(_context, _session) => Error { message: "fixture.kms-offline" }, sessionStore) == "fixture.kms-offline"
     ])
 
     export fn run() = {

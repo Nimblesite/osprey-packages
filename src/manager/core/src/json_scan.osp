@@ -42,8 +42,8 @@ module JsonScan {
     fn readChunk(text, i) = match scanByte(text, i, "") {
         Error { message } => Error { message: message }
         Success { value } => Success { value: Chunk {
-            piece: value.text, cursor: value.next, complete: (byteAt(text, i) ?: 0) == quote
-        } }
+                piece: value.text, cursor: value.next, complete: (byteAt(text, i) ?: 0) == quote
+            } }
     }
 
     fn scanBlock(text, i, budget) -> Result<Chunk, string> = if budget <= 1 { readChunk(text, i) } else {
@@ -56,8 +56,8 @@ module JsonScan {
         match scanBlock(text, first.cursor, rest) {
             Error { message } => Error { message: message }
             Success { value } => Success { value: Chunk {
-                piece: first.piece + value.piece, cursor: value.cursor, complete: value.complete
-            } }
+                    piece: first.piece + value.piece, cursor: value.cursor, complete: value.complete
+                } }
         }
     }
 
@@ -77,19 +77,19 @@ module JsonScan {
     /// that cannot lead (C0/C1 would be overlong, F5 and above exceed
     /// U+10FFFF).
     fn leadWidthOf(b) = if b < 128 { 1 }
-        else if Bytes::inRange(b, 194, 223) { 2 }
-        else if Bytes::inRange(b, 224, 239) { 3 }
-        else if Bytes::inRange(b, 240, 244) { 4 }
-        else { 0 }
+    else if Bytes::inRange(b, 194, 223) { 2 }
+    else if Bytes::inRange(b, 224, 239) { 3 }
+    else if Bytes::inRange(b, 240, 244) { 4 }
+    else { 0 }
 
     /// The second-byte range after lead `b`: any continuation, narrowed
     /// where the sequence would be overlong (E0, F0), a surrogate (ED) or
     /// above U+10FFFF (F4).
     fn secondRange(b) = if b == 224 { Second { lo: 160, hi: 191 } }
-        else if b == 237 { Second { lo: 128, hi: 159 } }
-        else if b == 240 { Second { lo: 144, hi: 191 } }
-        else if b == 244 { Second { lo: 128, hi: 143 } }
-        else { anyContinuation }
+    else if b == 237 { Second { lo: 128, hi: 159 } }
+    else if b == 240 { Second { lo: 144, hi: 191 } }
+    else if b == 244 { Second { lo: 128, hi: 143 } }
+    else { anyContinuation }
 
     /// UTF-8 bytes of a valid sequence at `i`, or 0 when the bytes are not
     /// well-formed UTF-8 (overlongs, surrogates and C0/C1 leads included).

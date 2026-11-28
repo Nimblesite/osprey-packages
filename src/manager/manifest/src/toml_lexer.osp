@@ -105,7 +105,7 @@ module TomlLexer {
     /// The bare token up to the next value terminator; a non-ASCII byte fails.
     export fn scanBare(c) = bareAt(c, scannedRun(c, fn(b) => !bareTerm(b) && b < nonAsciiFloor))
     fn bareAt(start, end) = if cur(end) >= nonAsciiFloor { Error { message: failStr("toml.non-ascii", end) } }
-        else { Success { value: Scan { token: substring(start.text, start.at, end.at) ?: "", at: end } } }
+    else { Success { value: Scan { token: substring(start.text, start.at, end.at) ?: "", at: end } } }
 
     fn controlByte(b) = (b < 32 && b != tab) || b == del
 
@@ -132,17 +132,17 @@ module TomlLexer {
     fn walkedFrom(c, step) = walkBlock(continuing(c, ""), byteLength(c.text) - c.at + 1, step)
 
     fn walkBlock(s, budget, step) -> Walk = if s.finished { s }
-        else if budget <= 1 { step(s) }
-        else { walkSplit(s, budget, step, intDiv(budget, 2)) }
+    else if budget <= 1 { step(s) }
+    else { walkSplit(s, budget, step, intDiv(budget, 2)) }
 
     fn walkSplit(s, budget, step, leftBudget) = walkBlock(walkBlock(s, leftBudget, step), budget - leftBudget, step)
 
     fn stringStep(s, start, delimiter, basic) = if eof(s.at) { stringFault(s, tomlUnterminatedString, start) }
-        else if cur(s.at) == delimiter { done(advance(s.at), s.text) }
-        else if basic && cur(s.at) == backslash { escapedStep(s, start) }
-        else if cur(s.at) == newline { stringFault(s, tomlUnterminatedString, start) }
-        else if controlByte(cur(s.at)) { stringFault(s, "toml.control-character", s.at) }
-        else { continuing(advance(s.at), s.text + oneByte(s.at)) }
+    else if cur(s.at) == delimiter { done(advance(s.at), s.text) }
+    else if basic && cur(s.at) == backslash { escapedStep(s, start) }
+    else if cur(s.at) == newline { stringFault(s, tomlUnterminatedString, start) }
+    else if controlByte(cur(s.at)) { stringFault(s, "toml.control-character", s.at) }
+    else { continuing(advance(s.at), s.text + oneByte(s.at)) }
 
     fn escapedStep(s, start) = match basicEscape(advance(s.at), s.text, start) {
         Error { message } => stopped(s.at, s.text, message)

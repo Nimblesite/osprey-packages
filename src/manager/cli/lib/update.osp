@@ -87,7 +87,7 @@ module Update {
 
     /// A failed development relock restores the release lock too, so the update changes nothing.
     fn releaseRestored(s, previousRelease, report) = if Reports::statusOf(report) == 0 { report }
-        else { Transaction::restoredRelease(s, previousRelease, report, restoreCode) }
+    else { Transaction::restoredRelease(s, previousRelease, report, restoreCode) }
 
     fn relockedLocal(s, mappings, previousRelease, lock, breakingWanted, releaseLines) = {
         let r = rebaseAll(lock, breakingWanted, mappings)

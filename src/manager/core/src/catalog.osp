@@ -52,9 +52,9 @@ module Catalog {
 
     /// `{"refused":N,"releases":N,"status":"ok"}`. Implements [PACKAGE-API].
     export fn healthJson(catalog) = text([
-        counted("refused", length(Release::refusedOf(catalog))),
-        counted("releases", length(Release::servedOf(catalog))),
-        Json::member("status", Json::str(okStatus))
+            counted("refused", length(Release::refusedOf(catalog))),
+            counted("releases", length(Release::servedOf(catalog))),
+            Json::member("status", Json::str(okStatus))
     ])
 
     /// The distinct package keys of `served`, in canonical order: `served` is
@@ -64,8 +64,8 @@ module Catalog {
     fn releasesFor(served, display) = filterList(served, fn(s) => Names::display(servedKey(s)) == display)
 
     fn packageValue(served, display) = Json::obj([
-        Json::member("key", Json::str(display)),
-        Json::member("releases", Json::arr(mapList(releasesFor(served, display), releaseValue)))
+            Json::member("key", Json::str(display)),
+            Json::member("releases", Json::arr(mapList(releasesFor(served, display), releaseValue)))
     ])
 
     /// `{"packages":[{"key":"@s/n","releases":[{"digest","epoch","ordinal"}]}]}`
@@ -85,8 +85,8 @@ module Catalog {
         match isEmpty(releases) {
             true => Error { message: unknownPackage }
             false => text([
-                Json::member("key", Json::str(keyText(scope, name))),
-                Json::member("releases", Json::arr(mapList(releases, releaseValue)))
+                    Json::member("key", Json::str(keyText(scope, name))),
+                    Json::member("releases", Json::arr(mapList(releases, releaseValue)))
             ])
         }
     }
@@ -97,7 +97,7 @@ module Catalog {
     /// release, `files` in stored (path-sorted) order. Implements
     /// [PACKAGE-FOLDER-REGISTRY].
     export fn releaseJson(served) = text(listConcat(releaseMembers(Release::idOf(served)), [
-        Json::member("files", strings(mapList(served.files, pathOf))),
-        Json::member("key", Json::str(Names::display(Identity::keyOf(Release::idOf(served)))))
+                Json::member("files", strings(mapList(served.files, pathOf))),
+                Json::member("key", Json::str(Names::display(Identity::keyOf(Release::idOf(served)))))
     ]))
 }

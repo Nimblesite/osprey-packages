@@ -20,19 +20,19 @@ module PathsTests {
     fn ctrl() = fromCodePoint(7) ?: ""
 
     fn grammar() = checkAll("every rule of the ASCII relative path grammar has a reason code", [
-        Fixtures::mapsTo([
-            mainPath, "osprey.toml", "docs/a-b_c.d/README.md", "${long(128)}/${long(128)}",
-            "", "/src/main.osp", "src\\main.osp", "src/ma${ctrl()}in.osp", "src/mäin.osp",
-            "src/", "src//main.osp", "./main.osp", "src/../main.osp", "${long(129)}",
-            "src/ma in.osp", "src/main:osp", "src/CON", "nul.txt", "docs/com9.md",
-            "lpt0.md", "console.osp",
-            "${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(16)}"
-        ], [
-            "", "", "", "", "path.empty", "path.absolute", "path.backslash", "path.control",
-            "path.non-ascii", "path.trailing-separator", "path.empty-segment", dotSegment, dotSegment,
-            "path.segment-length", "path.segment-chars", "path.segment-chars", deviceStem, deviceStem,
-            deviceStem, "", "", "path.length"
-        ], pathCode)
+            Fixtures::mapsTo([
+                    mainPath, "osprey.toml", "docs/a-b_c.d/README.md", "${long(128)}/${long(128)}",
+                    "", "/src/main.osp", "src\\main.osp", "src/ma${ctrl()}in.osp", "src/mäin.osp",
+                    "src/", "src//main.osp", "./main.osp", "src/../main.osp", "${long(129)}",
+                    "src/ma in.osp", "src/main:osp", "src/CON", "nul.txt", "docs/com9.md",
+                    "lpt0.md", "console.osp",
+                    "${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(100)}/${long(16)}"
+                ], [
+                    "", "", "", "", "path.empty", "path.absolute", "path.backslash", "path.control",
+                    "path.non-ascii", "path.trailing-separator", "path.empty-segment", dotSegment, dotSegment,
+                    "path.segment-length", "path.segment-chars", "path.segment-chars", deviceStem, deviceStem,
+                    deviceStem, "", "", "path.length"
+                ], pathCode)
     ])
 
     fn canonical(paths) = Fixtures::shown(Paths::canonicalSet, fn(sorted) => join(sorted, ","), paths)
@@ -40,19 +40,19 @@ module PathsTests {
     let firstFourOnly = [true, true, true, true, false, false, false]
 
     fn setsAndExclusions() = checkAll("collisions and excluded control paths", [
-        Fixtures::mapsTo([
-            ["src/b.osp", "src/a.osp"], ["src/a.osp", "src/a.osp"],
-            ["src/a.osp", "src/A.osp"], ["README.md", "readme.MD"]
-        ], ["src/a.osp,src/b.osp", "path.duplicate", caseCollision, caseCollision], canonical),
-        Fixtures::mapsTo([
-            "osprey.lock", "osprey.local.toml", "osprey.local.lock", ".osprey/scratch/x",
-            "osprey.toml", "src/osprey.lock", ".ospreyrc"
-        ], firstFourOnly, Paths::excluded),
-        Fixtures::mapsTo([
-            "src/.deslop/cache/fingerprint.bin", "src/nested/.OSPREY/cache/entry.bin",
-            "src/__pycache__/module.pyc", "src/nested/.git/index", "src/deslop/module.osp",
-            "src/.deslop-support/module.osp", "src/cache/module.osp"
-        ], firstFourOnly, Paths::generatedCache)
+            Fixtures::mapsTo([
+                    ["src/b.osp", "src/a.osp"], ["src/a.osp", "src/a.osp"],
+                    ["src/a.osp", "src/A.osp"], ["README.md", "readme.MD"]
+                ], ["src/a.osp,src/b.osp", "path.duplicate", caseCollision, caseCollision], canonical),
+            Fixtures::mapsTo([
+                    "osprey.lock", "osprey.local.toml", "osprey.local.lock", ".osprey/scratch/x",
+                    "osprey.toml", "src/osprey.lock", ".ospreyrc"
+                ], firstFourOnly, Paths::excluded),
+            Fixtures::mapsTo([
+                    "src/.deslop/cache/fingerprint.bin", "src/nested/.OSPREY/cache/entry.bin",
+                    "src/__pycache__/module.pyc", "src/nested/.git/index", "src/deslop/module.osp",
+                    "src/.deslop-support/module.osp", "src/cache/module.osp"
+                ], firstFourOnly, Paths::generatedCache)
     ])
 
     /// `n` zero bytes.
@@ -66,12 +66,12 @@ module PathsTests {
         let one = Source::envelope([sized(mainPath, 5)]) ?: []
         let two = Source::envelope([sized("src/b.osp", 1), sized("src/a.osp", 2)]) ?: []
         checkAll("the envelope is domain, count, then sorted entries", [
-            structuralEquals([length(one), (listGet(two, 21 + 3) ?: -1)], [78, 9]),
-            structuralEquals([(listGet(two, 21 + 4 + 4) ?: -1), (listGet(two, 21 + 4 + 9 + 1 + 7) ?: -1)], [97, 2]),
-            length(Source::envelope([]) ?: []) == 21,
-            envelopeSlice(one, 0, 21) == "111,115,112,114,101,121,46,115,111,117,114,99,101,46,118,49,0,0,0,0,1",
-            envelopeSlice(one, 21, 46) == "0,0,0,12,115,114,99,47,109,97,105,110,46,111,115,112,0,0,0,0,0,0,0,0,5",
-            length(two) == 21 + 2 * (4 + 9 + 1 + 8 + 32)
+                structuralEquals([length(one), (listGet(two, 21 + 3) ?: -1)], [78, 9]),
+                structuralEquals([(listGet(two, 21 + 4 + 4) ?: -1), (listGet(two, 21 + 4 + 9 + 1 + 7) ?: -1)], [97, 2]),
+                length(Source::envelope([]) ?: []) == 21,
+                envelopeSlice(one, 0, 21) == "111,115,112,114,101,121,46,115,111,117,114,99,101,46,118,49,0,0,0,0,1",
+                envelopeSlice(one, 21, 46) == "0,0,0,12,115,114,99,47,109,97,105,110,46,111,115,112,0,0,0,0,0,0,0,0,5",
+                length(two) == 21 + 2 * (4 + 9 + 1 + 8 + 32)
         ])
     }
 
@@ -80,35 +80,35 @@ module PathsTests {
     fn envelopeCode(entries) = Fixtures::code(Source::envelope(entries))
 
     fn envelopeRejections() = checkAll("an invalid tree never hashes", [
-        Fixtures::mapsTo([
-            [sized("src/../x.osp", 1)],
-            [sized("osprey.local.lock", 1)],
-            [sized(".osprey/state", 1)],
-            [entry("a.osp", -1, zeroDigest())],
-            [entry("a.osp", 1, zeros(31))],
-            [sized("a.osp", 1), sized("A.osp", 1)],
-            [sized("a.osp", 1), sized("a.osp", 2)]
-        ], [
-            dotSegment, "source.excluded-path", "source.excluded-path", "source.negative-length",
-            "source.digest-length", caseCollision, "path.duplicate"
-        ], envelopeCode)
+            Fixtures::mapsTo([
+                    [sized("src/../x.osp", 1)],
+                    [sized("osprey.local.lock", 1)],
+                    [sized(".osprey/state", 1)],
+                    [entry("a.osp", -1, zeroDigest())],
+                    [entry("a.osp", 1, zeros(31))],
+                    [sized("a.osp", 1), sized("A.osp", 1)],
+                    [sized("a.osp", 1), sized("a.osp", 2)]
+                ], [
+                    dotSegment, "source.excluded-path", "source.excluded-path", "source.negative-length",
+                    "source.digest-length", caseCollision, "path.duplicate"
+                ], envelopeCode)
     ])
 
     fn collection() = checkAll("forbidden kinds, LFS pointers and submission bounds", [
-        Fixtures::mapsTo([
-            "regular", "symlink", "submodule", "executable", "hardlink", "socket", "fifo", "device", "sparse"
-        ], [
-            "", "source.kind.symlink", "source.kind.submodule", "source.kind.executable",
-            "source.kind.hardlink", "source.kind.socket", "source.kind.fifo", "source.kind.device", "source.kind.unknown"
-        ], Source::kindCode),
-        Fixtures::mapsTo([
-            "version https://git-lfs.github.com/spec/v1\noid sha256:4d7a\nsize 12345\n",
-            "fn main() = print(\"version\")\n"
-        ], [true, false], Source::lfsPointer),
-        Source::limitCode(10000, 52428800, 26214400) == "",
-        Source::limitCode(10001, 1, 0) == "source.too-many-files",
-        Source::limitCode(1, 52428801, 0) == "source.too-large",
-        Source::limitCode(1, 1, 26214401) == "source.assets-too-large"
+            Fixtures::mapsTo([
+                    "regular", "symlink", "submodule", "executable", "hardlink", "socket", "fifo", "device", "sparse"
+                ], [
+                    "", "source.kind.symlink", "source.kind.submodule", "source.kind.executable",
+                    "source.kind.hardlink", "source.kind.socket", "source.kind.fifo", "source.kind.device", "source.kind.unknown"
+                ], Source::kindCode),
+            Fixtures::mapsTo([
+                    "version https://git-lfs.github.com/spec/v1\noid sha256:4d7a\nsize 12345\n",
+                    "fn main() = print(\"version\")\n"
+                ], [true, false], Source::lfsPointer),
+            Source::limitCode(10000, 52428800, 26214400) == "",
+            Source::limitCode(10001, 1, 0) == "source.too-many-files",
+            Source::limitCode(1, 52428801, 0) == "source.too-large",
+            Source::limitCode(1, 1, 26214401) == "source.assets-too-large"
     ])
 
     fn file(path, text) = Source::entryOf(path, Bytes::ofString(text))
@@ -119,25 +119,25 @@ module PathsTests {
         let program = file(mainPath, "fn main() = print(\"ledger\")\n")
         let tampered = Source::Entry { path: mainPath, byteLength: program.byteLength, digest: zeroDigest() }
         checkAll("SourceDigest matches the fixture trees and changes under digest substitution", [
-            Fixtures::mapsTo([[], [program, manifest], [manifest, program], [manifest, tampered]], [
-                "sha256:cc0dd61db3bb1b7fd165e5a83cfa2819c241038e830ba14e5ce287481f2eb1e7",
-                "sha256:18c999dea56029b5d76cc9a44eba947ea93548c695f6d5202d0730b7abf4f394",
-                "sha256:18c999dea56029b5d76cc9a44eba947ea93548c695f6d5202d0730b7abf4f394",
-                "sha256:4122590ebc89b7bb9510e57a382f3c6bc6e9d86effacb2cb6878c8ef3a41657f"
-            ], fn(entries) => Source::digest(entries) ?: "")
+                Fixtures::mapsTo([[], [program, manifest], [manifest, program], [manifest, tampered]], [
+                        "sha256:cc0dd61db3bb1b7fd165e5a83cfa2819c241038e830ba14e5ce287481f2eb1e7",
+                        "sha256:18c999dea56029b5d76cc9a44eba947ea93548c695f6d5202d0730b7abf4f394",
+                        "sha256:18c999dea56029b5d76cc9a44eba947ea93548c695f6d5202d0730b7abf4f394",
+                        "sha256:4122590ebc89b7bb9510e57a382f3c6bc6e9d86effacb2cb6878c8ef3a41657f"
+                    ], fn(entries) => Source::digest(entries) ?: "")
         ])
     }
 
     /// [PACKAGE-LICENSE-DISTRIBUTION] metadata is retained without asset declarations.
     export fn legalMetadata() = checkAll("publication retains supplied license texts and notices", [
-        Fixtures::mapsTo([
-            "osprey.toml", "LICENSE", "license.txt", "COPYING.md", "NOTICE.md", "NOTICES",
-            "AUTHORS", "THIRD_PARTY_NOTICES.txt", "LICENSES/Unicode.txt", "licenses/nested/BSD.txt",
-            "LICENSES-backup/private.txt", "docs/NOTICE.md", "notes.md"
-        ], [
-            true, true, true, true, true, true, true, true, true, true, false, false, false
-        ], Paths::publicationMetadata),
-        Fixtures::mapsTo(["Notices.TXT", "docs/NOTICES.md"], [true, false], Paths::noticeDocument)
+            Fixtures::mapsTo([
+                    "osprey.toml", "LICENSE", "license.txt", "COPYING.md", "NOTICE.md", "NOTICES",
+                    "AUTHORS", "THIRD_PARTY_NOTICES.txt", "LICENSES/Unicode.txt", "licenses/nested/BSD.txt",
+                    "LICENSES-backup/private.txt", "docs/NOTICE.md", "notes.md"
+                ], [
+                    true, true, true, true, true, true, true, true, true, true, false, false, false
+                ], Paths::publicationMetadata),
+            Fixtures::mapsTo(["Notices.TXT", "docs/NOTICES.md"], [true, false], Paths::noticeDocument)
     ])
 
     /// The paths suite: the grammar, tree digests, collection rules, sets and

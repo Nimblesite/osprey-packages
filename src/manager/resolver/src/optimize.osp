@@ -61,8 +61,8 @@ module Optimize {
     fn keyVars(entries, key) = Candidates::varsOf(entries, fn(e) => Names::same(Candidates::releaseOf(e).key, key))
 
     fn currentRelease(graph, key) = foldList(graph.current, Error { message: "none" }, fn(acc, r: Identity::ReleaseId) => match acc {
-        Success => acc
-        Error => if Names::same(r.key, key) { Success { value: r } } else { acc }
+            Success => acc
+            Error => if Names::same(r.key, key) { Success { value: r } } else { acc }
     })
 
     /// The variable of the candidate releasing `r`, or 0 when it is none.
@@ -114,10 +114,10 @@ module Optimize {
     fn tieBreak(entries, acc) = {
         let perm = Order::permutation(length(entries), fn(i, j) => Objective::comparePackageTie(Candidates::releaseOf(Resolution::entryAt(entries, i)), Candidates::releaseOf(Resolution::entryAt(entries, j))))
         foldList(perm, acc, fn(a, i) => {
-            let v = i + 1
-            if satisfiableWith(a.next - 1, a.clauses, listAppend(a.forced, v)) {
-                Acc { clauses: a.clauses, next: a.next, forced: listAppend(a.forced, v) }
-            } else { a }
+                let v = i + 1
+                if satisfiableWith(a.next - 1, a.clauses, listAppend(a.forced, v)) {
+                    Acc { clauses: a.clauses, next: a.next, forced: listAppend(a.forced, v) }
+                } else { a }
         })
     }
 

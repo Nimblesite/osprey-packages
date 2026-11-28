@@ -32,18 +32,18 @@ module TufCheck {
     /// TUF 1.0 5.3.4-5.3.5: the candidate root satisfies the old root's
     /// threshold, then its own. Implements [PACKAGE-TRUST].
     fn rootThresholds(oldSigs, newSigs, oldThreshold, newThreshold) =
-        if oldSigs < oldThreshold { rootOldCode }
-        else if newSigs < newThreshold { rootNewCode }
-        else { "" }
+    if oldSigs < oldThreshold { rootOldCode }
+    else if newSigs < newThreshold { rootNewCode }
+    else { "" }
 
     /// TUF 1.0 5.3 root update: one version at a time, verified at both the
     /// old and the new threshold. A candidate at or below the trusted
     /// version is the rollback attack; one further ahead refuses the Registry Trust and Discovery spec's
     /// one-version-at-a-time rule. Implements [PACKAGE-TRUST].
     export fn rootUpdate(trustedVersion, candidateVersion, oldSigs, newSigs, oldThreshold, newThreshold) =
-        if candidateVersion <= trustedVersion { rollbackCode }
-        else if candidateVersion != trustedVersion + 1 { rootSkipCode }
-        else { rootThresholds(oldSigs, newSigs, oldThreshold, newThreshold) }
+    if candidateVersion <= trustedVersion { rollbackCode }
+    else if candidateVersion != trustedVersion + 1 { rootSkipCode }
+    else { rootThresholds(oldSigs, newSigs, oldThreshold, newThreshold) }
 
     /// TUF 1.0 5.4-5.6 over one top-level role: the served version never
     /// rolls back the persisted highest-seen version, the metadata is
@@ -51,21 +51,21 @@ module TufCheck {
     /// parent role lists, and its signature count meets threshold.
     /// Implements [PACKAGE-TRUST].
     export fn roleUpdate(trusted, served, now, thresholdMet, metaVersion, metaDigest) =
-        if served.version < trusted.version { rollbackCode }
-        else if served.expiresAt <= now { expiredCode }
-        else if served.version != metaVersion || served.metadataDigest != metaDigest { mixAndMatchCode }
-        else if !thresholdMet { thresholdCode }
-        else { "" }
+    if served.version < trusted.version { rollbackCode }
+    else if served.expiresAt <= now { expiredCode }
+    else if served.version != metaVersion || served.metadataDigest != metaDigest { mixAndMatchCode }
+    else if !thresholdMet { thresholdCode }
+    else { "" }
 
     /// TUF 1.0 5.6.3 over one target: the pinned length bounds the download
     /// before any digest comparison, so endless data, a wrong length and
     /// substituted software each name their own attack. Implements
     /// [PACKAGE-TRUST].
     export fn targetCheck(expectedLength, expectedDigest, servedLength, servedDigest) =
-        if servedLength > expectedLength { endlessCode }
-        else if servedLength < expectedLength { wrongLengthCode }
-        else if servedDigest != expectedDigest { arbitraryCode }
-        else { "" }
+    if servedLength > expectedLength { endlessCode }
+    else if servedLength < expectedLength { wrongLengthCode }
+    else if servedDigest != expectedDigest { arbitraryCode }
+    else { "" }
 
     /// True only when the read succeeded and holds exactly `expected`; an
     /// absent or unreadable field never equals anything.
@@ -132,23 +132,23 @@ module TufCheck {
     /// with no previousStatus and no reasonDigest. Implements
     /// [PACKAGE-TYPE-INVARIANTS].
     fn initialStatus(next) =
-        if !holds(Json::intAt(next, "sequence"), 1) { sequenceCode }
-        else if stateOf(next) != "Eligible" { transitionCode }
-        else if hasField(next, "previousStatus") { chainCode }
-        else if hasField(next, "reasonDigest") { reasonCode }
-        else { "" }
+    if !holds(Json::intAt(next, "sequence"), 1) { sequenceCode }
+    else if stateOf(next) != "Eligible" { transitionCode }
+    else if hasField(next, "previousStatus") { chainCode }
+    else if hasField(next, "reasonDigest") { reasonCode }
+    else { "" }
 
     /// The Package Domain Model spec for every later record: sequence grows by exactly one, the
     /// move is allowed, previousStatus is the digest of the exact preceding
     /// record, a reason is carried, and the release never changes.
     /// Implements [PACKAGE-TYPE-INVARIANTS].
     fn laterStatus(previous, next) =
-        if !follows(previous, next) { sequenceCode }
-        else if !allowedMove(stateOf(previous), stateOf(next)) { transitionCode }
-        else if !chained(previous, next) { chainCode }
-        else if !hasField(next, "reasonDigest") { reasonCode }
-        else if !sameRelease(previous, next) { releaseCode }
-        else { "" }
+    if !follows(previous, next) { sequenceCode }
+    else if !allowedMove(stateOf(previous), stateOf(next)) { transitionCode }
+    else if !chained(previous, next) { chainCode }
+    else if !hasField(next, "reasonDigest") { reasonCode }
+    else if !sameRelease(previous, next) { releaseCode }
+    else { "" }
 
     /// The release-status state machine over two full ReleaseStatus records
     /// (src/manager/schemas/package-registry.td); `previous` is `Json::Null` for the

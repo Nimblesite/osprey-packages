@@ -23,45 +23,45 @@ module ReleasePathTests {
 
     fn fields() = match ReleasePath::parse(ledgerRelease) {
         Success { value } => checkAll("parse splits key, epoch and ordinal", [
-            structuralEquals([value.key.scope, value.key.name, value.digest], ["finch", "ledger", ""]),
-            structuralEquals([value.epoch, value.ordinal], [3, 42])
+                structuralEquals([value.key.scope, value.key.name, value.digest], ["finch", "ledger", ""]),
+                structuralEquals([value.epoch, value.ordinal], [3, 42])
         ])
         Error => checkAll("parse splits key, epoch and ordinal", [false])
     }
 
     fn accepts() = checkAll("release paths parse and round-trip", [
-        Fixtures::mapsTo([
-            ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
-        ], [
-            ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
-        ], fn(text) => Fixtures::shown(ReleasePath::parse, ReleasePath::format, text)),
-        digestOf(ledgerRelease) == ""
+            Fixtures::mapsTo([
+                    ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
+                ], [
+                    ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
+                ], fn(text) => Fixtures::shown(ReleasePath::parse, ReleasePath::format, text)),
+            digestOf(ledgerRelease) == ""
     ])
 
     fn rejectsSegmentsAndNames() = checkAll("path and name rejections", [
-        Fixtures::mapsTo([
-            "", "@finch/ledger", "@finch/ledger/3.42/extra", "/ledger/3.42", "finch/ledger/3.42",
-            "@Finch/ledger/3.42", "@finch/Ledger/3.42", "@/ledger/3.42", "@finch//3.42"
-        ], [
-            segmentsCode, segmentsCode, segmentsCode, "name.missing-at", "name.missing-at",
-            "name.scope.chars", "name.name.chars", "name.scope.length", "name.name.length"
-        ], code)
+            Fixtures::mapsTo([
+                    "", "@finch/ledger", "@finch/ledger/3.42/extra", "/ledger/3.42", "finch/ledger/3.42",
+                    "@Finch/ledger/3.42", "@finch/Ledger/3.42", "@/ledger/3.42", "@finch//3.42"
+                ], [
+                    segmentsCode, segmentsCode, segmentsCode, "name.missing-at", "name.missing-at",
+                    "name.scope.chars", "name.name.chars", "name.scope.length", "name.name.length"
+                ], code)
     ])
 
     fn rejectsVersions() = checkAll("version segment rejections", [
-        Fixtures::mapsTo([
-            "@finch/ledger/3", "@finch/ledger/3.42.1", "@finch/ledger/03.42",
-            "@finch/ledger/3.042", "@finch/ledger/.42", "@finch/ledger/3.", "@finch/ledger/",
-            "@finch/ledger/-3.42", "@finch/ledger/+3.42", "@finch/ledger/3.4a",
-            "@finch/ledger/0.1", "@finch/ledger/1.0", "@finch/ledger/9223372036854775808"
-        ], [
-            versionCode, versionCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode,
-            epochCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode
-        ], code)
+            Fixtures::mapsTo([
+                    "@finch/ledger/3", "@finch/ledger/3.42.1", "@finch/ledger/03.42",
+                    "@finch/ledger/3.042", "@finch/ledger/.42", "@finch/ledger/3.", "@finch/ledger/",
+                    "@finch/ledger/-3.42", "@finch/ledger/+3.42", "@finch/ledger/3.4a",
+                    "@finch/ledger/0.1", "@finch/ledger/1.0", "@finch/ledger/9223372036854775808"
+                ], [
+                    versionCode, versionCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode,
+                    epochCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode
+                ], code)
     ])
 
     fn formatsWithDigest() = checkAll("format ignores the digest and renders the directory", [
-        ReleasePath::format(Fixtures::releaseId("@finch/ledger", 3, 42, "sha256:aa")) == ledgerRelease
+            ReleasePath::format(Fixtures::releaseId("@finch/ledger", 3, 42, "sha256:aa")) == ledgerRelease
     ])
 
     /// The release-path suite: parsed fields, canonical round-trips, path,

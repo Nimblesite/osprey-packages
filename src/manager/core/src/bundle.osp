@@ -11,8 +11,8 @@ module Bundle {
     let maxBytes = 134217728
 
     fn fileValue(file) = Json::obj([
-        Json::member("path", Json::str(file.relPath)),
-        Json::member("text", Json::str(file.content))
+            Json::member("path", Json::str(file.relPath)),
+            Json::member("text", Json::str(file.content))
     ])
 
     fn filesValue(files) = Json::Arr { items: mapList(files, fileValue) }
@@ -20,11 +20,11 @@ module Bundle {
     // `Release::Served` is spelled out for issue #273: its `id` fields
     // (`key`, `digest`, ...) are shared with other records.
     fn encodeValue(served: Release::Served) = Json::obj([
-        Json::member("digest", Json::str(served.id.digest)),
-        Json::member("epoch", Json::num(served.id.epoch)),
-        Json::member("files", filesValue(served.files)),
-        Json::member("key", Json::str(Names::display(served.id.key))),
-        Json::member("ordinal", Json::num(served.id.ordinal))
+            Json::member("digest", Json::str(served.id.digest)),
+            Json::member("epoch", Json::num(served.id.epoch)),
+            Json::member("files", filesValue(served.files)),
+            Json::member("key", Json::str(Names::display(served.id.key))),
+            Json::member("ordinal", Json::num(served.id.ordinal))
     ])
 
     /// The canonical JSON text of a served release.
@@ -64,9 +64,9 @@ module Bundle {
     fn makeServed(digest, epoch, files, keyText, ordinal) = match Names::parse(keyText) {
         Error => Error { message: shapeError }
         Success { value } => Success { value: Release::Served {
-            id: Identity::ReleaseId { key: value, epoch: epoch, ordinal: ordinal, digest: digest },
-            files: files
-        } }
+                id: Identity::ReleaseId { key: value, epoch: epoch, ordinal: ordinal, digest: digest },
+                files: files
+            } }
     }
 
     /// Strictly parse a bundle; parse problems render through `Json::describe`,

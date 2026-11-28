@@ -79,10 +79,10 @@ module SchemaCheckTests {
     }
 
     fn modelLoads() = withModel(fn(value) => checkAll("schema model declares every type exactly once", [
-            structuralEquals([length(value.decls), length(filterList(value.decls, isAlias))], [118, 10]),
-            length(filterList(value.decls, isStruct)) == 81,
-            length(filterList(value.decls, isUnion)) == 27,
-            everyNameResolves(value)
+                structuralEquals([length(value.decls), length(filterList(value.decls, isAlias))], [118, 10]),
+                length(filterList(value.decls, isStruct)) == 81,
+                length(filterList(value.decls, isUnion)) == 27,
+                everyNameResolves(value)
     ]))
 
     /// The reason `case`'s `value` is refused as its `type`, or "" when the schema accepts it.
@@ -91,13 +91,13 @@ module SchemaCheckTests {
     fn rejectionOk(model, case) = problemOf(model, case) == "${Fixtures::textOf(case, "code")} at ${Fixtures::textOf(case, "at")}"
 
     fn accepts() = withModel(fn(value) => {
-        let fx = Fixtures::load("schema/accepts.json")
-        Fixtures::report("schema accepts", Fixtures::itemsOf(fx, "cases"), fn(c) => problemOf(value, c) == "")
+            let fx = Fixtures::load("schema/accepts.json")
+            Fixtures::report("schema accepts", Fixtures::itemsOf(fx, "cases"), fn(c) => problemOf(value, c) == "")
     })
 
     fn rejections() = withModel(fn(value) => {
-        let fx = Fixtures::load("schema/rejections.json")
-        Fixtures::report("schema rejections", Fixtures::itemsOf(fx, "cases"), fn(c) => rejectionOk(value, c))
+            let fx = Fixtures::load("schema/rejections.json")
+            Fixtures::report("schema rejections", Fixtures::itemsOf(fx, "cases"), fn(c) => rejectionOk(value, c))
     })
 
     fn datetimes() = {

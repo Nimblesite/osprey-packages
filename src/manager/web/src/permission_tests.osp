@@ -54,9 +54,9 @@ module PermissionTests {
     /// The control screen is admin-only: a publisher, an outsider and an
     /// anonymous visitor all get the hidden screen.
     fn controlScreenAdminOnly() = checkAll("web: control screen admin only", [
-        adminHidden(WebFixtures::publisher()),
-        adminHidden(WebFixtures::outsider()),
-        adminHidden(WebFixtures::anonymous())
+            adminHidden(WebFixtures::publisher()),
+            adminHidden(WebFixtures::outsider()),
+            adminHidden(WebFixtures::anonymous())
     ])
 
     /// The grant table escapes hostile membership ids.

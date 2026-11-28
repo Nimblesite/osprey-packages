@@ -4,8 +4,8 @@ import registry::Policy
 /// Every registry API suite in run order: auth adapters, database configuration, organization
 /// governance, then hosted request admission and listener isolation [PACKAGE-HOSTED-EDGE].
 fn suites() = foldList([AuthSuite::run, DatabaseSuite::run, GovernanceSuite::run, HostedSuite::run], 0, fn(count, run) => {
-    let _ = run()
-    count
+        let _ = run()
+        count
 })
 
 fn main() = Policy::guarded(suites)

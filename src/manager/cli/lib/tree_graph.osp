@@ -50,9 +50,9 @@ module TreeGraph {
     fn globalLines(lines, packages) = filterList(lines, fn(line) => !isPackageKey(packages, detailIn(line)))
 
     fn dependentsOf(packages, key) = Names::distinct(foldList(packages, [], fn(acc, p) =>
-        if !Names::same(Lockfile::keyOf(p), key) && Names::includes(edgeKeys(Lockfile::edgesOf(p)), key) {
-            listAppend(acc, Lockfile::keyOf(p))
-        } else { acc }))
+            if !Names::same(Lockfile::keyOf(p), key) && Names::includes(edgeKeys(Lockfile::edgesOf(p)), key) {
+                listAppend(acc, Lockfile::keyOf(p))
+            } else { acc }))
 
     // A local checkout replaces the release's bytes ([PACKAGE-LOCAL-OVERRIDE]), so
     // the editor must be able to tell them apart. Absent for a release, keeping a
@@ -72,14 +72,14 @@ module TreeGraph {
         let id = Lockfile::releaseOf(pkg)
         let keyText = Names::display(Identity::keyOf(id))
         Json::obj(listConcat(overrideMembers(overrides, Identity::keyOf(id)), [
-            Json::member("key", Json::str(keyText)),
-            Json::member("version", Json::str(Lockfile::versionOf(id))),
-            Json::member("digest", Json::str(id.digest)),
-            Json::member("direct", bool(Names::includes(direct, Identity::keyOf(id)))),
-            Json::member("dependencies", textList(mapList(edgeKeys(Lockfile::edgesOf(pkg)), Names::display))),
-            Json::member("dependents", textList(mapList(dependentsOf(packages, Identity::keyOf(id)), Names::display))),
-            Json::member("findings", textList(packageFindings(lines, keyText))),
-            Json::member("present", bool(presentOf(lines, keyText)))
+                    Json::member("key", Json::str(keyText)),
+                    Json::member("version", Json::str(Lockfile::versionOf(id))),
+                    Json::member("digest", Json::str(id.digest)),
+                    Json::member("direct", bool(Names::includes(direct, Identity::keyOf(id)))),
+                    Json::member("dependencies", textList(mapList(edgeKeys(Lockfile::edgesOf(pkg)), Names::display))),
+                    Json::member("dependents", textList(mapList(dependentsOf(packages, Identity::keyOf(id)), Names::display))),
+                    Json::member("findings", textList(packageFindings(lines, keyText))),
+                    Json::member("present", bool(presentOf(lines, keyText)))
         ]))
     }
 
@@ -94,14 +94,14 @@ module TreeGraph {
         let direct = directKeys(manifest)
         let packages = Lockfile::packagesOf(lock)
         Json::obj(listConcat(manifestMembers(manifest), [
-            Json::member("packages", packagesValue(lines, direct, packages, overrides)),
-            Json::member("findings", textList(listConcat(codesOf(globalLines(lines, packages)), localFindings)))
+                    Json::member("packages", packagesValue(lines, direct, packages, overrides)),
+                    Json::member("findings", textList(listConcat(codesOf(globalLines(lines, packages)), localFindings)))
         ]))
     }
 
     fn notLockedValue(manifest) = Json::obj(listConcat(manifestMembers(manifest), [
-        Json::member("packages", Json::arr([])),
-        Json::member("findings", textList([notLockedCode]))
+                Json::member("packages", Json::arr([])),
+                Json::member("findings", textList([notLockedCode]))
     ]))
 
     fn serialized(value) = match Canonical::serialize(value) {

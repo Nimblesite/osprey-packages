@@ -55,8 +55,8 @@ module GraphOracle {
     }
 
     fn entryFor(selected, key) = foldList(selected, Error { message: "missing" }, fn(acc, e) => match acc {
-        Success => acc
-        Error => if Names::same(rKey(eRelease(e)), key) { Success { value: e } } else { acc }
+            Success => acc
+            Error => if Names::same(rKey(eRelease(e)), key) { Success { value: e } } else { acc }
     })
 
     /// The root's requirements plus every selected release's active ones.
@@ -99,20 +99,20 @@ module GraphOracle {
     fn selectedReleases(selected) = mapList(selected, eRelease)
 
     fn findByKey(releases, key) = foldList(releases, Error { message: "missing" }, fn(acc, r) => match acc {
-        Success => acc
-        Error => if Names::same(rKey(r), key) { Success { value: r } } else { acc }
+            Success => acc
+            Error => if Names::same(rKey(r), key) { Success { value: r } } else { acc }
     })
 
     /// Package keys whose selected identity is added, removed, or differs.
     fn changedCount(graph, selected) = {
         let sel = selectedReleases(selected)
         let removedChanged = foldList(graph.current, 0, fn(acc, c) => match findByKey(sel, rKey(c)) {
-            Success { value } => acc + (if Identity::same(value, c) { 0 } else { 1 })
-            Error => acc + 1
+                Success { value } => acc + (if Identity::same(value, c) { 0 } else { 1 })
+                Error => acc + 1
         })
         let added = foldList(sel, 0, fn(acc, s) => match findByKey(graph.current, rKey(s)) {
-            Success => acc
-            Error => acc + 1
+                Success => acc
+                Error => acc + 1
         })
         removedChanged + added
     }

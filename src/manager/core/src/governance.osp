@@ -66,12 +66,11 @@ module Governance {
     /// The whole governance world as row lists; every transition takes one and answers another.
     export type Registry = { principals: List<Principal>, organizations: List<Organization>, memberships: List<Membership>, packages: List<Package>, grants: List<Grant>, transfers: List<Transfer> }
 
-
     fn firstWhere(list, predicate) = foldList(list, Maybe::none(), fn(found, item) =>
         match Maybe::isPresent(found) {
             true => found
             false => if predicate(item) { Maybe::some(item) } else { found }
-        })
+    })
 
     fn found(maybe, code) = Maybe::fold(maybe, Error { message: code }, fn(value) => Success { value: value })
 

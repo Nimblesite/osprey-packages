@@ -60,7 +60,7 @@ module FetchTests {
         }
         let tree = handler Host::Tree {
             walk root => if mode == "deny-walk" { Error { message: "fixture: walk failed" } }
-                else { Fixture::walkAfter(written, [], ensured, root) }
+            else { Fixture::walkAfter(written, [], ensured, root) }
             ensure dir => match mode {
                 "deny-tree" => Error { message: "read-only file system" }
                 _ => {
@@ -160,12 +160,12 @@ module FetchTests {
         let root = installRoot(newest)
         let a = attempt(catalogRoutes(localBase, rs), ledgerArgs)
         checkAll("newest release by epoch then ordinal, exact report and writes", [
-            structuralEquals([statusOf(a), length(a.report.lines)], [0, 3]),
-            fetched(a, "@finch/ledger@e2.r2", newest),
-            lineOf(a, 1) == "into: ${root}",
-            lineOf(a, 2) == "files: 2",
-            a.writes == "${root}/osprey.toml=${manifestText}|${root}/src/main.osp=fn two() = 4\n|",
-            a.ensures == "${root}|${root}/src|"
+                structuralEquals([statusOf(a), length(a.report.lines)], [0, 3]),
+                fetched(a, "@finch/ledger@e2.r2", newest),
+                lineOf(a, 1) == "into: ${root}",
+                lineOf(a, 2) == "files: 2",
+                a.writes == "${root}/osprey.toml=${manifestText}|${root}/src/main.osp=fn two() = 4\n|",
+                a.ensures == "${root}|${root}/src|"
         ])
     }
 
@@ -177,11 +177,11 @@ module FetchTests {
         let inEpoch = attempt(routes, ["@finch/ledger@e1"])
         let byDigest = attempt(routes, [digestOf(Fixture::at(rs, 2))])
         checkAll("epoch and digest targets select the right release", [
-            accepted(inEpoch) && accepted(byDigest),
-            fetched(inEpoch, "@finch/ledger@e1.r2", Fixture::at(rs, 1)),
-            lineOf(inEpoch, 2) == "files: 2",
-            fetched(byDigest, "@finch/ledger@e2.r1", Fixture::at(rs, 2)),
-            lineOf(byDigest, 1) == "into: ${installRoot(Fixture::at(rs, 2))}"
+                accepted(inEpoch) && accepted(byDigest),
+                fetched(inEpoch, "@finch/ledger@e1.r2", Fixture::at(rs, 1)),
+                lineOf(inEpoch, 2) == "files: 2",
+                fetched(byDigest, "@finch/ledger@e2.r1", Fixture::at(rs, 2)),
+                lineOf(byDigest, 1) == "into: ${installRoot(Fixture::at(rs, 2))}"
         ])
     }
 
@@ -205,8 +205,8 @@ module FetchTests {
         let routes = catalogRoutes(localBase, releases())
         let first = attempt(routes, [])
         checkAll("every malformed command line is fetch.usage", [
-            foldList(cases, true, fn(ok, args) => ok && usageCase(routes, args)),
-            lineOf(first, 1) == "usage: osprey-pkg fetch <target> [--registry <base-url>]"
+                foldList(cases, true, fn(ok, args) => ok && usageCase(routes, args)),
+                lineOf(first, 1) == "usage: osprey-pkg fetch <target> [--registry <base-url>]"
         ])
     }
 
@@ -218,17 +218,17 @@ module FetchTests {
         let offline = attempt([], ledgerArgs)
         let missingSource = attempt([RegistryFixture::webRouteAt(localBase, RegistryFixture::releaseSourcePath(zeroDigest), 404, "")], [zeroDigest])
         checkAll("not-found, registry-status and transport failures", [
-            failedOne(missing, "fetch.not-found"),
-            failedOne(broken, "fetch.registry-status: 500"),
-            failedOne(offline, "http.transport: no route ${localBase}${packagesPath}"),
-            failedOne(missingSource, "fetch.not-found")
+                failedOne(missing, "fetch.not-found"),
+                failedOne(broken, "fetch.registry-status: 500"),
+                failedOne(offline, "http.transport: no route ${localBase}${packagesPath}"),
+                failedOne(missingSource, "fetch.not-found")
         ])
     }
 
     fn noRelease() = {
         let routes = malformedListing("{\"digest\":\"${zeroDigest}\",\"epoch\":1,\"ordinal\":1}")
         checkAll("a target epoch with no release is fetch.no-release", [
-            failedOne(attempt(routes, ["@finch/ledger@e3"]), "fetch.no-release")
+                failedOne(attempt(routes, ["@finch/ledger@e3"]), "fetch.no-release")
         ])
     }
 
@@ -236,8 +236,8 @@ module FetchTests {
         let unparseable = [RegistryFixture::webRouteAt(localBase, packagesPath, 200, "{{{")]
         let rowMissingOrdinal = malformedListing("{\"digest\":\"${zeroDigest}\",\"epoch\":1}")
         checkAll("an unparseable package listing is fetch.package-shape", [
-            failedOne(attempt(unparseable, ledgerArgs), "fetch.package-shape"),
-            failedOne(attempt(rowMissingOrdinal, ledgerArgs), "fetch.package-shape")
+                failedOne(attempt(unparseable, ledgerArgs), "fetch.package-shape"),
+                failedOne(attempt(rowMissingOrdinal, ledgerArgs), "fetch.package-shape")
         ])
     }
 
@@ -251,8 +251,8 @@ module FetchTests {
         let routes = [RegistryFixture::webRouteAt(localBase, RegistryFixture::sourcePath(r21), 200, tamperedBundle(r21))]
         let a = attempt(routes, [digestOf(r21)])
         checkAll("a tampered bundle is bundle.digest-mismatch and writes nothing", [
-            failedOne(a, bundleDigestMismatch),
-            wroteNothing(a)
+                failedOne(a, bundleDigestMismatch),
+                wroteNothing(a)
         ])
     }
 
@@ -265,8 +265,8 @@ module FetchTests {
         let swapped = [RegistryFixture::bundleRouteAt(localBase, RegistryFixture::sourcePath(r22), r21)]
         let notABundle = [RegistryFixture::webRouteAt(localBase, RegistryFixture::releaseSourcePath(zeroDigest), 200, "{\"digest\":\"${zeroDigest}\"}")]
         checkAll("unexpected digest and non-bundle source bodies", [
-            failedOne(attempt(swapped, [digestOf(r22)]), "bundle.unexpected-digest"),
-            failedOne(attempt(notABundle, [zeroDigest]), "bundle.shape")
+                failedOne(attempt(swapped, [digestOf(r22)]), "bundle.unexpected-digest"),
+                failedOne(attempt(notABundle, [zeroDigest]), "bundle.shape")
         ])
     }
 
@@ -275,8 +275,8 @@ module FetchTests {
     fn writeFailure() = {
         let denied = runUnder(denyWrites, catalogRoutes(localBase, releases()), ledgerArgs)
         checkAll("a failed file write is fetch.write with the OS reason and writes no file", [
-            failedOne(denied, "fetch.write: no space left on device"),
-            denied.writes == ""
+                failedOne(denied, "fetch.write: no space left on device"),
+                denied.writes == ""
         ])
     }
 
@@ -285,8 +285,8 @@ module FetchTests {
     fn ensureFailure() = {
         let readOnly = runUnder(denyTree, catalogRoutes(localBase, releases()), ledgerArgs)
         checkAll("a failed directory is fetch.write with the OS reason and writes nothing", [
-            failedOne(readOnly, "fetch.write: read-only file system"),
-            wroteNothing(readOnly)
+                failedOne(readOnly, "fetch.write: read-only file system"),
+                wroteNothing(readOnly)
         ])
     }
 
@@ -296,9 +296,9 @@ module FetchTests {
         let elsewhere = askingElsewhere(altBase, rs)
         let unreachable = askingElsewhere(localBase, rs)
         checkAll("--registry overrides the default base URL", [
-            accepted(elsewhere),
-            lineOf(elsewhere, 2) == "files: 2",
-            failedOne(unreachable, "http.transport: no route ${altBase}${packagesPath}")
+                accepted(elsewhere),
+                lineOf(elsewhere, 2) == "files: 2",
+                failedOne(unreachable, "http.transport: no route ${altBase}${packagesPath}")
         ])
     }
 
@@ -307,9 +307,9 @@ module FetchTests {
         let d = dispatched(catalogRoutes(localBase, rs), ledgerArgs)
         let bare = dispatched(catalogRoutes(localBase, rs), [])
         checkAll("dispatch routes fetch and passes the remaining words", [
-            accepted(d),
-            fetched(d, "@finch/ledger@e2.r2", Fixture::at(rs, 3)),
-            failedOne(bare, "install.no-lock fixture: fetch never reads")
+                accepted(d),
+                fetched(d, "@finch/ledger@e2.r2", Fixture::at(rs, 3)),
+                failedOne(bare, "install.no-lock fixture: fetch never reads")
         ])
     }
 
@@ -322,10 +322,10 @@ module FetchTests {
         let tampered = replace(body, "upstream BSD conditions", "removed upstream attribution") ?: ""
         let bad = sourceAttempt(s, tampered)
         checkAll("fetch preserves legal files and rejects altered attribution", [
-            accepted(a),
-            foldList(legal, true, fn(ok, f) => ok && (indexOf(a.writes, "/${f.relPath}=${f.content}|") ?: -1) >= 0),
-            failedOne(bad, bundleDigestMismatch),
-            wroteNothing(bad)
+                accepted(a),
+                foldList(legal, true, fn(ok, f) => ok && (indexOf(a.writes, "/${f.relPath}=${f.content}|") ?: -1) >= 0),
+                failedOne(bad, bundleDigestMismatch),
+                wroteNothing(bad)
         ])
     }
 
@@ -337,11 +337,11 @@ module FetchTests {
         let changed = runUnder("corrupt-writes", routes, ledgerArgs)
         let unreadable = runUnder("deny-walk", routes, ledgerArgs)
         checkAll("success requires the actual installed bytes", [
-            failedFrom(short, "fetch.write: short write"),
-            failedFrom(zero, "fetch.write: short write"),
-            failedOne(changed, "fetch.install-integrity"),
-            failedOne(unreadable, "fetch.install-integrity fixture: walk failed"),
-            unreadable.writes == ""
+                failedFrom(short, "fetch.write: short write"),
+                failedFrom(zero, "fetch.write: short write"),
+                failedOne(changed, "fetch.install-integrity"),
+                failedOne(unreadable, "fetch.install-integrity fixture: walk failed"),
+                unreadable.writes == ""
         ])
     }
 
@@ -356,9 +356,9 @@ module FetchTests {
         let bad = offline(release, tamperedBundle(release))
         let unsafeRoot = offline(outside, Bundle::encode(outside) ?: "")
         checkAll("offline bundle verifies source and manifest before writing", [
-            statusOf(good) == 0 && contains(good.writes, "src/main.osp="),
-            failedOne(bad, bundleDigestMismatch) && wroteNothing(bad),
-            statusOf(unsafeRoot) == 1 && wroteNothing(unsafeRoot)
+                statusOf(good) == 0 && contains(good.writes, "src/main.osp="),
+                failedOne(bad, bundleDigestMismatch) && wroteNothing(bad),
+                statusOf(unsafeRoot) == 1 && wroteNothing(unsafeRoot)
         ])
     }
 

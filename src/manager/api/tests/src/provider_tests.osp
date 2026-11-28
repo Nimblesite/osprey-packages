@@ -19,7 +19,7 @@ module ProviderTests {
 
     /// Whether the request is the `token` bearer's lookup of its own user.
     fn userLookup(method, path, headers, token) =
-        method == "GET" && path == userPath && contains(headers, "Authorization: Bearer ${token}")
+    method == "GET" && path == userPath && contains(headers, "Authorization: Bearer ${token}")
 
     fn fixture(config, token, status, body) = {
         handle Supabase::Provider {
@@ -61,7 +61,7 @@ module ProviderTests {
             { status: 200, body: "not-json", expected: "auth.provider-json" }
         ]
         checkAll("failed, ambiguous or non-GitHub provider identities are rejected", [
-            foldList(cases, true, fn(valid, c) => providerDenial(config, c) && valid)
+                foldList(cases, true, fn(valid, c) => providerDenial(config, c) && valid)
         ])
     }
 
@@ -70,8 +70,8 @@ module ProviderTests {
         handle Supabase::Provider {
             request method base path headers payload => if base != config.supabaseOrigin { Error { message: "wrong-origin" } }
             else if method == "POST" && path == "/auth/v1/token?grant_type=pkce"
-                && payload == "{\"auth_code\":\"fixture-code\",\"code_verifier\":\"${verifier}\"}"
-                && contains(headers, "apikey: ${config.publishableKey}") {
+            && payload == "{\"auth_code\":\"fixture-code\",\"code_verifier\":\"${verifier}\"}"
+            && contains(headers, "apikey: ${config.publishableKey}") {
                 Success { value: Supabase::Reply { status: 200, body: "{\"access_token\":\"fixture-token\",\"refresh_token\":\"fixture-refresh\",\"expires_in\":600}" } }
             } else if userLookup(method, path, headers, fixtureToken) {
                 Success { value: Supabase::Reply { status: 200, body: account(subject, identities) } }
@@ -83,11 +83,11 @@ module ProviderTests {
     fn callback(config) = {
         let github = link(subject, "github")
         checkAll("PKCE exchange checks the returned access token's linked identity", [
-            match exchange(config, github) {
-                Success { value } => value.identity.authSubject == subject && value.identity.githubId == "123456" && value.expiresIn == 600
-                Error => false
-            },
-            code(exchange(config, github + "," + link(subject, "email"))) == githubIdentity
+                match exchange(config, github) {
+                    Success { value } => value.identity.authSubject == subject && value.identity.githubId == "123456" && value.expiresIn == 600
+                    Error => false
+                },
+                code(exchange(config, github + "," + link(subject, "email"))) == githubIdentity
         ])
     }
 
@@ -111,7 +111,7 @@ module ProviderTests {
 
     fn jwksFixture(config, keySet) = handler Supabase::Provider {
         request method base path headers payload => if method == "GET" && base == config.supabaseOrigin
-            && path == "/auth/v1/.well-known/jwks.json" && headers == "" && payload == "" {
+        && path == "/auth/v1/.well-known/jwks.json" && headers == "" && payload == "" {
             Success { value: Supabase::Reply { status: 200, body: keySet } }
         } else { Error { message: unexpected } }
     }
@@ -121,8 +121,8 @@ module ProviderTests {
     fn validJwt(config) = {
         let keys = "{\"keys\":[${es256Key},${rs256Key}]}"
         checkAll("pinned Supabase keys verify signed RS256 and ES256 access tokens", [
-            foldList([es256Token, rs256Token], true, fn(valid, token) =>
-                ((jwtFixture(config, keys, fixtureTime, token) ?: "denied") == subject) && valid)
+                foldList([es256Token, rs256Token], true, fn(valid, token) =>
+                    ((jwtFixture(config, keys, fixtureTime, token) ?: "denied") == subject) && valid)
         ])
     }
 
@@ -153,9 +153,9 @@ module ProviderTests {
         let tampered = take(es256Token, byteLength(es256Token) - 5) + "AAAAA"
         let cases = standardJwtDenials(tampered, "{\"alg\":\"ES256\",\"kid\":\"es256-fixture\",\"jku\":\"https://example.test/keys\"}", "{\"alg\":\"HS256\",\"kid\":\"es256-fixture\"}")
         checkAll("access token failures never return a subject", [
-            foldList(cases, true, fn(valid, c) => jwtDenial(config, keys, c) && valid),
-            code(jwtFixture(config { supabaseOrigin: "https://wrong.supabase.co" }, keys, fixtureTime, es256Token)) != "",
-            code(jwtFixture(config, "{\"keys\":[${es256Key},${es256Key}]}", fixtureTime, es256Token)) != ""
+                foldList(cases, true, fn(valid, c) => jwtDenial(config, keys, c) && valid),
+                code(jwtFixture(config { supabaseOrigin: "https://wrong.supabase.co" }, keys, fixtureTime, es256Token)) != "",
+                code(jwtFixture(config, "{\"keys\":[${es256Key},${es256Key}]}", fixtureTime, es256Token)) != ""
         ])
     }
 
@@ -163,7 +163,7 @@ module ProviderTests {
         handle Supabase::Provider {
             request method base path headers body => if base != config.supabaseOrigin { Error { message: unexpected } }
             else if method == "POST" && path == "/auth/v1/token?grant_type=refresh_token" && body == "{\"refresh_token\":\"fixture-old-refresh\"}"
-                && contains(headers, "apikey: sb_publishable_fixture") {
+            && contains(headers, "apikey: sb_publishable_fixture") {
                 Success { value: Supabase::Reply { status: status, body: "{\"access_token\":\"fixture-token\",\"refresh_token\":\"fixture-next-refresh\",\"expires_in\":600}" } }
             } else if userLookup(method, path, headers, fixtureToken) {
                 Success { value: Supabase::Reply { status: 200, body: githubAccount() } }
@@ -173,22 +173,22 @@ module ProviderTests {
     }
 
     fn refreshed(config) = checkAll("refresh exchanges only the old provider token and checks the returned immutable identity", [
-        match refreshFixture(config, 200) {
-            Success { value } => value.refreshToken == "fixture-next-refresh" && value.identity.authSubject == subject
-            Error => false
-        },
-        code(refreshFixture(config, 400)) == "auth.refresh-rejected",
-        code(refreshFixture(config, 503)) == "auth.provider-rejected"
+            match refreshFixture(config, 200) {
+                Success { value } => value.refreshToken == "fixture-next-refresh" && value.identity.authSubject == subject
+                Error => false
+            },
+            code(refreshFixture(config, 400)) == "auth.refresh-rejected",
+            code(refreshFixture(config, 503)) == "auth.provider-rejected"
     ])
 
     fn matchesSessionSubject(config) = jwksFixture(config, "{\"keys\":[${es256Key}]}")(fn() => {
-        let owner = Supabase::Identity { authSubject: subject, githubId: "123456" }
-        let session = Supabase::Session { accessToken: es256Token, refreshToken: "fixture-refresh", expiresIn: 600, identity: owner }
-        let other = owner { authSubject: "11111111-1111-4111-8111-111111111111" }
-        checkAll("the JWT subject and Supabase account must identify the same person", [
-            code(Jwt::verifySession(config, fixtureTime, session)) == "",
-            code(Jwt::verifySession(config, fixtureTime, session { identity: other })) == "auth.jwt-subject"
-        ])
+            let owner = Supabase::Identity { authSubject: subject, githubId: "123456" }
+            let session = Supabase::Session { accessToken: es256Token, refreshToken: "fixture-refresh", expiresIn: 600, identity: owner }
+            let other = owner { authSubject: "11111111-1111-4111-8111-111111111111" }
+            checkAll("the JWT subject and Supabase account must identify the same person", [
+                    code(Jwt::verifySession(config, fixtureTime, session)) == "",
+                    code(Jwt::verifySession(config, fixtureTime, session { identity: other })) == "auth.jwt-subject"
+            ])
     })
 
     /// The provider identity checks over fixture `Supabase::Provider` handlers:

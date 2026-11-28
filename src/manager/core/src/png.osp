@@ -28,12 +28,12 @@ module Png {
     fn allowed(kind) = Order::anyString(["IHDR", "PLTE", "tRNS", "IDAT", "IEND"], fn(name) => kind == kindHex(name))
 
     fn dimensionCode(width, height) = if width == 0 || height == 0 || width > maxSide || height > maxSide { "asset.png-dimensions" }
-        else if width * height > maxPixels { "asset.png-pixels" }
-        else { "" }
+    else if width * height > maxPixels { "asset.png-pixels" }
+    else { "" }
 
     fn endCode(bytes, next, idat) = if next != length(bytes) { "asset.png-trailing" }
-        else if !idat { "asset.png-idat" }
-        else { "" }
+    else if !idat { "asset.png-idat" }
+    else { "" }
 
     /// One chunk at `at`: its length field must fit the file before it is used.
     fn walk(bytes, at, idat) = {
@@ -46,8 +46,8 @@ module Png {
     }
 
     fn headerCode(bytes) = if hexAt(bytes, 0, firstChunk) != "89504e470d0a1a0a" { "asset.png-signature" }
-        else if u32(bytes, firstChunk) != ihdrLength || kindAt(bytes, firstChunk) != kindHex("IHDR") { "asset.png-ihdr" }
-        else { dimensionCode(u32(bytes, 16), u32(bytes, 20)) }
+    else if u32(bytes, firstChunk) != ihdrLength || kindAt(bytes, firstChunk) != kindHex("IHDR") { "asset.png-ihdr" }
+    else { dimensionCode(u32(bytes, 16), u32(bytes, 20)) }
 
     /// "" for a structurally valid PNG, else the first refusal code.
     export fn structureCode(bytes) = {

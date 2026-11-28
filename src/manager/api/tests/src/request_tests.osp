@@ -29,7 +29,7 @@ module RequestTests {
     fn incoming(method, uri, headerBlock, body) = HostedRequest::Incoming { method: method, uri: uri, headerBlock: headerBlock, body: body }
 
     fn verdictOf(v) = if HostedHeaders::isOk(v) { "admitted" }
-        else { "${HostedHeaders::statusOf(v)}:${HostedHeaders::codeOf(v)}" }
+    else { "${HostedHeaders::statusOf(v)}:${HostedHeaders::codeOf(v)}" }
 
     fn raw(method, uri, headers, body) = verdictOf(HostedRequest::admit(incoming(method, uri, headers, body), policy()))
 

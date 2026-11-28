@@ -69,8 +69,8 @@ module Fetch {
 
     /// The command line `target <flag> word` makes: the flag in the middle decides.
     fn flagged(target, flag, word) = if flag == registryFlag { Success { value: FromRegistry { target: target, base: word } } }
-        else if flag == bundleFlag { Success { value: FromBundle { digest: target, path: word } } }
-        else { Error { message: usageCode } }
+    else if flag == bundleFlag { Success { value: FromBundle { digest: target, path: word } } }
+    else { Error { message: usageCode } }
 
     /// One argument parsed as a release selector, or `fetch.usage`.
     fn ask(parsed, make) = match parsed {
@@ -209,8 +209,8 @@ module Fetch {
     fn entriesOf(files) = mapList(files, fn(file: Release::File) => Source::entryOf(file.relPath, Bytes::ofString(file.content)))
 
     fn kindOf(walk: Host::Walk) = if !isEmpty(walk.executable) { Source::kindCode("executable") }
-        else if !isEmpty(walk.special) { Source::kindCode("special") }
-        else { "" }
+    else if !isEmpty(walk.special) { Source::kindCode("special") }
+    else { "" }
 
     /// The files a walk found, read in walk order; a non-regular entry or an
     /// unreadable file is its stable code.
@@ -251,11 +251,11 @@ module Fetch {
     fn unexpected(walk: Host::Walk, fileList) = {
         let expected = mapList(fileList, fn(file: Release::File) => file.relPath)
         !isEmpty(walk.executable) || !isEmpty(walk.special)
-            || Folds::any(walk.regular, fn(path) => !listContains(expected, path))
+        || Folds::any(walk.regular, fn(path) => !listContains(expected, path))
     }
 
     fn checkedDigest(served: Release::Served, digest) = if digest == served.id.digest { Success { value: served } }
-        else { Error { message: "fetch.install-integrity" } }
+    else { Error { message: "fetch.install-integrity" } }
 
     fn checkedTree(dir, served) = match installedFiles(dir) {
         Error { message } => Error { message: "fetch.install-integrity ${message}" }
@@ -275,7 +275,7 @@ module Fetch {
     fn installInto(dir, served) = match perform Host::Tree.walk(dir) {
         Error { message } => Error { message: "fetch.install-integrity ${message}" }
         Success { value } => if unexpected(value, served.files) { Error { message: "fetch.install-integrity" } }
-            else { writtenTree(dir, served) }
+        else { writtenTree(dir, served) }
     }
 
     fn written(project, served) = {
@@ -292,9 +292,9 @@ module Fetch {
     export fn fetched(project, base, digest) = andThen(getBody(base, sourcePath(digest)), fn(value) => verifiedAt(project, value, digest))
 
     fn fetchedReport(project, served: Release::Served) = Reports::success([
-        Reports::field("fetched", Identity::display(served.id)),
-        Reports::field("into", installDirAt(project, served.id)),
-        Reports::field("files", "${length(served.files)}")
+            Reports::field("fetched", Identity::display(served.id)),
+            Reports::field("into", installDirAt(project, served.id)),
+            Reports::field("files", "${length(served.files)}")
     ])
 
     /// Download, verify and install one release by digest under `.osprey/packages`.

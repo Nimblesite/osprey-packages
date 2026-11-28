@@ -12,5 +12,5 @@ module AuthText {
 
     /// True when `text` holds 1 to `limit` bytes, each a letter, a digit or one of `extra`.
     export fn bounded(text, limit, extra) = byteLength(text) > 0 && byteLength(text) <= limit
-        && Bytes::everyByte(text, fn(b) => Bytes::isAlnumIn(b, extra))
+    && Bytes::everyByte(text, fn(b) => Bytes::isAlnumIn(b, extra))
 }

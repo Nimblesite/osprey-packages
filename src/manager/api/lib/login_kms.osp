@@ -17,8 +17,8 @@ module LoginKms {
 
     export fn validKey(key) = match split(key, "/") {
         Success { value } => length(value) == 8 && named(value, 0, "projects") && named(value, 2, "locations")
-            && named(value, 4, "keyRings") && named(value, 6, "cryptoKeys")
-            && foldList([1, 3, 5, 7], true, fn(ok, index) => ok && component(listGet(value, index) ?: ""))
+        && named(value, 4, "keyRings") && named(value, 6, "cryptoKeys")
+        && foldList([1, 3, 5, 7], true, fn(ok, index) => ok && component(listGet(value, index) ?: ""))
         Error => false
     }
 
@@ -45,10 +45,10 @@ module LoginKms {
     fn ciphertext(limit, doc) = disclosed(envelopeOk(limit, AuthText::field(doc, "ciphertext")), AuthText::field(doc, "ciphertext"))
 
     fn credentials() = andThen(perform Supabase::Provider.request("GET", "http://metadata.google.internal",
-        "/computeMetadata/v1/instance/service-accounts/default/token", "Metadata-Flavor: Google", ""), fn(reply) => andThen(json(8192, reply), token))
+            "/computeMetadata/v1/instance/service-accounts/default/token", "Metadata-Flavor: Google", ""), fn(reply) => andThen(json(8192, reply), token))
 
     fn request(key, operation, token, body, limit, read) = andThen(perform Supabase::Provider.request("POST", "https://cloudkms.googleapis.com",
-        "/v1/${key}:${operation}", "Authorization: Bearer ${token}\r\nContent-Type: application/json", body), fn(reply) => andThen(json(limit, reply), read))
+            "/v1/${key}:${operation}", "Authorization: Bearer ${token}\r\nContent-Type: application/json", body), fn(reply) => andThen(json(limit, reply), read))
 
     fn submit(key, operation, body, limit, read) = andThen(credentials(), fn(token) => request(key, operation, token, body, limit, read))
 
@@ -56,8 +56,8 @@ module LoginKms {
 
     /// The KMS request body binding `aad` as additional authenticated data to the member `name`.
     fn kmsBody(aad, name, value) = Canonical::serialize(Json::obj([
-        textMember("additionalAuthenticatedData", b64(aad)),
-        textMember(name, value)
+                textMember("additionalAuthenticatedData", b64(aad)),
+                textMember(name, value)
     ]))
 
     fn payload(aad, verifier) = kmsBody(aad, "plaintext", b64(verifier))
@@ -70,11 +70,11 @@ module LoginKms {
     else { unavailableError() }
 
     fn tokens(session: Supabase::Session) = Canonical::serialize(Json::obj([
-        textMember("accessToken", session.accessToken),
-        textMember("authSubject", session.identity.authSubject),
-        Json::member("expiresIn", Json::num(session.expiresIn)),
-        textMember("githubId", session.identity.githubId),
-        textMember("refreshToken", session.refreshToken)
+                textMember("accessToken", session.accessToken),
+                textMember("authSubject", session.identity.authSubject),
+                Json::member("expiresIn", Json::num(session.expiresIn)),
+                textMember("githubId", session.identity.githubId),
+                textMember("refreshToken", session.refreshToken)
     ]))
 
     /// Persist only a bounded KMS envelope. The database never receives these tokens.
@@ -124,7 +124,7 @@ module LoginKms {
         let expires = JsonRead::number(JsonRead::field(doc, "expiresIn"))
         if tokenText(access) && tokenText(refresh) && Bytes::canonicalUuid(subject) && provider != "" && expires > 0 {
             Success { value: Supabase::Session { accessToken: access, refreshToken: refresh, expiresIn: expires,
-                identity: Supabase::Identity { authSubject: subject, githubId: provider } } }
+                    identity: Supabase::Identity { authSubject: subject, githubId: provider } } }
         } else { Error { message: "auth.session-required" } }
     }
 
