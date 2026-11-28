@@ -70,9 +70,9 @@ async function journey(page, current, steps) {
   await fill(repository, {'GitHub repository ID': '123456', 'Subdirectory (blank for the repository root)': 'packages/net'});
   assert.equal(await repository.getByLabel('Branch').inputValue(), 'main');
   one(await submit(page, current, repository, 'Link repository', {status: 409}, 'This package already has a repository, or your GitHub account is not an admin of that repository.'),
-    `/v1/packages/${pkg}/repository`, '{"repositoryId":"123456","branch":"main","subdirectory":"packages/net"}');
+    `/v1/packages/${pkg}/repository`, '{"branch":"main","repositoryId":"123456","subdirectory":"packages/net"}');
   one(await submit(page, current, repository, 'Link repository', {status: 201, body: `{"id":"${pkg}"}`}, 'Repository linked. Now name the commit to release.'),
-    `/v1/packages/${pkg}/repository`, '{"repositoryId":"123456","branch":"main","subdirectory":"packages/net"}');
+    `/v1/packages/${pkg}/repository`, '{"branch":"main","repositoryId":"123456","subdirectory":"packages/net"}');
   for (const bad of ['1.1', 'e0.r1', 'e1.r0', 'e1', 'e1.rx', 'r1.e1']) {
     await fill(release, {'Git commit': commit, Version: bad});
     assert.deepEqual(await submit(page, current, release, 'Request release', {status: 201}, 'Write the version as e<epoch>.r<release>, for example e1.r1.'), [], bad);

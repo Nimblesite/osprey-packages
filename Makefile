@@ -312,6 +312,7 @@ _registry-website _registry-website-fixture _registry-website-archive: $(TOOLCHA
 	  printf "%s\n" release "$$origin" "$$adapter" "$$host" "$$guest" | wasmtime target/registry-site-build/site.wasm > "$$out/release/index.html"; \
 	  for page in signin register recover; do mkdir "$$out/$$page"; printf "%s\n" "$$page" "$$origin" "$$adapter" | wasmtime target/registry-site-build/site.wasm > "$$out/$$page/index.html"; done; \
 	  nav="nav.$$(shasum -a 256 $(REGISTRY_WEB)/assets/registry-nav.mjs | cut -c1-12).mjs"; grep -Fq "src=\"/$$nav\"" "$$out/index.html"; cp $(REGISTRY_WEB)/assets/registry-nav.mjs "$$out/$$nav"; \
+	  if grep -rl --include='*.html' 'Bail out!' "$$out"; then echo "The site guest faulted while rendering these pages." >&2; exit 1; fi; \
 	  digest=$$(shasum -a 256 $(REGISTRY_WEB)/assets/registry.css | cut -c1-12); \
 	  asset="registry.$$digest.css"; grep -Fq "href=\"/$$asset\"" "$$out/index.html"; \
 	  cp $(REGISTRY_WEB)/assets/registry.css "$$out/$$asset"; \

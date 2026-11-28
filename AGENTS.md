@@ -40,6 +40,7 @@
 - 🐛 Duplication + dead code = bugs. Run [deslop](https://deslop.live/docs/for-ai/)
 - 📏 Files < 500 LOC, functions < 20 LOC. Pure functions, immutable types, expressions over statements
 - 🧹 Osprey: drop every inferable type annotation (Hindley-Milner)
+- 🧾 JSON = core `registry::Json` / `JsonRead` / `Canonical` (`src/manager/core/src`) ONLY. ❌ builtin `jsonDecode`, `jsonField`, `JsonArray`…, ❌ `@osprey/json`: contamination
 - 📦 Minimize deps. 🚫📦 No build output in git: generate, gitignore, ship as CI artifacts
 - 🗺️ Data models in [typeDiagram](https://typediagram.dev/docs/language-reference.html); mermaid, ❌ ASCII art
 

@@ -1,4 +1,5 @@
 namespace registry_live_tests;
+import registry::Json
 import registry::PublicCatalog
 
 /// The refresher publishes exactly the eligible releases of active packages in active
@@ -39,7 +40,7 @@ module CatalogReleases {
     let unseed = "DELETE FROM registry.releases; DELETE FROM registry.release_approvals; DELETE FROM registry.review_scans; DELETE FROM registry.scan_claims; DELETE FROM registry.review_submissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.principals;"
 
     fn releasesOf(entry) = match PublicCatalog::field(entry, "releases") {
-        JsonArray(items) => items
+        Json::Arr { items } => items
         _ => []
     }
 

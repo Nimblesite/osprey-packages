@@ -110,36 +110,42 @@ fn releaseForm(origin, adapter, host, guest) = join([
 
 fn browseNav() = "<nav class=\"prose-browse\" aria-label=\"Browse packages\"><a href=\"/publishers/\">By publisher</a><a href=\"/tags/\">By tag</a></nav>"
 
-fn main() = print(match trim(input()) {
-        "missing" => Shell::withEscapedTitle("Page not found · Osprey Packages", "<main><h1>Page not found</h1><a href=\"/\">Browse packages</a></main>")
-        "guide" => Guides::packages()
-        "publishing" => Guides::publishers()
-        "release" => releasePage()
-        "signin" => signIn()
-        "register" => register()
-        "recover" => recover()
-        "hosted-package" => hostedPackage()
-        "catalog-endpoint" => {
-            let path = input()
-            CatalogReply::endpoint(path, trim(input()) == "detail")
-        }
-        "catalog-reply" => {
-            let path = input()
-            let query = input()
-            let content = input()
-            let detail = trim(input()) == "detail"
-            let code = parseInt(trim(input())) ?: 0
-            let retryAfter = input()
-            CatalogReply::reply(path, query, content, detail, code, retryAfter, input())
-        }
-        "release-request" => {
-            let name = trim(input())
-            ReleaseSteps::request(name, split(input(), "\t") ?: [])
-        }
-        "release-reply" => {
-            let name = trim(input())
-            let code = parseInt(trim(input())) ?: 0
-            ReleaseSteps::reply(name, code, input())
-        }
-        _ => catalog(trim(input()))
-})
+/// The page for one mode, under the guest's integer-fault policy (`GuestFaults`).
+fn page() = {
+    print(match trim(input()) {
+            "missing" => Shell::withEscapedTitle("Page not found · Osprey Packages", "<main><h1>Page not found</h1><a href=\"/\">Browse packages</a></main>")
+            "guide" => Guides::packages()
+            "publishing" => Guides::publishers()
+            "release" => releasePage()
+            "signin" => signIn()
+            "register" => register()
+            "recover" => recover()
+            "hosted-package" => hostedPackage()
+            "catalog-endpoint" => {
+                let path = input()
+                CatalogReply::endpoint(path, trim(input()) == "detail")
+            }
+            "catalog-reply" => {
+                let path = input()
+                let query = input()
+                let content = input()
+                let detail = trim(input()) == "detail"
+                let code = parseInt(trim(input())) ?: 0
+                let retryAfter = input()
+                CatalogReply::reply(path, query, content, detail, code, retryAfter, input())
+            }
+            "release-request" => {
+                let name = trim(input())
+                ReleaseSteps::request(name, split(input(), "\t") ?: [])
+            }
+            "release-reply" => {
+                let name = trim(input())
+                let code = parseInt(trim(input())) ?: 0
+                ReleaseSteps::reply(name, code, input())
+            }
+            _ => catalog(trim(input()))
+    })
+    0
+}
+
+fn main() = GuestFaults::guarded(page)

@@ -1,16 +1,18 @@
 namespace registry_web;
+import registry::Json
+import registry::JsonRead
 import registry::PublicCatalog
 import registry::Bytes
 
 /// Render only a complete public projection delivered by the hosted registry [PACKAGE-HOSTED-ROUTES-CATALOG].
 module HostedCatalog {
     fn warningList(item) = {
-        let warnings = match PublicCatalog::field(item, "warnings") { JsonArray(values) => mapList(values, fn(v) => jsonText(v) ?: "") _ => [] }
+        let warnings = match PublicCatalog::field(item, "warnings") { Json::Arr { items } => mapList(items, JsonRead::text) _ => [] }
         if isEmpty(warnings) { "<p>No known security warnings.</p>" } else {
             "<ul aria-label=\"Security warnings\">" + join(mapList(warnings, fn(w) => "<li>" + Shell::escape(w) + "</li>"), "") + "</ul>"
         }
     }
-    fn latestRelease(item) = foldList(releaseItems(item), JsonNull, fn(latest, value) =>
+    fn latestRelease(item) = foldList(releaseItems(item), Json::Null, fn(latest, value) =>
         if newer(value, latest) { value } else { latest })
 
     fn newer(value, latest) = {
@@ -70,7 +72,7 @@ module HostedCatalog {
     }
 
     fn releaseItems(item) = match PublicCatalog::field(item, "releases") {
-        JsonArray(items) => items
+        Json::Arr { items } => items
         _ => []
     }
 
@@ -80,8 +82,8 @@ module HostedCatalog {
     }
 
     fn publisher(items, path) = {
-        let first = listGet(items, 0) ?: JsonNull
-        let release = listGet(releaseItems(first), 0) ?: JsonNull
+        let first = listGet(items, 0) ?: Json::Null
+        let release = listGet(releaseItems(first), 0) ?: Json::Null
         let id = PublicCatalog::text(release, "publisherId")
         if id == "" || path != "/publishers/${id}/" { "" }
         else { publisherProfile(items, PublicCatalog::text(release, "publisherName")) }

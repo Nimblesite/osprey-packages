@@ -1,4 +1,5 @@
 namespace registry_live_tests;
+import registry::Json
 import registry::Bundle
 import registry::PublicCatalog
 import registry::Release
@@ -47,7 +48,7 @@ module Publication {
 
     fn listedEntry(entry, digest, adaId) = PublicCatalog::text(entry, "key") == "@atlas/net" && PublicCatalog::text(entry, "summary") == "HTTP tools"
     && join(PublicCatalog::keywords(entry), ",") == "http,web" && match PublicCatalog::field(entry, "releases") {
-        JsonArray(items) => length(items) == 1 && match listGet(items, 0) {
+        Json::Arr { items } => length(items) == 1 && match listGet(items, 0) {
             Success { value } => PublicCatalog::text(value, "digest") == digest && PublicCatalog::text(value, "publisherId") == adaId
             && PublicCatalog::text(value, "publisherName") == "Atlas Engineering" && PublicCatalog::text(value, "licenseExpression") == "MIT"
             && length(PublicCatalog::notices(value)) == 1

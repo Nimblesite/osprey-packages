@@ -1,6 +1,8 @@
 namespace registry_web;
 import registry::Bytes
-import registry::PublicCatalog
+import registry::Canonical
+import registry::Json
+import registry::JsonRead
 
 /// The publisher's four steps on the release page [PACKAGE-HOSTED-PUBLISH-FLOW], in Osprey: found an
 /// organization, create its package, link the package's GitHub repository, and name the commit to
@@ -12,14 +14,12 @@ module ReleaseSteps {
 
     fn field(fields, i) = trim(listGet(fields, i) ?: "")
 
-    /// A JSON string member; a control character cannot be typed into a form field, so it is refused.
-    fn quoted(text) = "\"${replace(replace(text, "\\", "\\\\") ?: "", "\"", "\\\"") ?: ""}\""
+    fn text(key, fields, i) = Json::member(key, Json::str(field(fields, i)))
 
-    fn text(key, fields, i) = "\"${key}\":${quoted(field(fields, i))}"
-
-    fn printable(members) = Bytes::everyByte(join(members, ""), fn(b) => b >= 32 && b != 127)
-
-    fn post(path, members) = if printable(members) { "${path}\n{${join(members, ",")}}" } else { invalid("These details cannot be sent.") }
+    fn post(path, members) = match Canonical::serialize(Json::obj(members)) {
+        Success { value } => "${path}\n${value}"
+        Error => invalid("These details cannot be sent.")
+    }
 
     fn invalid(message) = "invalid\n${message}"
 
@@ -38,7 +38,7 @@ module ReleaseSteps {
 
     fn release(fields) = {
         let version = field(fields, 2)
-        let members = [text("commit", fields, 1), "\"epoch\":${epochOf(version)}", "\"ordinal\":${ordinalOf(version)}"]
+        let members = [text("commit", fields, 1), Json::member("epoch", Json::num(epochOf(version))), Json::member("ordinal", Json::num(ordinalOf(version)))]
         if epochOf(version) > 0 && ordinalOf(version) > 0 {
             under(field(fields, 0), "Create the package first.", "/v1/packages/${field(fields, 0)}/releases", members)
         } else { invalid("Write the version as e<epoch>.r<release>, for example e1.r1.") }
@@ -74,8 +74,11 @@ module ReleaseSteps {
         _ => "Use the full 40-character commit hash in lowercase."
     }
 
-    fn createdId(step, body) = match jsonDecode(body) {
-        Success { value } => if Bytes::canonicalUuid(PublicCatalog::text(value, "id")) { "ok\n${PublicCatalog::text(value, "id")}\n${created(step)}" } else { "error\n${unavailable}" }
+    fn createdId(step, body) = match Json::parse(body) {
+        Success { value } => {
+            let id = JsonRead::text(JsonRead::field(value, "id"))
+            if Bytes::canonicalUuid(id) { "ok\n${id}\n${created(step)}" } else { "error\n${unavailable}" }
+        }
         Error => "error\n${unavailable}"
     }
 

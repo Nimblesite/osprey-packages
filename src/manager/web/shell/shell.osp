@@ -1,4 +1,5 @@
 namespace registry_web;
+import registry::JsonRead
 
 /// Shared presentation for the static site and registry screens.
 module Shell {
@@ -15,7 +16,7 @@ module Shell {
     export fn licenseBadge(expression) = "<span class=\"prose-license\" aria-label=\"License\">${escape(expression)}</span>"
 
     /// The escaped text of the string member `key` of a notice `item`.
-    fn noticeText(item, key) = escape(jsonText(jsonField(item, key) ?: JsonNull) ?: "")
+    fn noticeText(item, key) = escape(JsonRead::text(JsonRead::field(item, key)))
 
     fn documentName(item) = noticeText(item, "path")
 
