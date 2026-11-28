@@ -87,18 +87,20 @@ module CatalogTests {
         "{\"digest\":\"${digestA()}\",\"epoch\":1,\"files\":[\"osprey.toml\",\"src/lib.osp\"],\"key\":\"@finch/ledger\",\"ordinal\":1}",
         Catalog::releaseJson(ledgerEarly()) ?: "?")
 
+    let ledgerLateDir = "@finch/ledger/2.5"
+
     /// The fixture with `@finch/ledger` e2.r5 yanked and one marker naming no release.
-    fn yankedFixture() = Catalog::withYanked(fixture(), ["@finch/ledger/2.5", "@finch/ledger/9.9"])
+    fn yankedFixture() = Catalog::withYanked(fixture(), [ledgerLateDir, "@finch/ledger/9.9"])
 
     /// Markers sit beside release directories: neither stray nor a release, and a malformed one stays stray.
     fn yankPlan() = {
-        let plan = Folder::plan(["@finch/ledger/2.5.yanked", "@finch/ledger/2.5/osprey.toml", "@finch/ledger/x.yanked", "@finch/util/1.1.yanked"], [], [])
+        let plan = Folder::plan(["${ledgerLateDir}.yanked", "${ledgerLateDir}/osprey.toml", "@finch/ledger/x.yanked", "@finch/util/1.1.yanked"], [], [])
         checkAll("catalog: yank markers in the folder walk", [
-                structuralEquals(plan.yanked, ["@finch/ledger/2.5", "@finch/util/1.1"]),
+                structuralEquals(plan.yanked, [ledgerLateDir, "@finch/util/1.1"]),
                 length(plan.pending) == 1,
                 length(plan.refused) == 1,
                 (listGet(plan.refused, 0) ?: Release::Refused { dir: "", code: "" }).dir == "@finch/ledger/x.yanked",
-                Folder::yankMarkerOf("@finch/ledger/2.5") == "@finch/ledger/2.5.yanked"
+                Folder::yankMarkerOf(ledgerLateDir) == "${ledgerLateDir}.yanked"
         ])
     }
 
@@ -112,7 +114,7 @@ module CatalogTests {
             contains(Catalog::packagesJson(yankedFixture()) ?: "?", "\"ordinal\":5,\"status\":\"Yanked\"}"),
             !contains(Catalog::packagesJson(yankedFixture()) ?: "?", "\"ordinal\":1,\"status\""),
             (Catalog::healthJson(yankedFixture()) ?: "?") == "{\"refused\":2,\"releases\":3,\"status\":\"ok\"}",
-            structuralEquals(mapList(Release::refusedOf(yankedFixture()), fn(r: Release::Refused) => "${r.dir} ${r.code}"), ["@broken/pkg/1.1 source.symlink", "@finch/ledger/9.9.yanked folder.yank-orphan"]),
+            structuralEquals(mapList(Release::refusedOf(yankedFixture()), fn(r) => "${r.dir} ${r.code}"), ["@broken/pkg/1.1 source.symlink", "@finch/ledger/9.9.yanked folder.yank-orphan"]),
             isEmpty(Release::yankedOf(fixture()))
     ])
 
