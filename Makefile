@@ -186,12 +186,12 @@ $(REGISTRY_MIGRATOR):
 	  test -x "$@"
 
 # _registry-migration-check: Apply the registry schema twice on disposable socket-only PostgreSQL.
-_registry-migration-check: $(REGISTRY_MIGRATOR) $(TOOLCHAIN)
+_registry-migration-check: $(REGISTRY_MIGRATOR) target/osprey-pkg
 	$(MAKE) _registry-migration-verify
 
 .PHONY: _registry-migration-verify
 _registry-migration-verify:
-	@test -x "$(OSPREY)" && test -s "$(REGISTRY_MIGRATOR)"
+	@test -x "$(OSPREY)" && test -x target/osprey-pkg && test -x "$(REGISTRY_MIGRATOR)"
 	@set -eu; pg=$$(pg_config --bindir); \
 	  if [ ! -x "$$pg/postgres" ]; then pg=$$(dirname "$$(realpath "$$(command -v postgres)")"); fi; \
 	  db=$$(mktemp -d /tmp/osprey-registry.XXXXXX); \
@@ -210,7 +210,7 @@ _registry-migration-verify:
 
 .PHONY: _registry-integration-check _registry-integration-verify
 # _registry-integration-check: Browse a real PostgreSQL-backed hosted API with the packaged website in Chromium.
-_registry-integration-check: _registry-website-fixture $(REGISTRY_MIGRATOR)
+_registry-integration-check: _registry-website-fixture $(REGISTRY_MIGRATOR) target/osprey-pkg
 	$(MAKE) _registry-integration-verify
 
 # _registry-integration-verify: Exercise prebuilt Pages and migration artifacts without rebuilding them.
