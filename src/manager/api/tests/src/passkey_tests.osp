@@ -1,4 +1,5 @@
 namespace registry_api_tests;
+import registry::Checked
 import registry_api::HostedLogin
 import registry_api::Supabase
 
@@ -35,20 +36,26 @@ module PasskeyTests {
 
     fn assertion(credential) = "{\"challenge_id\":\"${challenge}\",\"credential\":{\"id\":\"${credential}\"}}"
 
+    let credentials = ["known", "stranger", "email"]
+
+    fn verified(payload) = match Checked::firstMatch(credentials, fn(name) => payload == assertion(name), "") {
+        Success { value } => reply(200, tokens("access-${value}"))
+        Error => if payload == assertion("outage") { reply(500, "{}") } else { reply(400, "{\"error_code\":\"webauthn_verification_failed\"}") }
+    }
+
+    fn user(headers) = match Checked::firstMatch(credentials, fn(name) => contains(headers, "Authorization: Bearer access-${name}"), "") {
+        Success { value } => reply(200, account(if value == "stranger" { "999" } else { "421" }, if value == "email" { "email" } else { "github" }))
+        Error => Error { message: "unexpected-provider-request" }
+    }
+
     /// Supabase as the fixtures need it: one challenge, credentials `known` (GitHub 421), `stranger`
     /// (GitHub 999), `email` (no GitHub identity) and `outage`; every other assertion is refused.
     fn provider(method, base, path, headers, payload) = {
         let keyed = base == "https://project.supabase.co" && contains(headers, "apikey: sb_publishable_fixture")
         let posted = keyed && method == "POST" && contains(headers, "Content-Type: application/json")
         if posted && path == optionsPath && payload == "{}" { reply(200, "{\"challenge_id\":\"${challenge}\",\"options\":${requestOptions},\"expires_at\":1}") }
-        else if posted && path == verifyPath && payload == assertion("known") { reply(200, tokens(knownAccess)) }
-        else if posted && path == verifyPath && payload == assertion("stranger") { reply(200, tokens("access-stranger")) }
-        else if posted && path == verifyPath && payload == assertion("email") { reply(200, tokens("access-email")) }
-        else if posted && path == verifyPath && payload == assertion("outage") { reply(500, "{}") }
-        else if posted && path == verifyPath { reply(400, "{\"error_code\":\"webauthn_verification_failed\"}") }
-        else if keyed && method == "GET" && path == userPath && contains(headers, "Authorization: Bearer ${knownAccess}") { reply(200, account("421", "github")) }
-        else if keyed && method == "GET" && path == userPath && contains(headers, "Authorization: Bearer access-stranger") { reply(200, account("999", "github")) }
-        else if keyed && method == "GET" && path == userPath && contains(headers, "Authorization: Bearer access-email") { reply(200, account("421", "email")) }
+        else if posted && path == verifyPath { verified(payload) }
+        else if keyed && method == "GET" && path == userPath { user(headers) }
         else { Error { message: "unexpected-provider-request" } }
     }
 
