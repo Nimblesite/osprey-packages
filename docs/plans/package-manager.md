@@ -4,6 +4,23 @@ Goal: deliver the registry this plan's contracts fix: a local engine with canoni
 
 Contract: [Package Management](../specs/ecosystem/PackageManagement.md), [Trust and Discovery](../specs/ecosystem/PackageRegistryTrustAndDiscovery.md), [Domain Model](../specs/ecosystem/PackageDomainModel.md), [Domain Invariants](../specs/ecosystem/PackageDomainInvariants.md), [Evidence and Fair Discovery](../specs/ecosystem/PackageEvidenceAndDiscovery.md), [Python-Flavor Ports](https://github.com/Nimblesite/osprey/blob/main/docs/specs/ecosystem/0043-PythonFlavorPorts.md), [Deployment and Ownership](../specs/ecosystem/PackageRegistryDeploymentAndOwnership.md), [Organization Governance](../specs/ecosystem/OrganizationPackageGovernance.md)
 
+## Who finishes what `[PLAN-OWNERS]`
+
+Every open item below has one owner. An owner ticks an item only with the passing suite or the live check that proves it, in the same commit.
+
+| Sections | Owner |
+| --- | --- |
+| `[PLAN-STANDUP]`, `[PLAN-ENGINE]`, `[PLAN-REGISTRY-TRUST]`, `[PLAN-ROLLOUT-CONTRACTS]`, CI and the end-to-end chain test | OspreyPackagesDeploy2 |
+| `[PLAN-REGISTRY-HOSTED]`, `[PLAN-REGISTRY-PUBLICATION]`, `[PLAN-DISCOVERY]`, `[PLAN-ROLLOUT-OWNERSHIP]`, `[PLAN-ROLLOUT-LOGIN]`, `[PLAN-ROLLOUT-PUBLICATION]`, website items of `[PLAN-ROLLOUT-EDGE]` | OspreyPackagesDeploy3 |
+| Deploy, edge and operations items of `[PLAN-ROLLOUT-EDGE]`, `[PLAN-ROLLOUT-REHEARSAL]`, `[PLAN-ROLLOUT-PRODUCTION]`, `[PLAN-LAUNCH]` | OspreyPackagesDeploy1 |
+
+Items no agent can complete, because each needs a person or an outside party:
+
+- The independent security, cryptography, privacy and fairness audit (`[PLAN-LAUNCH-HARDENING]`).
+- Offline 3-of-5 root custody, 2-of-3 release-role HSMs and four external witnesses (`[PLAN-LAUNCH-HARDENING]`).
+- Two separately administered SLSA Build L3 platforms (`[PLAN-REGISTRY-BUILD]`).
+- The owner steps in [DEPLOY.md](../DEPLOY.md): nameservers, Workers Paid, the launch budget, the GitHub OAuth app and merging PR #1.
+
 ## Stand it up anywhere `[PLAN-STANDUP]`
 
 - [ ] (verify) The folder registry serves a second machine at its LAN address: `GET /v1/health` and `GET /v1/packages/@demo/maths` answer from another host on the same network (last seen 2026-11-27 from a Linux aarch64 VM) [PACKAGE-FOLDER-REGISTRY].
