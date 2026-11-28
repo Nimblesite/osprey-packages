@@ -50,7 +50,8 @@ module ScanWorkerTests {
 
     export fn scanned(id, digest, bytes, verdict) = mounts(id, digest, bytes)(fn() => agent(verdict)(fn() => ScanJob::run(id)))
 
-    fn submit(n, digest) = CatalogWriter::piped("registry_publication_collector",
+    fn submit(n, digest) = CatalogWriter::sql("INSERT INTO registry.release_intents VALUES ('${job(n)}',md5('package1')::uuid,md5('person1')::uuid,42,repeat('a',40),1,${n},now())").status == 0
+    && CatalogWriter::piped("registry_publication_collector",
         "SELECT registry.submit_frozen_version('${job(n)}',md5('package1')::uuid,1,${n},'${digest}',md5('person1')::uuid);").status == 0
 
     fn scenario(n, verdict, expected) = match release(n) {
@@ -72,6 +73,6 @@ module ScanWorkerTests {
                 CatalogWriter::answers("SELECT count(*)=2 AND count(*) FILTER(WHERE verdict='accepted')=1 AND count(*) FILTER(WHERE verdict='[\"blocked capability\"]')=1 FROM registry.review_scans", "t"),
                 CatalogWriter::answers("SELECT (SELECT count(*) FROM registry.releases)=0 AND (SELECT count(*) FROM registry.release_approvals)=0 AND (SELECT count(*) FROM registry.package_permissions WHERE state='active')=2 AND (SELECT count(*) FROM registry.principals WHERE state='active')=3", "t")
         ])
-        checkAll("scan scenario cleanup", [CatalogWriter::sql("SET search_path=registry; DELETE FROM review_scans; DELETE FROM scan_claims; DELETE FROM review_submissions; DELETE FROM package_permissions; DELETE FROM packages; DELETE FROM memberships; DELETE FROM organizations; DELETE FROM principals;").status == 0])
+        checkAll("scan scenario cleanup", [CatalogWriter::sql("SET search_path=registry; DELETE FROM review_scans; DELETE FROM scan_claims; DELETE FROM review_submissions; DELETE FROM release_intents; DELETE FROM package_permissions; DELETE FROM packages; DELETE FROM memberships; DELETE FROM organizations; DELETE FROM principals;").status == 0])
     }
 }

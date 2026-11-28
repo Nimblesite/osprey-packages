@@ -572,8 +572,16 @@ tables:
             AND id::text = current_setting('registry.frozen_job')
             AND publisher_id::text = current_setting('registry.frozen_publisher')
             AND registry.can_submit_version(publisher_id,package_id)
-        - { name: collector_frozen_intent, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "current_setting('session_authorization') = 'registry_publication_collector' AND EXISTS (SELECT 1 FROM registry.release_intents i WHERE i.id = review_submissions.id AND i.package_id = review_submissions.package_id AND i.publisher_id = review_submissions.publisher_id)" }
-        - { name: collector_submit, permissive: true, operations: [Insert], roles: [registry_publication_collector], withCheck: "current_setting('session_authorization') = 'registry_publication_collector' AND registry.can_submit_version(publisher_id,package_id)" }
+        - name: collector_submit
+          permissive: true
+          operations: [Insert]
+          roles: [registry_publication_collector]
+          withCheck: >-
+            current_setting('session_authorization') = 'registry_publication_collector'
+            AND registry.can_submit_version(publisher_id,package_id)
+            AND EXISTS (SELECT 1 FROM registry.release_intents i WHERE
+            (i.id,i.package_id,i.publisher_id,i.epoch,i.ordinal) =
+            (review_submissions.id,review_submissions.package_id,review_submissions.publisher_id,review_submissions.epoch,review_submissions.ordinal))
         - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
         - { name: scanner_queue, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
 
@@ -1144,9 +1152,28 @@ functions:
       EXCEPTION WHEN unique_violation THEN RETURN NULL;
       END
 
+  # Queue discovery checks one job with the same scoped collector visibility as an exact retry.
+  - schema: registry
+    name: intent_is_frozen
+    arguments: [{name: job_id, type: uuid}, {name: publisher, type: uuid}]
+    returns: boolean
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_publication_collector]
+    body: >-
+      DECLARE previous_job text := current_setting('registry.frozen_job',true);
+      previous_publisher text := current_setting('registry.frozen_publisher',true); frozen boolean;
+      BEGIN
+        PERFORM set_config('registry.frozen_job',job_id::text,true),set_config('registry.frozen_publisher',publisher::text,true);
+        SELECT EXISTS (SELECT FROM registry.review_submissions j WHERE j.id=job_id AND j.publisher_id=publisher) INTO frozen;
+        PERFORM set_config('registry.frozen_job',coalesce(previous_job,''),true),set_config('registry.frozen_publisher',coalesce(previous_publisher,''),true);
+        RETURN frozen;
+      END
+
   # The oldest release intent not yet frozen whose publisher still holds the grant, with its bound repository and release directory, or NULL.
   - schema: registry
     name: pending_release_intent
+    volatility: volatile
     returns: text
     executeRoles: [registry_publication_collector]
     body: >-
@@ -1155,5 +1182,5 @@ functions:
       'dir','@'||o.handle||'/'||p.name||'/'||i.epoch||'.'||i.ordinal)::text
       FROM registry.release_intents i JOIN registry.package_repositories r ON r.package_id=i.package_id AND r.repository_id=i.repository_id
       JOIN registry.packages p ON p.id=i.package_id JOIN registry.organizations o ON o.id=p.organization_id
-      WHERE NOT EXISTS (SELECT FROM registry.review_submissions j WHERE j.id=i.id) AND registry.can_submit_version(i.publisher_id,i.package_id)
+      WHERE registry.can_submit_version(i.publisher_id,i.package_id) AND NOT registry.intent_is_frozen(i.id,i.publisher_id)
       ORDER BY i.requested_at,i.id LIMIT 1

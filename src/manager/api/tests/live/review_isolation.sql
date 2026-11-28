@@ -12,6 +12,7 @@ INSERT INTO packages VALUES (md5('other-pkg')::uuid,md5('other')::uuid,'one',md5
 INSERT INTO package_permissions VALUES (md5('other-grant')::uuid,md5('other')::uuid,md5('other-pkg')::uuid,md5('other-member')::uuid,
   'publish-release','active',md5('other-member')::uuid,1,1,now(),NULL);
 
+INSERT INTO release_intents VALUES (md5('other-job')::uuid,md5('other-pkg')::uuid,md5('bob')::uuid,43,repeat('b',40),1,1,now());
 SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
 SELECT registry.submit_frozen_version(md5('other-job')::uuid,md5('other-pkg')::uuid,1,1,'sha256:'||repeat('1',64),md5('bob')::uuid);
 SET LOCAL SESSION AUTHORIZATION registry_session_runtime;

@@ -36,12 +36,14 @@ DO $$ BEGIN
     IF SQLERRM <> 'package identity is immutable' THEN RAISE; END IF;
   END;
 END $$;
+INSERT INTO release_intents SELECT md5(n::text)::uuid,md5('pkg')::uuid,md5('alice')::uuid,42,repeat('a',40),1,n,now() FROM generate_series(1,3) n;
 SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
 SELECT pg_temp.require_denied('SELECT registry.submit_frozen_version(md5(''1'')::uuid,md5(''pkg'')::uuid,1,1,''sha256:''||repeat(''1'',64),md5(''alice'')::uuid)');
 RESET SESSION AUTHORIZATION;
 INSERT INTO package_permissions VALUES (md5('grant')::uuid,md5('org')::uuid,md5('pkg')::uuid,md5('member')::uuid,
 'publish-release','active',md5('member')::uuid,1,1,now(),NULL);
 SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
+SELECT pg_temp.require_denied('SELECT registry.submit_frozen_version(md5(''1'')::uuid,md5(''pkg'')::uuid,2,1,''sha256:''||repeat(''1'',64),md5(''alice'')::uuid)');
 SELECT registry.submit_frozen_version(md5(n::text)::uuid,md5('pkg')::uuid,1,n,'sha256:'||repeat(n::text,64),md5('alice')::uuid) FROM generate_series(1,3) n;
 -- Retrying the exact frozen job after a lost response must enqueue it once.
 SELECT registry.submit_frozen_version(md5('1')::uuid,md5('pkg')::uuid,1,1,'sha256:'||repeat('1',64),md5('alice')::uuid);
@@ -52,8 +54,8 @@ DO $$ BEGIN
   EXCEPTION WHEN unique_violation THEN NULL; END;
   BEGIN
     PERFORM registry.submit_frozen_version(md5('4')::uuid,md5('pkg')::uuid,1,1,'sha256:'||repeat('1',64),md5('alice')::uuid);
-    RAISE EXCEPTION 'duplicate immutable version acquired a second job';
-  EXCEPTION WHEN unique_violation THEN NULL; END;
+    RAISE EXCEPTION 'unrequested job acquired an immutable version';
+  EXCEPTION WHEN insufficient_privilege THEN NULL; END;
 END $$;
 DO $$ BEGIN
   IF (SELECT count(*) FROM review_submissions) <> 1 OR NOT EXISTS (SELECT FROM review_submissions WHERE id=md5('1')::uuid)
