@@ -256,13 +256,6 @@ build_image() {
   printf '%s/api@%s' "$(image_repo)" "$(gcloud artifacts docker images describe "$ref" --project="$GCP_PROJECT_ID" --format='value(image_summary.digest)')"
 }
 
-# The digest CI built for main's head, or nothing.
-main_image() {
-  local sha digest; sha="$(gh api "repos/$REPO/commits/main" --jq .sha)"
-  digest="$(gcloud artifacts docker images describe "$(image_repo)/api:$sha" --format='value(image_summary.digest)' 2>/dev/null || true)"
-  [[ -z "$digest" ]] || printf '%s/api@%s' "$(image_repo)" "$digest"
-}
-
 step_infra() {
   [[ -f "$WORK/supabase.json" ]] || step_supabase
   tf_init
@@ -379,12 +372,6 @@ step_ship() {
   step_website
 }
 
-# Skips when main's head is already serving (a bootstrap run just deployed it).
-step_release() {
-  local built; built="$(main_image)"
-  if [[ -n "$built" && "$built" == "$(deployed_image)" ]]; then log "main's head is already deployed"; else dispatch; fi
-}
-
 # Production takes main's pushed head and nothing else: no feature branch, no unmerged commit, no
 # uncommitted file. Every step that changes production passes through here first.
 require_main() {
@@ -404,15 +391,15 @@ main() {
   load_config
   ensure_project
   ensure_spend_cap
-  [[ "$STEP" == supabase ]] || tf_init
+  case "$STEP" in github|database|ship|website) tf_init ;; esac
   case "$STEP" in
-    all) step_supabase; step_infra; step_github; step_database; step_release; step_smoke ;;
+    all|release) step_supabase; step_infra; step_github; step_database; dispatch; step_smoke ;;
     # Straight from this checkout's HEAD, without the GitHub workflow.
     local) step_supabase; step_infra; step_database; step_website; step_smoke ;;
-    supabase|infra|github|database|release|ship|website) "step_$STEP" ;;
+    supabase|infra|github|database|ship|website) "step_$STEP" ;;
     *) die "unknown step $STEP" ;;
   esac
   log "$STEP done"
 }
 
-main
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main; fi

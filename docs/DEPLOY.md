@@ -10,4 +10,4 @@
 
 Cloudflare stays on the free plan: no card, no usage billing.
 
-Deploys run from `main` only: `make deploy STEP=release`. Details: [ops README](../src/manager/ops/README.md).
+From the clean, merged `main` checkout, run `make deploy STEP=release`. It applies the infrastructure and private registry migration, deploys the API and website, and checks production. Details: [ops README](../src/manager/ops/README.md).

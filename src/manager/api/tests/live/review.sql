@@ -117,6 +117,7 @@ DO $$ BEGIN
     OR registry.publication_receipt(md5('3')::uuid)::jsonb->>'status' IS DISTINCT FROM 'pending-scan'
     THEN RAISE EXCEPTION 'incorrect publisher receipt'; END IF;
 END $$;
+\ir review_isolation.sql
 SET LOCAL registry.session_provider = 'revoked-identity';
 DO $$ BEGIN
   IF registry.publication_receipt(md5('2')::uuid) IS NOT NULL THEN RAISE EXCEPTION 'unauthorized receipt'; END IF;
