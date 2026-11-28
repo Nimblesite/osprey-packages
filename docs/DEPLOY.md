@@ -4,11 +4,14 @@ Stack: Cloudflare → Cloud Run → Supabase (`[PACKAGE-HOSTED-TOPOLOGY]`). I ru
 
 The domain is `nimblesite.ai` (already on Cloudflare); `ospreylang.dev` is still on GoDaddy DNS. Everything else is created or looked up by `make deploy`: the GCP project, billing link, A$50 budget, Cloudflare IDs, the Supabase token from your `supabase login`, and CI's Pages token.
 
-1. Cloudflare → My Profile → API Tokens → Create → Custom token **"osprey-packages"**. Permissions: Account › Workers Scripts › Edit, Account › Cloudflare Pages › Edit, Account › Account API Tokens › Edit, Zone › DNS › Edit, Zone › Workers Routes › Edit, Zone › Zone › Read. Resources: your account and the `nimblesite.ai` zone. Paste it as `CLOUDFLARE_API_TOKEN=` in `src/manager/ops/deploy.env`.
-2. Merge PR #1 (`deslop-cleanup`) to `main`: the deploy workflow runs from `main`, and agents never merge.
-3. GitHub sign-in (no API exists for this): GitHub → Settings → Developer settings → OAuth Apps → New. Homepage `https://packages.nimblesite.ai`; callback `https://cnmamauzldimglbahdpf.supabase.co/auth/v1/callback`. Paste the ID and secret into `GITHUB_OAUTH_CLIENT_ID_PRODUCTION` / `GITHUB_OAUTH_CLIENT_SECRET_PRODUCTION` in `deploy.env`.
+Four things only you can do. The first two decide whether the API survives a launch crowd:
 
-I run `make deploy`. It is done when the run ends with `smoke done`.
+1. **Buy Workers Paid (US$5/month).** Cloudflare dashboard → Workers & Pages → Plans → Workers Paid. The account is on Workers Free, which stops the API Worker after 100,000 requests a day, account-wide. A purchase needs your card, so I cannot do it.
+2. **Set the launch budget.** Tell me a monthly A$ figure. Today the hard cap is A$50 and Cloud Run is 1 instance × 16 concurrent requests; more requests than that get a 429. One busy instance costs about A$100/month, so under sustained load the A$50 cap unlinks billing and the API goes down until relinked. For a launch crowd I recommend A$300 and 10 instances (160 concurrent requests). The website itself is static on Cloudflare Pages and has no such limit.
+3. **GitHub sign-in** (no API exists for this): GitHub → Settings → Developer settings → OAuth Apps → New. Homepage `https://packages.nimblesite.ai`; callback `https://cnmamauzldimglbahdpf.supabase.co/auth/v1/callback`. Paste the ID and secret into `GITHUB_OAUTH_CLIENT_ID_PRODUCTION` / `GITHUB_OAUTH_CLIENT_SECRET_PRODUCTION` in `src/manager/ops/deploy.env`. Until then the site is live but signed-out only.
+4. **Merge PR #1** (`deslop-cleanup`) to `main` once CI is green: the deploy workflow runs from `main`, and agents never merge. Production does not wait for this; I deploy from this machine.
+
+I run `make deploy STEP=local`. It is done when the run ends with `local done`.
 
 Production is the only environment. A test environment, when one exists, is an exact copy of production (Prod → Dev), never built from scratch. Test environments are paused.
 
