@@ -1,6 +1,6 @@
 {
   "spec": "[PACKAGE-TYPE-INVARIANTS]",
-  "description": "Which values inside which fixtures are model objects, and of which src/manager/schemas/package-registry.td type. `files` is a path prefix under src/manager/tests/fixtures; `each` selects rows; `value` selects the typed value inside a row (`*` is every array item); the type is `type` or the row's `typeField`; `order` also checks every list's canonical order. `rawGoldens` are byte-exact canonical outputs that cannot carry a `spec` member.",
+  "description": "Which values inside which fixtures are model objects, and of which src/manager/schemas/package-registry.td type. `files` is a path prefix under src/manager/core/tests/fixtures; `each` selects rows; `value` selects the typed value inside a row (`*` is every array item); the type is `type` or the row's `typeField`; `order` also checks every list's canonical order. `rawGoldens` are byte-exact canonical outputs that cannot carry a `spec` member.",
   "rawGoldens": [
     "manifests/ledger/canonical.json"
   ],

@@ -1,6 +1,6 @@
 # Package-system fixtures
 
-Declarative inputs for the suites in `src/manager/tests/src`. Every file is data; nothing here executes. Each JSON file names the spec section it pins in a `spec` field.
+Declarative inputs for the suites in `src/manager/core/tests/src`. Every file is data; nothing here executes. Each JSON file names the spec section it pins in a `spec` field.
 
 | File | Pins |
 | --- | --- |
@@ -19,6 +19,6 @@ Declarative inputs for the suites in `src/manager/tests/src`. Every file is data
 | `vectors/` | Primary-specification vectors: FIPS 180-4 SHA-256, digest agility, RFC 8785, DSSE PAE and WebAuthn bytes, RFC 9162 Merkle proofs, TUF 1.0 client workflow and compromised mirrors. |
 | `transitions/release-status.json` | Release-status chains and every invalid move, with independently computed `previousStatus` digests. |
 | `folder/refusals.json` | One folder-registry walk with every refusal the loader reports. |
-| `schema-map.json` | Which fixture values are model objects and of which type; `src/manager/fixture-check` validates every one before any suite runs. |
+| `schema-map.json` | Which fixture values are model objects and of which type; `src/manager/core/fixture-check` validates every one before any suite runs. |
 
 Goldens were computed once with an independent implementation (Python `hashlib` and `json`, which agrees with RFC 8785 for ASCII keys and integer-only values) and are asserted byte for byte by Osprey code that never saw that implementation. Change a fixture only together with the spec change that justifies it.

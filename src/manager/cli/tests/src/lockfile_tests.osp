@@ -12,7 +12,7 @@ import registry_cli::Lockfile
 /// its stable code, and the edge projection is byte-identical to
 /// `ManifestJson`. Implements [PACKAGE-FOLDER-REGISTRY] and [PACKAGE-MANIFEST].
 module LockfileTests {
-    let fixtureRoot = "src/manager/tests/fixtures/lock"
+    let fixtureRoot = "src/manager/core/tests/fixtures/lock"
 
     /// The fixture `name` decoded; an unreadable or malformed file becomes a
     /// string value naming the problem, so every assertion over it fails visibly.

@@ -34,7 +34,7 @@ build: target/osprey-pkg target/osprey-registry target/package-workspace.wasm
 canary: export OSPREY_E2E_COMPILER = $(OSPREY)
 canary: export OSPREY_E2E_MEMORY = $(CLI_MEMORY)
 canary: $(TOOLCHAIN)
-	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/fixture-check --memory=$(CLI_MEMORY))
+	$(if $(filter Windows_NT,$(OS)),,$(OSPREY) test src/manager/core/fixture-check --memory=$(CLI_MEMORY))
 	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY)
 	$(if $(filter Windows_NT,$(OS)),@echo "canary: fixture-check and e2e not run on Windows: the package tree walk needs POSIX find",$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY))
 
@@ -76,9 +76,9 @@ _package-hashing: $(TOOLCHAIN)
 	OSPREY_COMPILER=$(OSPREY) python3 scripts/packages/test-package-sha256.py
 
 # Osprey package system (src/manager/): one process runs every suite from the
-# src/manager/tests project with core, host and CLI sources assembled together,
+# src/manager/core/tests project with core, host and CLI sources assembled together,
 # because `osprey test` compiles suites in isolation and cannot import them.
-# src/manager/fixture-check runs first and fails fast: every fixture is data,
+# src/manager/core/fixture-check runs first and fails fast: every fixture is data,
 # parses strictly, cites a defined spec section and is indexed, every typed
 # fixture value is schema-valid and canonically ordered, and every registry
 # source cites only defined sections. src/manager/manifest/tests is the TOML
@@ -110,13 +110,13 @@ _test_registry: export OSPREY_E2E_MEMORY = $(CLI_MEMORY)
 _test_registry:
 	$(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE))
 	@echo "==> Registry fixture and schema validation (fail-fast)..."
-	$(OSPREY) test src/manager/fixture-check --memory=$(CLI_MEMORY) $(call registry_coverage,fixture-check)
+	$(OSPREY) test src/manager/core/fixture-check --memory=$(CLI_MEMORY) $(call registry_coverage,core-fixture-check)
 	@echo "==> Registry manifest (TOML parser and manifest rules) tests..."
 	$(OSPREY) test src/manager/manifest/tests --memory=$(CLI_MEMORY) $(call registry_coverage,manifest-tests)
 	@echo "==> Registry CLI (package frontend) tests..."
 	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY) $(call registry_coverage,cli-tests)
 	@echo "==> Registry (Osprey package system) tests..."
-	$(OSPREY) test src/manager/tests --memory=$(CLI_MEMORY) $(call registry_coverage,tests)
+	$(OSPREY) test src/manager/core/tests --memory=$(CLI_MEMORY) $(call registry_coverage,core-tests)
 	@echo "==> Registry end-to-end: server, fetch and consumer build..."
 	$(OSPREY) test src/manager/e2e --memory=$(CLI_MEMORY) $(call registry_coverage,e2e)
 	$(OSPREY) test src/manager/api/tests --memory=$(API_MEMORY) $(call registry_coverage,api-tests)
@@ -154,7 +154,7 @@ _registry-serve-sample: $(TOOLCHAIN)
 #                    src/manager/core/src/capabilities.osp.
 _registry-blockers: $(TOOLCHAIN)
 	@echo "==> Registry blocked-capability probes (expected red until each lands)..."
-	$(OSPREY) src/manager/blockers --run
+	$(OSPREY) src/manager/core/blockers --run
 
 REGISTRY_WEB = src/manager/web
 REGISTRY_TERRAFORM = src/manager/ops/terraform

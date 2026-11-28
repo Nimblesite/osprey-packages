@@ -10,8 +10,8 @@ import registry::Maybe
 /// fixture's canonical JSON and digest; every forbidden input fails before
 /// hashing with one located reason code.
 module ManifestTests {
-    let ledger = "src/manager/tests/fixtures/manifests/ledger/osprey.toml"
-    let canonicalFixture = "src/manager/tests/fixtures/manifests/ledger/canonical.json"
+    let ledger = "src/manager/core/tests/fixtures/manifests/ledger/osprey.toml"
+    let canonicalFixture = "src/manager/core/tests/fixtures/manifests/ledger/canonical.json"
     let digestFixture = "sha256:d444ec8ab0f46d728369d5487bf5618adafbe7d64beb9778107d69ea1ea0fce2"
 
     /// Fixture document headers: a `[project]` table alone, the standard

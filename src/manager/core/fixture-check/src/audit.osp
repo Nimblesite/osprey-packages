@@ -10,7 +10,7 @@ import registry::TypeDiagram
 /// Implements the fixture-validation gate of [PACKAGE-CONFORMANCE] over the
 /// encoding and list rules of [PACKAGE-TYPE-INVARIANTS].
 module Audit {
-    let fixtureRoot = "src/manager/tests/fixtures"
+    let fixtureRoot = "src/manager/core/tests/fixtures"
     let schemaPath = "src/manager/schemas/package-registry.td"
 
     fn regular(walked) = match walked {

@@ -51,7 +51,7 @@ module IdentityTests {
         ])
     }
 
-    /// Goldens from src/manager/tests/fixtures/digests.json, computed independently.
+    /// Goldens from src/manager/core/tests/fixtures/digests.json, computed independently.
     fn domainHashes() = checkAll("H(d, x) matches the independently computed fixtures", [
         Digests::hashText("osprey.manifest.v1", "{}") == "sha256:093779013e49dd05655baaa226991f473ee20b565ec4e1e6bb928e35168834ce",
         Digests::hashText("osprey.release.v1", "") == "sha256:aafe09e1f2092a5b3c0069c66242d6c13be0c745d0cbc55da67715a037cd33d4",

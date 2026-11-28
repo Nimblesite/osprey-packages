@@ -5,12 +5,12 @@ import registry::JsonRead
 import registry::Names
 import registry::Resolution
 
-/// Reading the declarative fixtures under src/manager/tests/fixtures: every
+/// Reading the declarative fixtures under src/manager/core/tests/fixtures: every
 /// suite loads, walks and reports fixture tables through these helpers so no
 /// suite carries its own copy. A fixture is the normative table; code only
 /// interprets it. Implements the fixture rule of [PACKAGE-CONFORMANCE].
 module Fixtures {
-    let root = "src/manager/tests/fixtures"
+    let root = "src/manager/core/tests/fixtures"
 
     /// The text of the fixture at `name` under the fixture root, or "" when it cannot be read.
     export fn text(name) = readFile("${root}/${name}") ?: ""

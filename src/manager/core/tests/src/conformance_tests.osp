@@ -13,13 +13,13 @@ module ConformanceTests {
 
     fn classification() = checkAll("only Osprey source and declarative inputs pass", [
         length(Conformance::violations(["src/manager/core/src/names.osp", "src/manager/x.ospml", "src/manager/schemas/package-registry.td"])) == 0,
-        length(Conformance::violations(["src/manager/core/osprey.toml", "src/manager/tests/fixtures/manifest.json", "src/manager/README.md", "src/manager/sample-registry/@demo/pyadd/1.1/uv.lock"])) == 0,
+        length(Conformance::violations(["src/manager/core/osprey.toml", "src/manager/core/tests/fixtures/manifest.json", "src/manager/README.md", "src/manager/sample-registry/@demo/pyadd/1.1/uv.lock"])) == 0,
         length(Conformance::violations(["src/manager/web/assets/registry.css", "src/manager/web/assets/registry-mark.svg", "src/manager/web/assets/_headers", "src/manager/web/assets/registry-form.mjs", "src/manager/web/assets/registry-catalog.mjs", "src/manager/web/assets/list-filter.mjs"])) == 0,
         length(Conformance::violations(["src/manager/web/assets/app.js", "src/manager/core/_headers"])) == 2,
         length(Conformance::violations(["src/manager/ops/Dockerfile", "src/manager/core/Dockerfile"])) == 1,
         length(Conformance::violations(["src/manager/supabase/migrations/schema.yaml", "src/manager/ops/terraform/api.tf", "src/manager/ops/terraform/.terraform.lock.hcl"])) == 0,
         join(Conformance::violations(["src/manager/host/shim.c", "src/manager/cli/launch.sh", "src/manager/web/app.js", "src/manager/ops/migrate.py", "src/manager/core/src/lib.rs", "src/manager/web/index.html"]), ",") == "src/manager/host/shim.c,src/manager/cli/launch.sh,src/manager/web/app.js,src/manager/ops/migrate.py,src/manager/core/src/lib.rs,src/manager/web/index.html",
-        join(Conformance::violations(["src/manager/tests/golden.ospx", "src/manager/Makefile", "src/manager/core/src/notes"]), ",") == "src/manager/tests/golden.ospx,src/manager/Makefile,src/manager/core/src/notes"
+        join(Conformance::violations(["src/manager/core/tests/golden.ospx", "src/manager/Makefile", "src/manager/core/src/notes"]), ",") == "src/manager/core/tests/golden.ospx,src/manager/Makefile,src/manager/core/src/notes"
     ])
 
     /// Delivered word primitives must not be reported as missing. Implements [PACKAGE-CONFORMANCE].

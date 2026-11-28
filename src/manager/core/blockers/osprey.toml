@@ -1,6 +1,6 @@
 [project]
 name = "registry-blockers"
-source_roots = ["src", "../core/src"]
+source_roots = ["src", "../../core/src"]
 default_namespace = "registry_blockers"
 entry = "src/main.osp"
 

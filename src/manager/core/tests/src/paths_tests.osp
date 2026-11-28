@@ -113,7 +113,7 @@ module PathsTests {
 
     fn file(path, text) = Source::entryOf(path, Bytes::ofString(text))
 
-    /// Goldens from src/manager/tests/fixtures/source/*.json, computed independently.
+    /// Goldens from src/manager/core/tests/fixtures/source/*.json, computed independently.
     fn treeDigests() = {
         let manifest = file("osprey.toml", "[project]\nname = \"ledger\"\nsource_roots = [\"src\"]\n")
         let program = file(mainPath, "fn main() = print(\"ledger\")\n")

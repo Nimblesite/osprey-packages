@@ -5,7 +5,7 @@ import registry::TypeDiagram
 import registry::SchemaCheck
 
 /// The typeDiagram schema validator, exercised through the declarative
-/// fixtures under src/manager/tests/fixtures/schema and .../time. `SchemaCheck`
+/// fixtures under src/manager/core/tests/fixtures/schema and .../time. `SchemaCheck`
 /// pins the JSON encoding rules of [PACKAGE-TYPE-INVARIANTS] against the
 /// canonical src/manager/schemas/package-registry.td, which is parsed once per test.
 module SchemaCheckTests {

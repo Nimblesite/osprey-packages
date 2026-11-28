@@ -2,7 +2,7 @@ namespace registry;
 
 /// Host capabilities the package system needs but Osprey does not yet
 /// provide. Each entry is a delivery blocker from [PLAN-ROLLOUT-CONTRACTS]; the
-/// probe that must pass once it lands lives in `src/manager/blockers`. Nothing
+/// probe that must pass once it lands lives in `src/manager/core/blockers`. Nothing
 /// here is implemented in another language instead.
 module Capabilities {
     /// One delivery blocker: its stable id and the sentence saying what Osprey lacks.

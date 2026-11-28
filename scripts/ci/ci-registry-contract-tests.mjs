@@ -36,7 +36,7 @@ function assertRealUv(registry) {
   assert.ok(makeRecipe('ci').includes('$(MAKE) _test_registry REGISTRY_COVERAGE=target/coverage'))
 }
 
-const cliSuites = ['fixture-check', 'manifest/tests', 'cli/tests', 'tests', 'e2e']
+const cliSuites = ['core/fixture-check', 'manifest/tests', 'cli/tests', 'core/tests', 'e2e']
 const apiSuites = ['api/tests']
 const wasmSuites = ['web', 'editor/tests', 'editor/wire-tests']
 const registrySuites = [...cliSuites, ...apiSuites, ...wasmSuites]

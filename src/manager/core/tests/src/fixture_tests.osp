@@ -9,7 +9,7 @@ import registry::Digests
 import registry::Bytes
 import registry::Png
 
-/// The declarative fixtures under src/manager/tests/fixtures, read through the
+/// The declarative fixtures under src/manager/core/tests/fixtures, read through the
 /// Osprey JSON parser and asserted case by case. A fixture is the normative
 /// table; code here only interprets it. Each case is reported with the input
 /// so a failure names the exact row.

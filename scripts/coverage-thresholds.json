@@ -4,13 +4,13 @@
     "src/manager/api/tests": 95,
     "src/manager/cli": 95,
     "src/manager/core": 95,
+    "src/manager/core/fixture-check": 95,
+    "src/manager/core/tests": 95,
     "src/manager/e2e": 95,
     "src/manager/editor": 95,
-    "src/manager/fixture-check": 95,
     "src/manager/host": 95,
     "src/manager/manifest": 95,
     "src/manager/resolver": 95,
-    "src/manager/tests": 95,
     "src/manager/web": 95
   }
 }

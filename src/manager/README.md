@@ -10,15 +10,15 @@ The loopback consumer uses Default-flavor source. Real compiler checks also pass
 | --- | --- |
 | `core/` | Names, identities, canonical JSON/source rules, SHA-256, capability surfaces and the implementation-language gate |
 | `host/` | File, tree, HTTP, process and console effects with native handlers |
-| `api/` | Startup catalog, pure HTTP router and folder-registry listener |
+| `api/` | Startup catalog, pure HTTP router and folder-registry listener; `api/tests` holds its auth, database, governance and hosted suites, `api/tests/live` the live PostgreSQL suite |
 | `cli/` | Manifest/lock commands, verified installation, local overrides, folder publication, build preparation and reports |
 | `manifest/` | TOML parser and manifest validation |
 | `resolver/` | CDCL solver and deterministic package graph/objective selection |
-| `tests/`, `cli/tests/` | Core/API and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
-| `fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
+| `core/tests/`, `cli/tests/` | Core and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
+| `core/fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
 | `sample-registry/` | Example release trees |
 | `e2e/` | Loopback server/client demo and Default-flavor consumer |
-| `blockers/` | Explicit probes for incomplete host capabilities |
+| `core/blockers/` | Explicit probes for incomplete host capabilities |
 | `schemas/package-registry.td` | Canonical domain model shared with the Package Domain Model spec |
 
 These projects compose sibling modules through explicit `source_roots`. Registry suites are ordinary modules called by their project's `src/main.osp`; use the commands below rather than assuming test-file discovery selects them.

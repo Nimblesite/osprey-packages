@@ -25,7 +25,7 @@ module Bytes {
 
     /// The raw bytes of a string, in order. `at` matches instead of using `?:`
     /// because `?:` inside a million-iteration pipeline crashes the runtime
-    /// today (probe `runtime.default-operator-pipeline` in `src/manager/blockers`).
+    /// today (probe `runtime.default-operator-pipeline` in `src/manager/core/blockers`).
     export fn ofString(s) = range(0, byteLength(s)) |> map(fn(i) => at(s, i)) |> toList
 
     fn windowEnd(text, i) = if i + runWindow < byteLength(text) { i + runWindow } else { byteLength(text) }

@@ -245,7 +245,7 @@ module Probes {
         ]
     }
 
-    fn fixtureLockText() = JsonRead::text(JsonRead::field(Json::parse(readFile("${managerDir}/tests/fixtures/lock/consumer.json") ?: "") ?: Json::Null, "text"))
+    fn fixtureLockText() = JsonRead::text(JsonRead::field(Json::parse(readFile("${managerDir}/core/tests/fixtures/lock/consumer.json") ?: "") ?: Json::Null, "text"))
 
     fn plusLines(report) = filterList(report.lines, fn(l) => startsWith(l, "+ "))
     fn joinedPlus(report) = join(plusLines(report), "\n")
