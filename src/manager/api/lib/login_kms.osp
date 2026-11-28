@@ -77,6 +77,15 @@ module LoginKms {
                 textMember("refreshToken", session.refreshToken)
     ]))
 
+    fn signed(doc) = {
+        let value = AuthText::field(doc, "signature")
+        disclosed(envelopeOk(1024, value), unpadded(value))
+    }
+
+    /// The unpadded base64url RSASSA-PKCS1 signature of a standard-base64 SHA-256 `digest` by the
+    /// asymmetric key version `version` [PACKAGE-HOSTED-PUBLISH-FLOW]. The private key never leaves KMS.
+    export fn rsaSign(version, digest) = submit(version, "asymmetricSign", "{\"digest\":{\"sha256\":\"${digest}\"}}", 4096, signed)
+
     /// Persist only a bounded KMS envelope. The database never receives these tokens.
     export fn sealSession(key, aad, session) = andThen(tokens(session), fn(text) =>
         if byteLength(text) > 32768 { unavailableError() } else { encrypt(key, aad, text, 49152) })

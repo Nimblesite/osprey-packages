@@ -1,0 +1,138 @@
+namespace registry_api_tests;
+import registry_api::Forge
+import registry_api::ForgeGithub
+import registry_api::Supabase
+import registry::Kms
+
+/// The production forge [PACKAGE-HOSTED-PUBLISH-FLOW] against GitHub's wire contract: a KMS-signed App
+/// JWT, an installation token for one repository, and reads by stable repository ID that fail closed.
+module ForgeTests {
+    let key = "projects/fixture/locations/global/keyRings/registry/cryptoKeys/forge/cryptoKeyVersions/1"
+    let api = "https://api.github.com"
+    let jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE1NDAsImlhdCI6OTQwLCJpc3MiOiI3NyJ9.c2ln-_8"
+    let signBody = "{\"digest\":{\"sha256\":\"BHFG/WvWPZvRglpanEwrDjN+wJ0tz8bZkHW0TgNKmMg=\"}}"
+    let common = "\r\nUser-Agent: osprey-registry\r\nX-GitHub-Api-Version: 2022-11-28"
+    let jsonAccept = "\r\nAccept: application/vnd.github+json"
+    let appHeaders = "Authorization: Bearer ${jwt}${jsonAccept}${common}\r\nContent-Type: application/json"
+    let readHeaders = "Authorization: Bearer ghs_fixture${jsonAccept}${common}"
+    let rawHeaders = "Authorization: Bearer ghs_fixture\r\nAccept: application/vnd.github.raw+json${common}"
+    let grant = "{\"permissions\":{\"contents\":\"read\",\"metadata\":\"read\"},\"repository_ids\":[4242]}"
+    let commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    let head = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    let diverged = "cccccccccccccccccccccccccccccccccccccccc"
+    let packages = "1111111111111111111111111111111111111111"
+    let net = "2222222222222222222222222222222222222222"
+    let manifestBlob = "3333333333333333333333333333333333333333"
+    let mainBlob = "4444444444444444444444444444444444444444"
+    let manifest = "[project]\nname = \"net\"\n"
+    let program = "fn main() = 1\n"
+    let repo = "/repositories/4242"
+    let dir = "packages/net"
+    let refusal = ForgeGithub::refused
+
+    fn app() = ForgeGithub::App { id: "77", installation: "88", key: key }
+    fn ok(body) = Success { value: Supabase::Reply { status: 200, body: body } }
+    fn status(code) = Success { value: Supabase::Reply { status: code, body: "{}" } }
+    fn tree(path, sha) = "{\"path\":\"${path}\",\"mode\":\"040000\",\"type\":\"tree\",\"sha\":\"${sha}\"}"
+    fn file(path, mode, sha, size) = "{\"path\":\"${path}\",\"mode\":\"${mode}\",\"type\":\"blob\",\"sha\":\"${sha}\",\"size\":${size}}"
+    fn listing(truncated, entries) = ok("{\"truncated\":${truncated},\"tree\":[${entries}]}")
+    fn person(login, id) = ok("{\"login\":\"${login}\",\"id\":${id}}")
+    fn permission(level, id) = ok("{\"permission\":\"${level}\",\"user\":{\"id\":${id}}}")
+    fn mergeBase() = ok("{\"status\":\"ahead\",\"merge_base_commit\":{\"sha\":\"${commit}\"}}")
+
+    /// The package tree; `variant` damages one fact GitHub reports about it.
+    fn packageTree(variant) = listing(if variant == "truncated" { "true" } else { "false" }, join([
+                file("osprey.toml", "100644", manifestBlob, if variant == "short" { 5 } else { byteLength(manifest) }),
+                tree("src", net),
+                file("src/main.osp", if variant == "symlink" { "120000" } else if variant == "executable" { "100755" } else { "100644" }, mainBlob, byteLength(program))
+            ], ","))
+
+    fn reads(path, variant) = if path == "/user/7201" { person("ada", 7201) }
+    else if path == "/user/7202" { person("rex", 7202) }
+    else if path == "/user/7204" { person("ada", 7201) }
+    else if path == repo + "/collaborators/ada/permission" { permission("admin", if variant == "impostor" { 7202 } else { 7201 }) }
+    else if path == repo + "/collaborators/rex/permission" { permission("write", 7202) }
+    else if path == repo + "/git/ref/heads/main" { ok("{\"ref\":\"refs/heads/main\",\"object\":{\"sha\":\"${head}\"}}") }
+    else if path == repo + "/compare/${commit}...${head}" || path == repo + "/compare/${diverged}...${head}" { mergeBase() }
+    else if path == repo + "/git/trees/${commit}" || path == repo + "/git/trees/${head}" { listing("false", tree("docs", net) + "," + file("packages", "100644", mainBlob, 1) + "," + tree("packages", packages)) }
+    else if path == repo + "/git/trees/${packages}" { listing("false", tree("net", net)) }
+    else if path == repo + "/git/trees/${net}?recursive=1" { packageTree(variant) }
+    else { status(404) }
+
+    fn blobs(path) = if path == repo + "/git/blobs/${manifestBlob}" { ok(manifest) } else if path == repo + "/git/blobs/${mainBlob}" { ok(program) } else { status(404) }
+
+    fn github(variant) = handler Supabase::Provider {
+        request method base path headers body =>
+        if Kms::isMetadataRequest(method, base, path, headers) { ok("{\"access_token\":\"fixture-token\",\"token_type\":\"Bearer\"}") }
+        else if base == "https://cloudkms.googleapis.com" && method == "POST" && path == "/v1/${key}:asymmetricSign" && body == signBody && variant != "kms" { ok("{\"signature\":\"c2ln+/8=\"}") }
+        else if base != api || variant == "outage" { Error { message: "fixture.unexpected-request" } }
+        else if method == "POST" && path == "/app/installations/88/access_tokens" && headers == appHeaders { if body == grant { Success { value: Supabase::Reply { status: 201, body: "{\"token\":\"ghs_fixture\"}" } } } else { status(422) } }
+        else if method == "GET" && headers == readHeaders && body == "" { reads(path, variant) }
+        else if method == "GET" && headers == rawHeaders && body == "" { blobs(path) }
+        else { status(401) }
+    }
+
+    fn clock() = Success { value: 1000 }
+    fn with(variant, action) = github(variant)(fn() => ForgeGithub::github(app(), clock)(action))
+    fn code(result) = match result {
+        Error { message } => message
+        Success => ""
+    }
+    fn admin(variant, repository, account) = with(variant, fn() => perform Forge::Repository.admin(repository, account))
+    fn files(variant, branch, sha, subdirectory) = with(variant, fn() => perform Forge::Repository.files("4242", branch, sha, subdirectory))
+    fn fileCode(variant, branch, sha, subdirectory) = code(files(variant, branch, sha, subdirectory))
+
+    fn administration() = checkAll("only the account GitHub reports as the repository's administrator binds it", [
+            (admin("", "4242", "7201") ?: false) == true,
+            (admin("", "4242", "7202") ?: true) == false,
+            (admin("impostor", "4242", "7201") ?: true) == false,
+            code(admin("", "4242", "7204")) == refusal,
+            code(admin("", "4242", "7203")) == refusal,
+            code(admin("", "9999", "7201")) == refusal,
+            code(admin("", "042", "7201")) == Forge::unconfigured,
+            code(admin("outage", "4242", "7201")) == ForgeGithub::unavailable,
+            code(admin("kms", "4242", "7201")) != ""
+    ])
+
+    fn collected(result) = match result {
+        Error { message } => message
+        Success { value } => join(mapList(value, fn(f) => "${f.relPath}=${f.content}"), "|")
+    }
+
+    fn collection() = {
+        let expected = "osprey.toml=${manifest}|src/main.osp=${program}"
+        checkAll("exactly the bound branch's commit is read, as plain files below the subdirectory", [
+                collected(files("", "main", commit, dir)) == expected,
+                collected(files("", "main", head, dir)) == expected,
+                fileCode("", "main", diverged, dir) == refusal,
+                fileCode("", "dev", commit, dir) == refusal,
+                fileCode("", "main", "abc", dir) == refusal,
+                fileCode("", "main", commit, "packages/missing") == refusal,
+                fileCode("", "main", commit, "packages/net/src/main.osp") == refusal,
+                fileCode("truncated", "main", commit, dir) == refusal,
+                fileCode("symlink", "main", commit, dir) == refusal,
+                fileCode("executable", "main", commit, dir) == refusal,
+                fileCode("short", "main", commit, dir) == refusal,
+                fileCode("outage", "main", commit, dir) == ForgeGithub::unavailable
+        ])
+    }
+
+    fn configuration() = {
+        let base = app()
+        let failing = github("")(fn() => ForgeGithub::github(base, fn() => Error { message: "fixture.clock" })(fn() => perform Forge::Repository.admin("4242", "7201")))
+        let closed = github("")(fn() => ForgeGithub::github(base { key: "" }, clock)(fn() => perform Forge::Repository.admin("4242", "7201")))
+        checkAll("a malformed App leaves the forge closed", [
+                ForgeGithub::configured(base),
+                !ForgeGithub::configured(base { id: "" }), !ForgeGithub::configured(base { installation: "08" }),
+                !ForgeGithub::configured(base { key: "projects/fixture/locations/global/keyRings/registry/cryptoKeys/forge" }),
+                !ForgeGithub::configured(base { key: key + "/x" }),
+                code(closed) == Forge::unconfigured, code(failing) == ForgeGithub::unavailable
+        ])
+    }
+
+    export fn run() = {
+        test("forge: repository administration", administration)
+        test("forge: commit collection", collection)
+        test("forge: App configuration", configuration)
+    }
+}

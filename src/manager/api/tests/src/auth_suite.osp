@@ -36,6 +36,7 @@ module AuthSuite {
         WebhookTests::run()
         KmsTests::run()
         PasskeyTests::run()
+        ForgeTests::run()
         0
     }
 
