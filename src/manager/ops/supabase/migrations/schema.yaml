@@ -99,6 +99,9 @@ tables:
       enabled: true
       forced: true
       policies:
+        # [PACKAGE-OWNERSHIP-RLS] A live session creates an organization and sees the ones it belongs to.
+        - { name: session_creates_organization, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "state = 'active' AND governance_epoch = 1 AND created_at = statement_timestamp() AND registry.review_session_principal() IS NOT NULL" }
+        - { name: session_member_organizations, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "created_at = statement_timestamp() OR EXISTS (SELECT 1 FROM registry.memberships m WHERE m.organization_id = organizations.id AND m.state = 'active' AND m.principal_id = registry.review_session_principal())" }
         - { name: collector_organizations, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
         - { name: scan_scope, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.organization_id = organizations.id)" }
         - { name: catalog_writer_organizations, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
@@ -129,6 +132,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: session_founds_organization, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "role = 'custodian' AND principal_kind = 'human' AND state = 'active' AND authority_epoch = 1 AND accepted_at = statement_timestamp() AND principal_id = registry.review_session_principal() AND EXISTS (SELECT 1 FROM registry.organizations o WHERE o.id = organization_id AND o.created_at = statement_timestamp())" }
         - { name: own_review_membership, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "state = 'active' AND principal_id = registry.review_session_principal()" }
         - { name: collector_memberships, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active'" }
 
@@ -179,6 +183,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: custodian_creates_package, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "state = 'active' AND authority_epoch = 1 AND created_at = statement_timestamp() AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = admin_membership_id AND m.organization_id = packages.organization_id AND m.role = 'custodian' AND m.state = 'active' AND m.principal_id = registry.review_session_principal())" }
         - { name: review_org_packages, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.organization_id = packages.organization_id AND m.principal_id = registry.review_session_principal())" }
         - { name: collector_packages, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "state = 'active' OR state = 'draft'" }
         - { name: scan_package, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
@@ -211,6 +216,7 @@ tables:
       enabled: true
       forced: true
       policies:
+        - { name: admin_grants_own_publication, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "permission = 'publish-release' AND state = 'active' AND expires_at IS NULL AND membership_id = granted_by_membership_id AND authority_epoch = 1 AND membership_authority_epoch = 1 AND granted_at = statement_timestamp() AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = package_id AND p.created_at = statement_timestamp() AND p.admin_membership_id = membership_id) AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = membership_id AND m.principal_id = registry.review_session_principal())" }
         - { name: collector_package_permissions, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "permission = 'publish-release' AND state = 'active' AND (expires_at IS NULL OR expires_at > statement_timestamp())" }
 
   - name: admin_transfers
@@ -658,6 +664,10 @@ grants:
   - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
   - { schema: registry, target: Table, objectName: principals, privileges: [INSERT], roles: [registry_session_issuer] }
   - { schema: registry, target: Table, objectName: auth_bindings, privileges: [INSERT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: memberships, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: package_permissions, privileges: [INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT], roles: [registry_session_issuer] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [UPDATE], roles: [registry_session_revoker] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime] }
@@ -717,6 +727,47 @@ functions:
           RETURNING 1)
         SELECT candidate.id INTO issued FROM candidate CROSS JOIN made;
         RETURN issued;
+      END
+
+  # [PACKAGE-OWNERSHIP-RLS] The live session's principal founds an organization as its custodian; NULL
+  # without a live session, an error for a taken handle.
+  - schema: registry
+    name: create_organization
+    arguments: [{name: org_handle, type: text}, {name: org_name, type: text}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      DECLARE me uuid := registry.review_session_principal(); org uuid := gen_random_uuid();
+      BEGIN
+        IF me IS NULL THEN RETURN NULL; END IF;
+        INSERT INTO registry.organizations(id,handle,display_name,state,governance_epoch,created_at)
+        VALUES (org,org_handle,org_name,'active',1,statement_timestamp());
+        INSERT INTO registry.memberships(id,organization_id,principal_id,role,principal_kind,state,authority_epoch,accepted_at)
+        VALUES (gen_random_uuid(),org,me,'custodian','human','active',1,statement_timestamp());
+        RETURN org;
+      END
+
+  # A custodian creates a package with themself as its sole admin and publisher; NULL for anyone else.
+  - schema: registry
+    name: create_package
+    arguments: [{name: org, type: uuid}, {name: pkg_name, type: text}]
+    returns: uuid
+    language: plpgsql
+    volatility: volatile
+    executeRoles: [registry_session_runtime]
+    body: >-
+      DECLARE mine uuid; pkg uuid := gen_random_uuid();
+      BEGIN
+        SELECT m.id INTO mine FROM registry.memberships m WHERE m.organization_id=org AND m.role='custodian'
+        AND m.state='active' AND m.principal_id=registry.review_session_principal();
+        IF mine IS NULL THEN RETURN NULL; END IF;
+        INSERT INTO registry.packages(id,organization_id,name,admin_membership_id,admin_membership_state,admin_principal_kind,authority_epoch,state,created_at)
+        VALUES (pkg,org,pkg_name,mine,'active','human',1,'active',statement_timestamp());
+        INSERT INTO registry.package_permissions(id,organization_id,package_id,membership_id,permission,state,granted_by_membership_id,authority_epoch,membership_authority_epoch,granted_at)
+        VALUES (gen_random_uuid(),org,pkg,mine,'publish-release','active',mine,1,1,statement_timestamp());
+        RETURN pkg;
       END
 
   - schema: registry

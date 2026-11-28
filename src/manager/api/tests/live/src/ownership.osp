@@ -1,0 +1,66 @@
+namespace registry_live_tests;
+import registry_host::BrowserSessions
+import registry_host::Host
+import registry::Bytes
+
+/// A registered person creates an organization and a package [PACKAGE-OWNERSHIP-RLS]: through the
+/// session runtime login only, the live session's principal becomes the organization's custodian,
+/// the package's sole admin and its publisher, so the collector admits their versions. A stranger
+/// cannot create a package in that organization, a taken handle or name is refused, and a request
+/// without a live session creates nothing. Leaves no rows behind.
+module Ownership {
+    let issuer = "https://supabase.example.test/auth/v1"
+    fn run(command) = perform Host::Process.run("case \"$PGHOST\" in /tmp/osprey-registry.*) " + command + ";; *) exit 1;; esac")
+    fn psql(role) = "psql -XqAt --no-password -p 18873 -U ${role} -d postgres -v ON_ERROR_STOP=1"
+    fn owner(statement) = run(psql("registry_check") + " -c " + Host::shellWord(statement))
+    fn answers(statement, expected) = {
+        let result = owner(statement)
+        result.status == 0 && trim(result.stdout) == expected
+    }
+    fn cookie(fill) = "sha256:" + (repeat(fill, 64) ?: "")
+
+    type Person = { digest: string, subject: string, github: string }
+
+    /// Register `github` through the issuer; the session scope the API sets for it, or an empty digest.
+    fn person(fill, subject, github) = {
+        let registered = match BrowserSessions::issueScript(cookie(fill), issuer, subject, github, "sealed-ownership") {
+            Error => false
+            Success { value } => run("printf '%s' " + Host::shellWord(value) + " | " + psql("registry_session_issuer")).status == 0
+        }
+        Person { digest: if registered { cookie(fill) } else { "" }, subject: subject, github: github }
+    }
+
+    /// `call` as the session runtime in `who`'s verified scope: its single answer, "" for NULL, "error" when refused.
+    fn asSession(who: Person, call) = {
+        let scope = "SET LOCAL registry.session_digest = '${who.digest}'; SET LOCAL registry.session_issuer = '${issuer}'; SET LOCAL registry.session_subject = '${who.subject}'; SET LOCAL registry.session_provider = '${who.github}';"
+        let script = "BEGIN; ${scope} SELECT ${call}; COMMIT;"
+        let result = run("printf '%s' " + Host::shellWord(script) + " | " + psql("registry_session_runtime"))
+        if result.status == 0 { trim(result.stdout) } else { "error" }
+    }
+    fn collector(call) = {
+        let result = run(psql("registry_publication_collector") + " -c " + Host::shellWord("SELECT " + call))
+        if result.status == 0 { trim(result.stdout) } else { "error" }
+    }
+    fn principalOf(github) = "(SELECT principal_id FROM registry.auth_bindings WHERE provider_subject='${github}')"
+    let cleanup = "DELETE FROM registry.package_permissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.browser_sessions; DELETE FROM registry.auth_bindings WHERE provider_subject IN ('7101','7102'); DELETE FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id);"
+
+    export fn check() = {
+        let ada = person("e", "6a1f0e8e-1c1d-4f3a-9b5e-1e2d3c4b5a60", "7101")
+        let eve = person("f", "6a1f0e8e-1c1d-4f3a-9b5e-1e2d3c4b5a61", "7102")
+        let org = asSession(ada, "registry.create_organization('atlas', 'Atlas Engineering')")
+        let custodian = answers("SELECT role || ' ' || state FROM registry.memberships WHERE organization_id = '${org}' AND principal_id = ${principalOf("7101")}", "custodian active")
+        let takenHandle = asSession(eve, "registry.create_organization('atlas', 'Impostor')") == "error"
+        let strangerPackage = asSession(eve, "registry.create_package('${org}', 'net')") == ""
+        let pkg = asSession(ada, "registry.create_package('${org}', 'net')")
+        let adaId = trim(owner("SELECT ${principalOf("7101")}").stdout)
+        let eveId = trim(owner("SELECT ${principalOf("7102")}").stdout)
+        let admin = answers("SELECT p.state || ' ' || m.principal_id::text FROM registry.packages p JOIN registry.memberships m ON m.id = p.admin_membership_id WHERE p.id = '${pkg}'", "active " + adaId)
+        let publisher = collector("registry.can_submit_version('${adaId}', '${pkg}')") == "t"
+        let notPublisher = collector("registry.can_submit_version('${eveId}', '${pkg}')") == "f"
+        let takenName = asSession(ada, "registry.create_package('${org}', 'net')") == "error"
+        let anonymous = asSession(ada { digest: cookie("9") }, "registry.create_organization('ghost', 'Ghost')") == "" && answers("SELECT count(*) FROM registry.organizations WHERE handle = 'ghost'", "0")
+        let clean = owner(cleanup).status == 0
+        checkAll("a registered person owns a new organization and package", [ada.digest != "", eve.digest != "", Bytes::canonicalUuid(org), custodian, takenHandle,
+                strangerPackage, Bytes::canonicalUuid(pkg), admin, publisher, notPublisher, takenName, anonymous, clean])
+    }
+}
