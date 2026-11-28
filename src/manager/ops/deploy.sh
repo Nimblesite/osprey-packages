@@ -345,9 +345,11 @@ step_smoke() {
 # Website: the content-addressed archive, uploaded to Pages with the Terraform-minted token.
 # Built from a `git archive` of HEAD, never the working tree, reusing the checkout's SHA-pinned toolchain.
 step_website() {
-  local src="$WORK/site-src"
+  local src="$WORK/site-src" revision
+  revision="$(git -C "$ROOT" rev-parse HEAD)"
+  log "publishing Pages from $revision"
   rm -rf "$src" && mkdir -p "$src/target"
-  git -C "$ROOT" archive HEAD | tar -x -C "$src"
+  git -C "$ROOT" archive "$revision" | tar -x -C "$src"
   [[ -d "$ROOT/target/osprey" ]] || make -s -C "$ROOT" _toolchain >&2
   ln -s "$ROOT/target/osprey" "$src/target/osprey"
   REGISTRY_API_ORIGIN="https://$(host packages-api)" REGISTRY_CONTENT_ORIGIN="https://$(host packages-content)" \
@@ -357,7 +359,7 @@ step_website() {
   rm -rf "$upload" && mkdir -p "$upload" && unzip -q "$archive" -d "$upload"
   CLOUDFLARE_API_TOKEN="$(tf output -raw pages_token)" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
     npx --yes wrangler@4.146.0 pages deploy "$upload" --project-name="$NAME" --branch=main \
-    --commit-hash="$(git -C "$ROOT" rev-parse HEAD)" >&2
+    --commit-hash="$revision" >&2
 }
 
 # Operator release of HEAD: image via Cloud Build, Cloud Run rolled to its digest, website uploaded.
