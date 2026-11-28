@@ -328,10 +328,16 @@ step_smoke() {
 }
 
 # Website: the content-addressed archive, uploaded to Pages with the Terraform-minted token.
+# Built from a `git archive` of HEAD, never the working tree, reusing the checkout's SHA-pinned toolchain.
 step_website() {
+  local src="$WORK/site-src"
+  rm -rf "$src" && mkdir -p "$src/target"
+  git -C "$ROOT" archive HEAD | tar -x -C "$src"
+  [[ -d "$ROOT/target/osprey" ]] || make -s -C "$ROOT" _toolchain >&2
+  ln -s "$ROOT/target/osprey" "$src/target/osprey"
   REGISTRY_API_ORIGIN="https://$(host packages-api)" REGISTRY_CONTENT_ORIGIN="https://$(host packages-content)" \
-    make -s -C "$ROOT" _registry-website-archive >&2
-  local archive upload="$WORK/pages-upload"; archive="$(ls "$ROOT"/target/registry-artifacts/*.zip)"
+    make -s -C "$src" _registry-website-archive >&2
+  local archive upload="$WORK/pages-upload"; archive="$(ls "$src"/target/registry-artifacts/*.zip)"
   [[ "$(wc -l <<<"$archive" | tr -d ' ')" == 1 ]] || die "expected one website archive, found: $archive"
   rm -rf "$upload" && mkdir -p "$upload" && unzip -q "$archive" -d "$upload"
   CLOUDFLARE_API_TOKEN="$(tf output -raw pages_token)" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
