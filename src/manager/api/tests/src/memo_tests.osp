@@ -41,40 +41,41 @@ module MemoTests {
     }
 
     fn refreshInterval() = withMemo(fn(_n) => Success { value: row(5000) }, fn(at, fetches, _blind) => checkAll("one read per refresh interval", [
-        at(1000) == body, fetches() == 1,
-        at(1000) == body, at(1030) == body, at(1059) == body, fetches() == 1,
-        at(1060) == body, fetches() == 2,
-        at(1119) == body, fetches() == 2,
-        at(999) == body, fetches() == 3
+                at(1000) == body, fetches() == 1,
+                at(1000) == body, at(1030) == body, at(1059) == body, fetches() == 1,
+                at(1060) == body, fetches() == 2,
+                at(1119) == body, fetches() == 2,
+                at(999) == body, fetches() == 3
     ]))
 
     fn expiry() = withMemo(fn(n) => if n == 1 { Success { value: row(1010) } } else { Error { message: "database.transaction-failed" } },
         fn(at, fetches, _blind) => checkAll("never served past expires_at", [
-            at(1000) == body, at(1009) == body, fetches() == 1,
-            at(1010) == "error:database.transaction-failed", fetches() == 2,
-            at(1011) == "error:database.transaction-failed", fetches() == 3
-        ]))
+                at(1000) == body, at(1009) == body, fetches() == 1,
+                at(1010) == "error:database.transaction-failed", fetches() == 2,
+                at(1011) == "error:database.transaction-failed", fetches() == 3
+    ]))
 
     fn clockFailure() = withMemo(fn(_n) => Success { value: row(5000) }, fn(at, fetches, blind) => checkAll("a failed clock reads the database directly", [
-        blind() == body, blind() == body, fetches() == 2,
-        at(1000) == body, fetches() == 3, at(1001) == body, fetches() == 3,
-        blind() == body, fetches() == 4
+                blind() == body, blind() == body, fetches() == 2,
+                at(1000) == body, fetches() == 3, at(1001) == body, fetches() == 3,
+                blind() == body, fetches() == 4
     ]))
 
     fn failureNotCached() = withMemo(fn(n) => if n == 1 { Error { message: "database.transaction-failed" } } else { Success { value: row(5000) } },
         fn(at, fetches, _blind) => checkAll("a failed read is not cached", [
-            at(1000) == "error:database.transaction-failed", at(1000) == body, at(1001) == body, fetches() == 2
-        ]))
+                at(1000) == "error:database.transaction-failed", at(1000) == body, at(1001) == body, fetches() == 2
+    ]))
 
     fn malformed() = {
         let rows = ["", "5000", "5000 ", " " + body, "abc " + body, "-5 " + body, "0 " + body, "5000x " + body, "50.5 " + body]
-        foldList(rows, 0, fn(_done, bad) => withMemo(fn(_n) => Success { value: bad }, fn(at, fetches, _blind) => checkAll("malformed timed row refused: " + bad, [
-            at(1000) == "error:catalog.invalid-projection", at(1000) == "error:catalog.invalid-projection", fetches() == 2
+        let _checked = mapList(rows, fn(bad) => withMemo(fn(_n) => Success { value: bad }, fn(at, fetches, _blind) => checkAll("malformed timed row refused: " + bad, [
+                        at(1000) == "error:catalog.invalid-projection", at(1000) == "error:catalog.invalid-projection", fetches() == 2
         ])))
+        check("malformed timed rows checked", 9, length(rows))
     }
 
     fn bodyWithSpaces() = withMemo(fn(_n) => Success { value: "5000 {\"packages\": [ ]}" }, fn(at, fetches, _blind) => checkAll("only the first space splits", [
-        at(1000) == "{\"packages\": [ ]}", at(1001) == "{\"packages\": [ ]}", fetches() == 1
+                at(1000) == "{\"packages\": [ ]}", at(1001) == "{\"packages\": [ ]}", fetches() == 1
     ]))
 
     export fn run() = {

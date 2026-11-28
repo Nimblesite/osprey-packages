@@ -21,16 +21,16 @@ module CatalogMemo {
     }
 
     fn digits(text) = byteLength(text) > 0 && byteLength(text) <= 12
-        && foldList(split(text, "") ?: [], true, fn(ok, c) => ok && c >= "0" && c <= "9")
+    && foldList(split(text, "") ?: [], true, fn(ok, c) => ok && c >= "0" && c <= "9")
+
+    fn positive(parsed) = match parsed {
+        Success { value } => if value > 0 { Success { value: value } } else { Error { message: invalid } }
+        Error => Error { message: invalid }
+    }
 
     fn timed(row, space) = match substring(row, 0, space) {
         Error => Error { message: invalid }
-        Success { value } => if !digits(value) { Error { message: invalid } } else {
-            match parseInt(value) {
-                Success { value: expiry } => if expiry > 0 { Success { value: expiry } } else { Error { message: invalid } }
-                Error => Error { message: invalid }
-            }
-        }
+        Success { value } => if digits(value) { positive(parseInt(value)) } else { Error { message: invalid } }
     }
 
     /// `<expires_at unix seconds> <body>`, as `Database::timedCatalogScript` answers.
@@ -39,8 +39,7 @@ module CatalogMemo {
         Success { value: space } => match timed(row, space) {
             Error { message } => Error { message: message }
             Success { value: expiry } => match substring(row, space + 1, byteLength(row)) {
-                Success { value: body } => if body == "" { Error { message: invalid } }
-                    else { Success { value: Entry { body: body, expiresAt: expiry, fetchedAt: now } } }
+                Success { value: body } => if body == "" { Error { message: invalid } } else { Success { value: Entry { body: body, expiresAt: expiry, fetchedAt: now } } }
                 Error => Error { message: invalid }
             }
         }
@@ -77,10 +76,7 @@ module CatalogMemo {
         Error => direct(fetch)
         Success { value: now } => {
             let held = recv(cell)
-            if fresh(held, now) {
-                send(cell, held)
-                Success { value: held.body }
-            } else { settle(cell, empty(), reread(fetch, now)) }
+            if fresh(held, now) { settle(cell, held, Success { value: held }) } else { settle(cell, empty(), reread(fetch, now)) }
         }
     }
 }
