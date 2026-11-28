@@ -22,10 +22,14 @@ SUPABASE_API="https://api.supabase.com/v1"
 log() { printf '\033[1;36m[deploy %s] %s\033[0m\n' "$ENV_NAME" "$*" >&2; }
 die() { printf '\033[1;31m[deploy %s] FATAL: %s\033[0m\n' "$ENV_NAME" "$*" >&2; exit 1; }
 
-load_config() {
+read_environment() {
   [[ "$ENV_NAME" == production ]] || die "production is the only environment (a test environment is an exact Prod → Dev copy, paused)"
   [[ -f "$OPS/deploy.env" ]] || die "copy $OPS/deploy.env.example to $OPS/deploy.env (docs/DEPLOY.md)"
   set -a; . "$OPS/deploy.env"; set +a
+}
+
+load_config() {
+  read_environment
   local var
   for var in terraform gcloud gh jq curl psql openssl; do
     command -v "$var" >/dev/null || die "missing command: $var"
@@ -327,19 +331,20 @@ PSQL
 status() { curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true; }
 
 step_smoke() {
-  local api run; api="https://$(host packages-api)"; run="https://$(tf output -raw run_host)"
+  local api run; api="https://$(host packages-api)"; run="$(gcloud run services describe "$NAME" --region="$REGION" --project="$GCP_PROJECT_ID" --format='value(status.url)')"
+  [[ "$run" == https://*.run.app ]] || die "missing Cloud Run service URL"
   local edge direct web
   edge="$(status "$api/v1/packages")"; direct="$(status "$run/v1/packages")"; web="$(status "https://$(host packages)/")"
-  log "edge $api/v1/packages → $edge (200, or 503 until the catalog projection exists)"
+  log "edge $api/v1/packages → $edge (must be 200)"
   log "direct $run/v1/packages → $direct (must be 403)"
   log "website → $web (must be 200)"
   # [PACKAGE-OWNERSHIP-RLS]: Supabase's Data API never serves the private schema, table or routine.
   local ref key data rpc; ref="$(jq -r .ref "$WORK/supabase.json")"; key="$(jq -r .publishable_key "$WORK/supabase.json")"
   data="$(status -H "apikey: $key" -H 'Accept-Profile: registry' "https://$ref.supabase.co/rest/v1/principals?limit=1")"
-  rpc="$(status -X POST -H "apikey: $key" -H 'Content-Profile: registry' "https://$ref.supabase.co/rest/v1/rpc/refresh_public_catalog")"
+  rpc="$(status --head -H "apikey: $key" -H 'Accept-Profile: registry' "https://$ref.supabase.co/rest/v1/rpc/refresh_public_catalog")"
   log "Supabase Data API on the registry schema → table $data, routine $rpc (both must be 406)"
   [[ "$data" == 406 && "$rpc" == 406 ]] || die "the registry schema is exposed through the Supabase Data API"
-  [[ "$edge" == 200 || "$edge" == 503 ]] && [[ "$direct" == 403 ]] && [[ "$web" == 200 ]] || die "smoke failed"
+  [[ "$edge" == 200 ]] && [[ "$direct" == 403 ]] && [[ "$web" == 200 ]] || die "smoke failed"
 }
 
 # Website: the content-addressed archive, uploaded to Pages with the Terraform-minted token.
@@ -385,7 +390,12 @@ require_main() {
 }
 
 main() {
-  [[ "$STEP" == smoke ]] || require_main
+  if [[ "$STEP" == smoke ]]; then
+    read_environment
+    step_smoke
+    return
+  fi
+  require_main
   load_config
   ensure_project
   ensure_spend_cap
@@ -394,7 +404,7 @@ main() {
     all) step_supabase; step_infra; step_github; step_database; step_release; step_smoke ;;
     # Straight from this checkout's HEAD, without the GitHub workflow.
     local) step_supabase; step_infra; step_database; step_website; step_smoke ;;
-    supabase|infra|github|database|release|ship|website|smoke) "step_$STEP" ;;
+    supabase|infra|github|database|release|ship|website) "step_$STEP" ;;
     *) die "unknown step $STEP" ;;
   esac
   log "$STEP done"

@@ -51,9 +51,8 @@ await check('api: plain HTTP is redirected to HTTPS', async () => {
   assert.equal(response.headers.get('location'), `${api}/v1/packages`);
 });
 
-await check('api: the catalog answers JSON, or the catalog-unavailable problem before the projection exists', async () => {
+await check('api: the production catalog serves its JSON package list', async () => {
   const response = await get(`${api}/v1/packages`);
-  if (response.status === 503) return assert.match(await problemCode(response), /\S/);
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type'), /^application\/json/);
   assert.ok(Array.isArray((await response.json()).packages), 'packages is a list');
