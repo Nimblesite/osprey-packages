@@ -1,5 +1,7 @@
 # Package Registry Trust and Discovery
 
+> **ONE WAY TO RELEASE.** A package version reaches the public registry one way only: a publisher signs an intent for a commit in the package's bound GitHub repository, and the registry fetches, freezes, scans and publishes that commit itself ([`[PACKAGE-HOSTED-PUBLISH-FLOW]`](PackageRegistryDeploymentAndOwnership.md#releasing-from-a-github-repository-package-hosted-publish-flow)). There is no upload, no second path, no operator shortcut and no test-only bypass. Anything else that puts a version in the catalog is a defect.
+
 > **ALL OSPREY, and A WORKING API THAT SERVES WORKING PACKAGES COMES FIRST.**
 > Every executable part of the package system is Osprey, with no exceptions
 > (`[PACKAGE-IMPLEMENTATION-LANGUAGE]`). The first deliverable is the

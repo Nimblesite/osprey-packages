@@ -1,5 +1,7 @@
 # Package Registry Deployment and Ownership
 
+> **ONE WAY TO RELEASE.** A package version reaches the public registry one way only: a publisher signs an intent for a commit in the package's bound GitHub repository, and the registry fetches, freezes, scans and publishes that commit itself ([`[PACKAGE-HOSTED-PUBLISH-FLOW]`](#releasing-from-a-github-repository-package-hosted-publish-flow)). There is no upload, no second path, no operator shortcut and no test-only bypass. Anything else that puts a version in the catalog is a defect.
+
 **Status.** The hosted API implements public catalog reads and browser sign-in, session verification, refresh and logout. [The package-manager plan](../../plans/package-manager.md) tracks ownership enforcement, publication and production rollout evidence. The [publication and trust requirements](PackageRegistryTrustAndDiscovery.md) apply to every accepted release.
 
 ## Security boundary `[PACKAGE-HOSTED-BOUNDARY]`
@@ -206,7 +208,7 @@ RLS protects a trusted API's verified identity context, not a fully compromised 
 
 ### Releasing from a GitHub repository `[PACKAGE-HOSTED-PUBLISH-FLOW]`
 
-This is the only way a release enters the registry. Every step fails closed: a failure publishes nothing.
+This is the only way a package version enters the public registry: the website, the CLI, operators and tests all go through it. Every step fails closed: a failure publishes nothing.
 
 1. **Bind the repository, once.** An organization admin installs the registry's GitHub App on the one selected repository and enrolls it for the package. Enrollment records GitHub's stable numeric repository ID, the subdirectory and the branch, and proves registry publication authority and GitHub admin authority over the same expiring nonce `[PACKAGE-HOSTED-AUTH]`.
 2. **Sign in.** Passkey or GitHub. Signing in grants no publication authority.
