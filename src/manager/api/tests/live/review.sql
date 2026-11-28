@@ -43,6 +43,28 @@ INSERT INTO package_permissions VALUES (md5('grant')::uuid,md5('org')::uuid,md5(
 'publish-release','active',md5('member')::uuid,1,1,now(),NULL);
 SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
 SELECT registry.submit_frozen_version(md5(n::text)::uuid,md5('pkg')::uuid,1,n,'sha256:'||repeat(n::text,64),md5('alice')::uuid) FROM generate_series(1,3) n;
+-- Retrying the exact frozen job after a lost response must enqueue it once.
+SELECT registry.submit_frozen_version(md5('1')::uuid,md5('pkg')::uuid,1,1,'sha256:'||repeat('1',64),md5('alice')::uuid);
+DO $$ BEGIN
+  BEGIN
+    PERFORM registry.submit_frozen_version(md5('1')::uuid,md5('pkg')::uuid,1,1,'sha256:'||repeat('9',64),md5('alice')::uuid);
+    RAISE EXCEPTION 'retry silently changed the frozen source';
+  EXCEPTION WHEN unique_violation THEN NULL; END;
+  BEGIN
+    PERFORM registry.submit_frozen_version(md5('4')::uuid,md5('pkg')::uuid,1,1,'sha256:'||repeat('1',64),md5('alice')::uuid);
+    RAISE EXCEPTION 'duplicate immutable version acquired a second job';
+  EXCEPTION WHEN unique_violation THEN NULL; END;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM review_submissions) <> 1 OR NOT EXISTS (SELECT FROM review_submissions WHERE id=md5('1')::uuid)
+    THEN RAISE EXCEPTION 'collector read outside its current admission scope'; END IF;
+END $$;
+RESET SESSION AUTHORIZATION;
+UPDATE package_permissions SET state='revoked' WHERE id=md5('grant')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_publication_collector;
+SELECT pg_temp.require_denied('SELECT registry.submit_frozen_version(md5(''1'')::uuid,md5(''pkg'')::uuid,1,1,''sha256:''||repeat(''1'',64),md5(''alice'')::uuid)');
+RESET SESSION AUTHORIZATION;
+UPDATE package_permissions SET state='active' WHERE id=md5('grant')::uuid;
 SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
 DO $$ BEGIN
   IF (SELECT count(*) FROM review_submissions j JOIN packages p ON p.id=j.package_id JOIN organizations o ON o.id=p.organization_id) <> 3

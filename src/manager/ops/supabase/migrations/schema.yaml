@@ -466,6 +466,7 @@ tables:
       - { name: publisher_id, type: Uuid, isNullable: false }
     primaryKey: { columns: [id] }
     uniqueConstraints:
+      - { name: uq_exact_frozen_job, columns: [id, package_id, epoch, ordinal, digest, publisher_id] }
       - { name: uq_review_candidate, columns: [package_id, epoch, ordinal, digest] }
       - { name: uq_review_publisher, columns: [id, publisher_id] }
       - { name: uq_review_binding, columns: [id, package_id, epoch, ordinal, digest] }
@@ -477,6 +478,15 @@ tables:
       forced: true
       policies:
         - { name: member_submission, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = review_submissions.package_id)" }
+        - name: collector_exact_retry
+          permissive: true
+          operations: [Select]
+          roles: [registry_publication_collector]
+          using: >-
+            current_setting('session_authorization') = 'registry_publication_collector'
+            AND id::text = current_setting('registry.frozen_job')
+            AND publisher_id::text = current_setting('registry.frozen_publisher')
+            AND registry.can_submit_version(publisher_id,package_id)
         - { name: collector_submit, permissive: true, operations: [Insert], roles: [registry_publication_collector], withCheck: "current_setting('session_authorization') = 'registry_publication_collector' AND registry.can_submit_version(publisher_id,package_id)" }
         - { name: reviewer_candidate, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.release_reviewers)" }
         - { name: scanner_queue, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker'" }
@@ -637,7 +647,7 @@ grants:
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: memberships, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_session_runtime] }
-  - { schema: registry, target: Table, objectName: review_submissions, privileges: [INSERT], roles: [registry_publication_collector] }
+  - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT, INSERT], roles: [registry_publication_collector] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_scan_worker, registry_session_runtime] }
   - { schema: registry, target: Table, objectName: scan_claims, privileges: [SELECT, INSERT, UPDATE], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: review_scans, privileges: [INSERT, SELECT], roles: [registry_scan_worker] }
@@ -774,8 +784,11 @@ functions:
     volatility: volatile
     executeRoles: [registry_publication_collector]
     body: >-
+      WITH scope AS MATERIALIZED (
+        SELECT set_config('registry.frozen_job',job_id::text,true),set_config('registry.frozen_publisher',publisher::text,true))
       INSERT INTO registry.review_submissions(id,package_id,epoch,ordinal,digest,publisher_id)
-      VALUES (job_id,pkg,release_epoch,release_ordinal,source_digest,publisher)
+      SELECT job_id,pkg,release_epoch,release_ordinal,source_digest,publisher FROM scope
+      ON CONFLICT ON CONSTRAINT uq_exact_frozen_job DO NOTHING
 
   - schema: registry
     name: frozen_scan_job

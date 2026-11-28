@@ -443,7 +443,7 @@ mandatory gate: no path publishes a release whose submission was not scanned.
 
 Each hosted submission starts pending. The collector freezes the package key, epoch,
 ordinal, release digest and canonical source digest together. That record is the
-durable scan job. A retry scans the same frozen source. An unavailable or inert
+durable scan job. The collector may repeat admission after a lost response while its publisher grant is current. Only an exact match on submission ID, package ID, epoch, ordinal, digest and publisher acknowledges the existing job. A changed binding fails; the unique candidate reservation also prevents assigning a second job ID to the same version and digest. A retry scans the same frozen source. An unavailable or inert
 agent leaves the job pending. Before contacting the agent, validate the canonical bundle and its root `osprey.toml`. Its declared package key must match the frozen job. A scanner receipt identifies the job and agent revision.
 
 After an accepted scan, an active human with the registry-wide release-review
