@@ -116,7 +116,7 @@ module Database {
 
     /// Dedicated service mount, with no browser-session credentials.
     export fn scan(statement, values) = {
-        let connection = Connection { service: "scan", serviceFile: "/run/registry-scan/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
+        let connection = Connection { service: "scan", serviceFile: "/run/registry-scan-db/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
         let sql = preAuthScript("registry_scan_worker", ["scan_job"], [listGet(values, 0) ?: ""], statement, values)
         executed(connection, sql)
     }

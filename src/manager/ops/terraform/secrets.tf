@@ -9,7 +9,7 @@ resource "random_password" "edge_secret" {
 
 # One restricted login per database service the API mounts [PACKAGE-OWNERSHIP-RLS].
 locals {
-  database_logins = {
+  api_database_logins = {
     catalog         = "registry_catalog_reader"
     login           = "registry_login_runtime"
     session-issuer  = "registry_session_issuer"
@@ -18,7 +18,8 @@ locals {
     catalog-writer  = "registry_catalog_writer"
   }
   # Transaction pooler: one short transaction per psql run; Supavisor names users <role>.<ref>.
-  pg_service = join("\n", [for service, role in local.database_logins : <<-EOT
+  database_logins = merge(local.api_database_logins, { scan = "registry_scan_worker" })
+  service_entries = { for service, role in local.database_logins : service => <<-EOT
     [${service}]
     host=${var.supabase_pooler_host}
     port=6543
@@ -26,7 +27,8 @@ locals {
     user=${role}.${var.supabase_project_ref}
     password=${random_password.database[service].result}
     EOT
-  ])
+  }
+  pg_service = join("\n", [for service in keys(local.api_database_logins) : local.service_entries[service]])
   runtime_config = jsonencode({
     apiHost                = var.api_hostname
     websiteOrigin          = "https://${var.website_hostname}"
