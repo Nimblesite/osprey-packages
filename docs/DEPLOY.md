@@ -4,7 +4,7 @@ Stack: Cloudflare → Cloud Run → Supabase (`[PACKAGE-HOSTED-TOPOLOGY]`). I ru
 
 The domain is `nimblesite.ai` (already on Cloudflare); `ospreylang.dev` is still on GoDaddy DNS. Everything else is created or looked up by `make deploy`: the GCP project, billing link, A$50 budget, Cloudflare IDs, the Supabase token from your `supabase login`, and CI's Pages token.
 
-1. Cloudflare → My Profile → API Tokens → Create → Custom token **"osprey-registry-terraform"**. Permissions: Account › Workers Scripts › Edit, Account › Cloudflare Pages › Edit, Account › Account API Tokens › Edit, Zone › DNS › Edit, Zone › Workers Routes › Edit, Zone › Zone › Read. Resources: your account and the `nimblesite.ai` zone. Paste it as `CLOUDFLARE_API_TOKEN=` in `src/manager/ops/deploy.env`.
+1. Cloudflare → My Profile → API Tokens → Create → Custom token **"osprey-packages"**. Permissions: Account › Workers Scripts › Edit, Account › Cloudflare Pages › Edit, Account › Account API Tokens › Edit, Zone › DNS › Edit, Zone › Workers Routes › Edit, Zone › Zone › Read. Resources: your account and the `nimblesite.ai` zone. Paste it as `CLOUDFLARE_API_TOKEN=` in `src/manager/ops/deploy.env`.
 2. Merge PR #1 (`deslop-cleanup`) to `main`: the deploy workflow runs from `main`, and agents never merge.
 3. GitHub sign-in (no API exists for this): GitHub → Settings → Developer settings → OAuth Apps → New, once per environment. Homepage `https://packages-staging.nimblesite.ai` (production: `https://packages.nimblesite.ai`); callback is the URL `make deploy` prints. Paste the ID and secret into `GITHUB_OAUTH_CLIENT_{ID,SECRET}_{STAGING,PRODUCTION}` in `deploy.env`.
 
@@ -23,10 +23,11 @@ The names are single-label on purpose: Cloudflare's free certificate covers `*.<
 ## Cost
 
 - Cloudflare: US$0.
-- Cloud Run: 1 vCPU / 512 MiB, billed only while serving, scales to zero, at most 2 instances: about US$0–5/month.
+- Cloud Run: 1 vCPU / 512 MiB, billed only while serving, scales to zero, at most 1 instance: about A$0–5/month.
 - Supabase: always the smallest (Micro) compute, about US$10/month per project on the paid org. Keep the org's spend cap on.
 - Domain: US$0 (`nimblesite.ai`, already owned).
-- One project-wide GCP budget alert at A$50/month (50/90/100%), created by every `make deploy` before anything else.
+- Hard cap: one project-wide A$50/month budget, created by every `make deploy` before anything else. It emails at 50/90/100%, and at 100% a Cloud Workflow unlinks billing from the project, which stops all GCP spend. Tested: a cost-equals-budget notification unlinked billing within two minutes. Recover with `gcloud billing projects link osprey-registry --billing-account=<ID>`.
+- Supabase is billed separately: Micro compute is a fixed ~US$10/month per project, and the org's spend cap (on by default for Pro) blocks overages.
 
 ## Later
 

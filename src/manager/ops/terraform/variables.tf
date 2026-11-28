@@ -49,9 +49,9 @@ variable "image" {
 variable "max_instances" {
   description = "Cost ceiling, not a performance knob."
   type        = number
-  default     = 2
+  default     = 1
   validation {
-    condition     = var.max_instances >= 1 && var.max_instances <= 50 && floor(var.max_instances) == var.max_instances
+    condition     = var.max_instances >= 1 && var.max_instances <= 2 && floor(var.max_instances) == var.max_instances
     error_message = "Use an explicit integer instance cap between one and fifty."
   }
 }

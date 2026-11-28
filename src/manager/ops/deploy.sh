@@ -87,16 +87,46 @@ secret_put() { # NAME (value on stdin)
 
 owner_password() { gcloud secrets versions access latest --secret="$NAME-db-owner" --project="$GCP_PROJECT_ID"; }
 
-# --- Cost guard: one project-wide alert before anything can spend ----------------------------
+# --- Cost guard [PACKAGE-HOSTED-SPEND-CAP]: alerts plus a hard stop, before anything can spend --
 BUDGET=50 # in the billing account's own currency (AUD here); the API rejects any other
+CAP_NAME=osprey-registry-spend-cap
+CAP_REGION=australia-southeast1
 
-# Both environments share the project, so the budget is one project singleton, not per-environment Terraform.
+# Both environments share the project, so the cap is one project singleton, not per-environment Terraform.
+ensure_spend_cap() {
+  gcloud services enable billingbudgets.googleapis.com cloudbilling.googleapis.com pubsub.googleapis.com \
+    workflows.googleapis.com eventarc.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
+  gcloud pubsub topics describe "$CAP_NAME" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
+    || gcloud pubsub topics create "$CAP_NAME" --project="$GCP_PROJECT_ID" >/dev/null
+  cap_workflow
+  ensure_budget
+}
+
+# Unlinks billing once the month's cost reaches the budget. A declarative Cloud Workflow, not code:
+# its identity holds only Project Billing Manager plus what Eventarc delivery needs.
+cap_workflow() {
+  local sa="$CAP_NAME@$GCP_PROJECT_ID.iam.gserviceaccount.com" role
+  gcloud iam service-accounts describe "$sa" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
+    || gcloud iam service-accounts create "$CAP_NAME" --display-name="Unlinks billing at the budget" --project="$GCP_PROJECT_ID" >/dev/null
+  for role in billing.projectManager workflows.invoker eventarc.eventReceiver logging.logWriter; do
+    gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" --member="serviceAccount:$sa" --role="roles/$role" --condition=None >/dev/null
+  done
+  gcloud workflows deploy "$CAP_NAME" --location="$CAP_REGION" --project="$GCP_PROJECT_ID" \
+    --source="$OPS/spend-cap/workflow.yaml" --service-account="$sa" >/dev/null
+  gcloud eventarc triggers describe "$CAP_NAME" --location="$CAP_REGION" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 \
+    || gcloud eventarc triggers create "$CAP_NAME" --location="$CAP_REGION" --project="$GCP_PROJECT_ID" \
+      --destination-workflow="$CAP_NAME" --destination-workflow-location="$CAP_REGION" \
+      --event-filters=type=google.cloud.pubsub.topic.v1.messagePublished \
+      --transport-topic="projects/$GCP_PROJECT_ID/topics/$CAP_NAME" --service-account="$sa" >/dev/null
+}
+
 ensure_budget() {
-  gcloud services enable billingbudgets.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
-  local existing; existing="$(gcloud billing budgets list --billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" \
-    --filter="displayName=osprey-registry" --format='value(name)' 2>/dev/null)"
-  local currency; currency="$(gcloud billing accounts describe "$GCP_BILLING_ACCOUNT" --format='value(currencyCode)')"
-  local args=(--billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="$BUDGET$currency")
+  local existing currency
+  existing="$(gcloud billing budgets list --billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" \
+    --filter="displayName=osprey-registry" --format='value(name)')"
+  currency="$(gcloud billing accounts describe "$GCP_BILLING_ACCOUNT" --format='value(currencyCode)')"
+  local args=(--billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="$BUDGET$currency"
+    --notifications-rule-pubsub-topic="projects/$GCP_PROJECT_ID/topics/$CAP_NAME")
   if [[ -n "$existing" ]]; then
     gcloud billing budgets update "$existing" "${args[@]}" >/dev/null
   else
@@ -104,7 +134,7 @@ ensure_budget() {
       --filter-projects="projects/$GCP_PROJECT_ID" \
       --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 >/dev/null
   fi
-  log "budget alert $BUDGET $currency/month on $GCP_PROJECT_ID (50/90/100%)"
+  log "spend cap $BUDGET $currency/month on $GCP_PROJECT_ID: emails at 50/90/100%, billing unlinked at 100%"
 }
 
 # --- Supabase: project, keys, pooler, Auth [PACKAGE-HOSTED-AUTH] ------------------------------
@@ -290,7 +320,7 @@ step_release() {
 main() {
   load_config
   ensure_project
-  ensure_budget
+  ensure_spend_cap
   [[ "$STEP" == supabase ]] || tf_init
   case "$STEP" in
     all) step_supabase; step_infra; step_github; step_database; step_release; step_smoke ;;
