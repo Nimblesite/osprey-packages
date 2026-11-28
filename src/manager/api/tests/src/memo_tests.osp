@@ -23,23 +23,55 @@ module MemoTests {
         Error { message } => "error:" + message
     }
 
-    /// Run `body` with a fresh memo cell, a fetch counter and a settable clock.
-    fn withMemo(rows, run) = match CatalogMemo::create() {
-        Error { message } => check("memo cell", "", message)
-        Success { value } => match Channel(1) {
-            Error { message } => check("fetch counter", "", message)
-            Success { value: count } => {
-                send(count, 0)
-                let memo = value
-                let fetch = fn() => {
-                    bump(count)
-                    rows(seen(count))
-                }
-                run(fn(now) => answered(CatalogMemo::read(memo, fetch, fn() => Success { value: now })), fn() => seen(count),
-                    fn() => answered(CatalogMemo::read(memo, fetch, fn() => Error { message: "host.clock-unavailable" })))
-            }
+    fn counter(run) = match Channel(1) {
+        Error { message } => check("counter", "", message)
+        Success { value } => {
+            send(value, 0)
+            run(value)
         }
     }
+
+    fn tally(renewed, renew) = {
+        bump(renewed)
+        renew()
+    }
+    fn readAt(memo, fetch, renewed, renew: fn() -> Result<string, string>, clock) = CatalogMemo::read(memo, fetch, fn() => tally(renewed, renew), clock)
+
+    /// Run `run` with a fresh memo cell, counted fetches and renewals, and a settable clock.
+    fn withRenewal(rows, renew, run) = match CatalogMemo::create() {
+        Error { message } => check("memo cell", "", message)
+        Success { value } => counter(fn(count) => counter(fn(renewed) => {
+            let memo = value
+            let fetch = fn() => {
+                bump(count)
+                rows(seen(count))
+            }
+            run(fn(now) => answered(readAt(memo, fetch, renewed, renew, fn() => Success { value: now })), fn() => seen(count),
+                fn() => answered(readAt(memo, fetch, renewed, renew, fn() => Error { message: "host.clock-unavailable" })), fn() => seen(renewed))
+        }))
+    }
+    let refreshFailed = "error:database.refresh-failed"
+    fn failedRenewal() = Error { message: "database.refresh-failed" }
+    fn withMemo(rows, run) = withRenewal(rows, failedRenewal, fn(at, fetches, blind, _renewals) => run(at, fetches, blind))
+
+    fn missingRow() = withRenewal(fn(n) => Success { value: if n == 1 { "" } else { row(5000) } }, fn() => Success { value: "" },
+        fn(at, fetches, _blind, renewals) => checkAll("a missing row is refreshed, then read", [
+            at(1000) == body, fetches() == 2, renewals() == 1, at(1001) == body, fetches() == 2, renewals() == 1
+        ]))
+
+    fn missingRowRefreshFails() = withRenewal(fn(_n) => Success { value: "" }, failedRenewal, fn(at, fetches, _blind, renewals) => checkAll("no row and no refresh fails closed", [
+        at(1000) == refreshFailed, at(1000) == refreshFailed, fetches() == 2, renewals() == 2
+    ]))
+
+    fn renewal() = withRenewal(fn(n) => Success { value: if n == 1 { row(1300) } else { row(4600) } }, fn() => Success { value: "" },
+        fn(at, fetches, _blind, renewals) => checkAll("a row within ten minutes of expiry is renewed", [
+            at(1000) == body, fetches() == 2, renewals() == 1,
+            at(1059) == body, at(1060) == body, fetches() == 3, renewals() == 1
+        ]))
+
+    fn renewalFailureKeepsRow() = withRenewal(fn(_n) => Success { value: row(1300) }, failedRenewal, fn(at, fetches, _blind, renewals) => checkAll("a failed renewal still serves the live row", [
+        at(1000) == body, fetches() == 1, renewals() == 1, at(1030) == body, fetches() == 1, at(1300) == refreshFailed
+    ]))
 
     fn refreshInterval() = withMemo(fn(_n) => Success { value: row(5000) }, fn(at, fetches, _blind) => checkAll("one read per refresh interval", [
                 at(1000) == body, fetches() == 1,
@@ -68,11 +100,11 @@ module MemoTests {
     ]))
 
     fn malformed() = {
-        let rows = ["", "5000", "5000 ", " " + body, "abc " + body, "-5 " + body, "0 " + body, "5000x " + body, "50.5 " + body]
+        let rows = ["5000", "5000 ", " " + body, "abc " + body, "-5 " + body, "0 " + body, "5000x " + body, "50.5 " + body]
         let _checked = mapList(rows, fn(bad) => withMemo(fn(_n) => Success { value: bad }, fn(at, fetches, _blind) => checkAll("malformed timed row refused: " + bad, [
                         at(1000) == "error:catalog.invalid-projection", at(1000) == "error:catalog.invalid-projection", fetches() == 2
         ])))
-        check("malformed timed rows checked", 9, length(rows))
+        check("malformed timed rows checked", 8, length(rows))
     }
 
     fn bodyWithSpaces() = withMemo(fn(_n) => Success { value: "5000 {\"packages\": [ ]}" }, fn(at, fetches, _blind) => checkAll("only the first space splits", [
@@ -86,5 +118,9 @@ module MemoTests {
         test("memo: failed reads are not cached", failureNotCached)
         test("memo: malformed timed rows", malformed)
         test("memo: body keeps its spaces", bodyWithSpaces)
+        test("memo: missing row is refreshed", missingRow)
+        test("memo: missing row, failed refresh", missingRowRefreshFails)
+        test("memo: renewal near expiry", renewal)
+        test("memo: failed renewal keeps the live row", renewalFailureKeepsRow)
     }
 }

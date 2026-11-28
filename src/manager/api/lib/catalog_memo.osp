@@ -2,14 +2,18 @@ namespace registry_api;
 
 /// In-process memo of the verified public catalog [PACKAGE-HOSTED-ROUTES-CATALOG] [PLAN-ROLLOUT-EDGE].
 /// One `Channel(1)` cell is both the value and the lock: a reader takes the entry, rereads the
-/// database when the entry is older than `refresh` seconds, its evidence has expired or the clock
+/// database when the entry is older than `refreshSeconds`, its evidence has expired or the clock
 /// moved backwards, and puts an entry back before answering, so concurrent misses wait for one
 /// `psql` read instead of each spawning their own. A failed clock reads the database directly
 /// (the row's own lifetime check still applies there); a failed or malformed read is never cached.
+/// A missing, expired or nearly expired row makes the API call `refresh` (the database's
+/// SECURITY DEFINER refresher), so the catalog stays attested without a scheduler.
 module CatalogMemo {
     type Entry = { body: string, expiresAt: int, fetchedAt: int }
-    export let refresh = 60
+    export let refreshSeconds = 60
     export let invalid = "catalog.invalid-projection"
+    /// Seconds before expires_at at which the API asks the database to re-attest the catalog.
+    export let renewalWindow = 600
     fn empty() = Entry { body: "", expiresAt: 0, fetchedAt: 0 }
 
     export fn create() = match Channel(1) {
@@ -45,11 +49,34 @@ module CatalogMemo {
         }
     }
 
-    fn fresh(entry: Entry, now) = entry.body != "" && now >= entry.fetchedAt && now - entry.fetchedAt < refresh && now < entry.expiresAt
+    fn fresh(entry: Entry, now) = entry.body != "" && now >= entry.fetchedAt && now - entry.fetchedAt < refreshSeconds && now < entry.expiresAt
 
-    fn reread(fetch, now) = match fetch() {
-        Success { value } => parse(value, now)
+    fn renewed(fetch, refresh, now) = match refresh() {
         Error { message } => Error { message: message }
+        Success => match fetch() {
+            Success { value } => parse(value, now)
+            Error { message } => Error { message: message }
+        }
+    }
+
+    fn keepOn(result, entry: Entry) = match result {
+        Success { value } => Success { value: value }
+        Error => Success { value: entry }
+    }
+
+    /// A row past expiry is renewed or refused; one inside the renewal window is renewed, keeping the
+    /// live row when renewal fails.
+    fn assess(entry, fetch, refresh, now) = if entry.expiresAt <= now { renewed(fetch, refresh, now) }
+    else if entry.expiresAt - now < renewalWindow { keepOn(renewed(fetch, refresh, now), entry) } else { Success { value: entry } }
+
+    fn reread(fetch, refresh, now) = match fetch() {
+        Error { message } => Error { message: message }
+        Success { value } => if value == "" { renewed(fetch, refresh, now) } else {
+            match parse(value, now) {
+                Success { value: entry } => assess(entry, fetch, refresh, now)
+                Error { message } => Error { message: message }
+            }
+        }
     }
 
     fn settle(cell, kept: Entry, result) = match result {
@@ -72,11 +99,11 @@ module CatalogMemo {
     }
 
     /// The verified catalog body, read through the memo.
-    export fn read(cell, fetch, clock) = match clock() {
+    export fn read(cell, fetch, refresh, clock) = match clock() {
         Error => direct(fetch)
         Success { value: now } => {
             let held = recv(cell)
-            if fresh(held, now) { settle(cell, held, Success { value: held }) } else { settle(cell, empty(), reread(fetch, now)) }
+            if fresh(held, now) { settle(cell, held, Success { value: held }) } else { settle(cell, empty(), reread(fetch, refresh, now)) }
         }
     }
 }

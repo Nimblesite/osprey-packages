@@ -340,7 +340,7 @@ module HostedService {
     /// Production: catalog reads go through one in-process memo of the verified row [PLAN-ROLLOUT-EDGE].
     export fn serve(policy, contentHost, login, callback, session) = match CatalogMemo::create() {
         Error { message } => Error { message: message }
-        Success { value } => withListeners(policy, contentHost, "0.0.0.0", 8080, 8081, fn() => CatalogMemo::read(value, Database::timedPublicCatalog, Host::utcSeconds),
+        Success { value } => withListeners(policy, contentHost, "0.0.0.0", 8080, 8081, fn() => CatalogMemo::read(value, Database::timedPublicCatalog, Database::refreshPublicCatalog, Host::utcSeconds),
             HostedSource::mounted, login, callback, session, waitForRequests)
     }
 }

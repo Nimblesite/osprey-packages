@@ -86,6 +86,9 @@ module Database {
     fn mountedConnection(service) = Connection { service: service, serviceFile: "/run/catalog-service/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
 
     export fn timedPublicCatalog() = executed(mountedConnection("catalog"), timedCatalogScript())
+    /// Re-attest the public catalog through its SECURITY DEFINER refresher, as the reader login.
+    export fn refreshCatalogScript() = "BEGIN; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s';\n\\o /dev/null\n" + roleGuard + "SELECT 1/((current_user='registry_catalog_reader')::int);\nSELECT registry.refresh_public_catalog();\n\\o\nCOMMIT;\n"
+    export fn refreshPublicCatalog() = executed(mountedConnection("catalog"), refreshCatalogScript())
 
     fn preAuthScript(role, keys, scope, statement, values) =
     "BEGIN; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s'; SET LOCAL lock_timeout='2s';\n\\o /dev/null\n"
