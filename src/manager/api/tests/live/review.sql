@@ -296,6 +296,17 @@ DO $$ BEGIN
   EXCEPTION WHEN foreign_key_violation THEN NULL; END;
   PERFORM pg_temp.publish(1,'sha256:'||repeat('1',64));
 END $$;
+SET LOCAL SESSION AUTHORIZATION registry_scan_worker;
+DO $$ BEGIN
+  IF registry.publish_approved_release(md5('1')::uuid,'MIT','Test package','[]','[]') IS DISTINCT FROM md5('1')::uuid THEN
+    RAISE EXCEPTION 'exact publication retry refused'; END IF;
+  IF EXISTS (SELECT FROM (VALUES
+    ('ISC','Test package','[]','[]'),('MIT','Changed','[]','[]'),
+    ('MIT','Test package','["changed"]','[]'),('MIT','Test package','[]','["changed"]')
+  ) AS altered(license,about,tags,notices)
+    WHERE registry.publish_approved_release(md5('1')::uuid,license,about,tags,notices) IS NOT NULL)
+    THEN RAISE EXCEPTION 'different discovery data acknowledged as exact publication retry'; END IF;
+END $$;
 SET LOCAL SESSION AUTHORIZATION registry_catalog_writer;
 SELECT registry.refresh_public_catalog();
 SELECT pg_temp.require_denied($denied$UPDATE registry.public_catalog SET body='{"packages":[]}',verified_at=statement_timestamp(),expires_at=statement_timestamp()+interval '1 hour'$denied$);

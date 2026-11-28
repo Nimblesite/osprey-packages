@@ -1144,7 +1144,8 @@ functions:
       FROM registry.release_approvals a JOIN registry.review_submissions j ON j.id=a.submission_id
       JOIN registry.packages p ON p.id=a.package_id JOIN registry.organizations o ON o.id=p.organization_id
       WHERE a.submission_id=job_id ON CONFLICT DO NOTHING RETURNING id)
-      SELECT id FROM published UNION ALL SELECT r.id FROM registry.releases r WHERE r.id=job_id LIMIT 1
+      SELECT id FROM published UNION ALL SELECT r.id FROM registry.releases r WHERE r.id=job_id
+      AND r.state='eligible' AND (r.license_expression,r.summary,r.keywords,r.notices)=(license,about,tags,attributions) LIMIT 1
 
   # [PACKAGE-HOSTED-PUBLISH-FLOW] The package admin binds its one repository; NULL for anyone else or a second binding.
   - schema: registry

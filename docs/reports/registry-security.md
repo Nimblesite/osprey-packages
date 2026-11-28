@@ -1,5 +1,9 @@
 # Registry security findings
 
+## Publication acknowledged conflicting discovery metadata
+
+**Integrity of retry receipts · [PACKAGE-HOSTED-PUBLISH-FLOW].** A scanner retry could change the license, summary, keywords or notices and receive a successful publication ID for the previous values. The existing catalog row stayed immutable. PostgreSQL now acknowledges only an eligible row whose four stored fields exactly match the retry. A disposable database regression changes each field independently and exercises an exact retry.
+
 ## Reviewer lookup returned a suspended principal
 
 **Operator workflow · [PACKAGE-SECURITY-SCAN-APPROVAL].** In disposable PostgreSQL the owner-only reviewer lookup returned a suspended principal as an eligible candidate. Appointment independently denied the grant. Lookup and appointment now share the active human and GitHub binding checks and hold both rows stable for the transaction. The database regression checks that suspension denies both operations.

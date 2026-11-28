@@ -91,7 +91,7 @@ module Publication {
         let approved = Ownership::asSession(rex, "registry.approve_submission('${job}','${digest}')") == job
         let forged = scanner("1; INSERT INTO registry.releases VALUES ('${job}','${org}','${pkg}',1,2,'${digest}','${adaId}','Atlas Engineering','MIT','x','[]','[]','[]','eligible',statement_timestamp())") == "error"
         let published = (worker(job, digest, bytes, ScanJob::publish) ?: "") == job
-        let replayed = (worker(job, digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','Other','[]','[]')") == job
+        let replayed = (worker(job, digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','Other','[]','[]')") == ""
         let listed = CatalogWriter::refreshed() && catalogLists(digest, adaId)
         let clean = Ownership::owner(cleanup).status == 0
         checkAll("an approved version reaches the public catalog", [ada.digest != "", rex.digest != "", eve.digest != "", reviewer, unbound, strangerBinds, bound, rebound,
