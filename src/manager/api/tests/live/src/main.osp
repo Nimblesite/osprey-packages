@@ -136,12 +136,14 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
         }
         let edge = fixtureEdge
         let login = expectLogin(client, edge, true)
+        let browser = onFixture("if [ \"$REGISTRY_BROWSER_CHECK\" = 1 ]; then node scripts/packages/test-registry-preview.cjs --database-catalog ${port}; fi")
+        let consumed = Consume::check(port, "@atlas/net", "e1.r1", fixtureDigest, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        let journey = onFixture("test \"$REGISTRY_BROWSER_CHECK\" = 1").status != 0
+        || (onFixture("node scripts/packages/test-registry-preview.cjs --live-release ${port} 2> target/live-release.log").status == 0 && ScanWorkerTests::withScanPolicy(Publication::fromBrowser))
         let binding = fixtureRun("UPDATE registry.auth_bindings SET state='revoked' WHERE auth_subject='${fixtureBrowserSubject}'")
         let denied = expectLogin(client, edge, false)
         let _closed = httpCloseClient(client)
-        let browser = onFixture("if [ \"$REGISTRY_BROWSER_CHECK\" = 1 ]; then node scripts/packages/test-registry-preview.cjs --database-catalog ${port}; fi")
-        let consumed = Consume::check(port, "@atlas/net", "e1.r1", fixtureDigest, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
-        if observed && login && binding.status == 0 && denied && browser.status == 0 && consumed { Success { value: 0 } } else { catalogFailure(browser.stderr) }
+        if observed && login && journey && binding.status == 0 && denied && browser.status == 0 && consumed { Success { value: 0 } } else { catalogFailure(browser.stderr) }
 })
 
 fn catalogListener() = {
@@ -149,7 +151,7 @@ fn catalogListener() = {
     let created = fixtureRun(setup + ";" + fixtureBrowserBinding())
     let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let port = 20000 + random() % 15000
-    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, HostedLogin::noPasskeys(), HostedReview::Operations { approve: fn(_token, _id, _digest) => HostedLogin::unavailable(), receipt: fn(_token, _id) => Error { message: HostedReview::missing }, organize: fn(_token, _slug, _name) => HostedLogin::unavailable(), createPackage: fn(_token, _org, _name) => HostedLogin::unavailable(), bind: fn(_token, _pkg, _repo, _branch, _dir) => HostedLogin::unavailable(), release: fn(_token, _pkg, _commit, _epoch, _ordinal) => HostedLogin::unavailable(), account: fn(_token) => HostedLogin::unavailable() }, fn() => catalogRequest(port)))
+    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, HostedLogin::noPasskeys(), Journey::operations(readBrowser, runRuntime), fn() => catalogRequest(port)))
     checkAll("restricted PostgreSQL login behind public HTTP ingress", [created.status == 0, (served ?: -1) == 0])
 }
 

@@ -188,6 +188,7 @@ async function checkMobileMenu(browser) {
 (async () => {
   const browser = await chromium.launch();
   try {
+    if (process.argv[2] === '--live-release') return await require('./registry-live-release.cjs').checkLiveRelease(browser, process.argv[3]);
     if (process.argv[2] === '--database-catalog') return await checkHostedAccount(browser, process.argv[3]);
     if (process.argv.includes('--built-hosted-account')) return await checkHostedAccount(browser);
     if (process.argv.includes('--highlighting-only')) return await checkReferenceHighlighting(browser);

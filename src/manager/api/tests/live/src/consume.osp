@@ -1,4 +1,8 @@
 namespace registry_live_tests;
+import registry_api::HostedLogin
+import registry_api::HostedReview
+import registry_api::HostedService
+import registry::Digests
 import registry_host::Host
 
 /// The consumer leg of [PLAN-ROLLOUT-PUBLICATION-JOURNEY]: the released `osprey-pkg` binary fetches
@@ -7,6 +11,9 @@ import registry_host::Host
 /// nothing else: it forwards GETs only and never changes a reply.
 module Consume {
     let portFile = "target/live-edge-port"
+    /// The live suite's stand-in for the published-source bucket the API mounts at `/run/registry-source`.
+    export let publishedDir = "target/live-published"
+    let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let edgeHeaders = "X-Edge-Host: 127.0.0.1\r\nX-Edge-Secret: fixture-edge-secret-at-least-32-bytes"
 
     fn reply(status, body) = HttpResponse { status: status, headers: "", contentType: "application/json", streamFd: -1, isComplete: true, partialBody: body }
@@ -81,5 +88,19 @@ module Consume {
             Success { value } => listening(value, edgePort, key, version, digest, tampered)
             Error => false
         }
+    }
+
+    fn publishedSource(digest) = andThen(Digests::parse(digest), fn(parsed) => readFile("${publishedDir}/${Digests::hexOf(parsed)}.json"))
+
+    export fn noReviews() = HostedReview::Operations { approve: fn(_token, _id, _digest) => HostedLogin::unavailable(), receipt: fn(_token, _id) => Error { message: HostedReview::missing }, organize: fn(_token, _slug, _name) => HostedLogin::unavailable(), createPackage: fn(_token, _org, _name) => HostedLogin::unavailable(), bind: fn(_token, _pkg, _repo, _branch, _dir) => HostedLogin::unavailable(), release: fn(_token, _pkg, _commit, _epoch, _ordinal) => HostedLogin::unavailable(), account: fn(_token) => HostedLogin::unavailable() }
+
+    /// The real API, serving `catalog` and the published-source directory with sign-in unavailable,
+    /// and `osprey-pkg` consuming `digest` through it while refusing `missing`.
+    export fn fromPublished(catalog, key, version, digest, missing) = {
+        let port = 20000 + random() % 15000
+        let listened = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "", "127.0.0.1", port, port + 1,
+                catalog, publishedSource, fn() => HostedLogin::unavailable(), fn(_path, _headers) => HostedLogin::unavailable(),
+                fn(_method, _token) => HostedLogin::unavailable(), HostedLogin::noPasskeys(), noReviews(), fn() => Success { value: check(port, key, version, digest, missing) }))
+        listened ?: false
     }
 }
