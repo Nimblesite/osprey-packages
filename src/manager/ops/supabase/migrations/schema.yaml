@@ -29,6 +29,10 @@ tables:
             OR current_setting('session_authorization') = 'registry_session_runtime')
             AND kind = 'human' AND state = 'active'
             AND EXISTS (SELECT 1 FROM registry.auth_bindings b WHERE b.principal_id = principals.id)
+        # [PACKAGE-HOSTED-AUTH] A first GitHub sign-in registers: the issuer creates one authority-free
+        # principal and, in the same statement, sees only that row to bind it.
+        - { name: issuer_registers_principal, permissive: true, operations: [Insert], roles: [registry_session_issuer], withCheck: &registered_principal "kind = 'human' AND state = 'active' AND credential_epoch = 1 AND created_at = statement_timestamp()" }
+        - { name: issuer_sees_registered_principal, permissive: true, operations: [Select], roles: [registry_session_issuer], using: *registered_principal }
 
   - name: auth_bindings
     schema: registry
@@ -63,6 +67,16 @@ tables:
             AND issuer = current_setting('registry.session_issuer')
             AND auth_subject::text = current_setting('registry.session_subject')
             AND provider_subject = current_setting('registry.session_provider')
+        - name: issuer_registers_binding
+          permissive: true
+          operations: [Insert]
+          roles: [registry_session_issuer]
+          withCheck: >-
+            provider = 'github' AND state = 'active' AND verified_at = statement_timestamp()
+            AND issuer = current_setting('registry.session_issuer')
+            AND auth_subject::text = current_setting('registry.session_subject')
+            AND provider_subject = current_setting('registry.session_provider')
+            AND EXISTS (SELECT 1 FROM registry.principals p WHERE p.id = principal_id AND p.created_at = statement_timestamp())
 
   - name: organizations
     schema: registry
@@ -642,6 +656,8 @@ grants:
   - { schema: registry, target: Table, objectName: pending_logins, privileges: [INSERT, SELECT, DELETE], roles: [registry_login_runtime] }
   - { schema: registry, target: Table, objectName: auth_bindings, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
   - { schema: registry, target: Table, objectName: principals, privileges: [SELECT], roles: [registry_session_issuer, registry_session_runtime, registry_session_revoker] }
+  - { schema: registry, target: Table, objectName: principals, privileges: [INSERT], roles: [registry_session_issuer] }
+  - { schema: registry, target: Table, objectName: auth_bindings, privileges: [INSERT], roles: [registry_session_issuer] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [INSERT], roles: [registry_session_issuer] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [UPDATE], roles: [registry_session_revoker] }
   - { schema: registry, target: Table, objectName: browser_sessions, privileges: [SELECT, UPDATE], roles: [registry_session_runtime] }
@@ -668,23 +684,40 @@ grants:
   - { schema: registry, target: Table, objectName: package_permissions, privileges: [SELECT], roles: [registry_publication_collector] }
 functions:
   # The live catalog row as `<expires_at unix seconds> <body>`, or NULL [PACKAGE-HOSTED-ROUTES-CATALOG].
+  # Register an unseen GitHub identity, then mint its session [PACKAGE-HOSTED-AUTH]. Only the identity the
+  # issuer scope verified registers; a known, revoked or conflicting one rolls the savepoint back, and a
+  # session is issued only for an active binding.
   - schema: registry
     name: issue_browser_session
     arguments: [{name: cookie, type: text}, {name: verified_issuer, type: text}, {name: subject, type: uuid}, {name: github, type: text}, {name: envelope, type: text}]
     returns: uuid
+    language: plpgsql
     volatility: volatile
     executeRoles: [registry_session_issuer]
     body: >-
-      WITH candidate AS MATERIALIZED (
-        SELECT gen_random_uuid() AS id,b.id AS binding,p.id AS principal,p.credential_epoch
-        FROM registry.auth_bindings b JOIN registry.principals p ON p.id=b.principal_id
-        WHERE b.issuer=verified_issuer AND b.auth_subject=subject AND b.provider_subject=github
-        AND b.provider='github' AND b.state='active' AND p.kind='human' AND p.state='active'),
-      issued AS (
-        INSERT INTO registry.browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at)
-        SELECT id,cookie,binding,principal,credential_epoch,envelope,statement_timestamp(),statement_timestamp() FROM candidate
-        RETURNING 1)
-      SELECT candidate.id FROM candidate CROSS JOIN issued
+      DECLARE fresh uuid := gen_random_uuid(); issued uuid;
+      BEGIN
+        IF verified_issuer = current_setting('registry.session_issuer',true) AND subject::text = current_setting('registry.session_subject',true)
+        AND github = current_setting('registry.session_provider',true) THEN
+          BEGIN
+            INSERT INTO registry.principals(id,kind,state,credential_epoch,created_at) VALUES (fresh,'human','active',1,statement_timestamp());
+            INSERT INTO registry.auth_bindings(id,principal_id,issuer,provider,provider_subject,auth_subject,state,verified_at)
+            VALUES (gen_random_uuid(),fresh,verified_issuer,'github',github,subject,'active',statement_timestamp());
+          EXCEPTION WHEN unique_violation THEN NULL;
+          END;
+        END IF;
+        WITH candidate AS MATERIALIZED (
+          SELECT gen_random_uuid() AS id,b.id AS binding,p.id AS principal,p.credential_epoch
+          FROM registry.auth_bindings b JOIN registry.principals p ON p.id=b.principal_id
+          WHERE b.issuer=verified_issuer AND b.auth_subject=subject AND b.provider_subject=github
+          AND b.provider='github' AND b.state='active' AND p.kind='human' AND p.state='active'),
+        made AS (
+          INSERT INTO registry.browser_sessions(id,cookie_digest,binding_id,principal_id,credential_epoch,token_envelope,started_at,last_used_at)
+          SELECT id,cookie,binding,principal,credential_epoch,envelope,statement_timestamp(),statement_timestamp() FROM candidate
+          RETURNING 1)
+        SELECT candidate.id INTO issued FROM candidate CROSS JOIN made;
+        RETURN issued;
+      END
 
   - schema: registry
     name: revoke_browser_session

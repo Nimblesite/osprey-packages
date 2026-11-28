@@ -503,6 +503,7 @@ fn suites() = {
     test("live browser session identity and logout", stableSessionChecks)
     test("restricted browser session issuance", restrictedSessionIssue)
     test("session issuer libpq connection", sessionIssuerConnection)
+    test("first GitHub sign-in registers an account", Registration::check)
     test("live browser session expiry and revocation", sessionLifetimeChecks)
     test("browser sessions start closed", fn() => checkAll("browser sessions use forced row security", [answer("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'registry.browser_sessions'::regclass", "t")]))
     test("frozen upload worker", fn() => ScanWorkerTests::run(seed()))
