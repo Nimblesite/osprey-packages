@@ -143,9 +143,14 @@ await check('website: Chromium renders the catalog from this environment\'s API 
     const apiCalls = [];
     page.on('pageerror', error => errors.push(error.message));
     page.on('request', request => { if (request.url().startsWith(api)) apiCalls.push(request.url()); });
-    page.on('requestfailed', request => errors.push(`${request.url()} ${request.failure()?.errorText}`));
+    page.on('requestfailed', request => {
+      const reason = request.failure()?.errorText;
+      if (request.url().startsWith('https://static.cloudflareinsights.com/beacon.min.js') && reason === 'csp') return;
+      errors.push(`${request.url()} ${reason}`);
+    });
     await page.goto(`${website}/`, { waitUntil: 'networkidle' });
-    await page.locator('.prose-package, :text("No matching packages."), :text("unavailable")').first().waitFor({ timeout: 20000 });
+    await page.locator('.prose-package, :text("No packages published yet."), :text("No matching packages."), :text("unavailable")').first().waitFor({ timeout: 20000 });
+    assert.equal(await page.getByText('unavailable').count(), 0, 'catalog rendered unavailable');
     assert.ok(apiCalls.some(url => url.startsWith(`${api}/v1/packages`)), `catalog never read from ${api}`);
     assert.deepEqual(errors, []);
   } finally {
