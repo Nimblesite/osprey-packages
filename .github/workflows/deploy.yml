@@ -22,7 +22,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Production takes main and nothing else: every other job waits on this one.
+  main-only:
+    name: Deploys run from main only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Refuse any ref but main
+        run: test "$GITHUB_REF" = refs/heads/main
+
   ci:
+    needs: main-only
     uses: ./.github/workflows/ci.yml
 
   api:

@@ -375,7 +375,17 @@ step_release() {
   if [[ -n "$built" && "$built" == "$(deployed_image)" ]]; then log "main's head is already deployed"; else dispatch; fi
 }
 
+# Production takes main's pushed head and nothing else: no feature branch, no unmerged commit, no
+# uncommitted file. Every step that changes production passes through here first.
+require_main() {
+  git fetch -q origin main || die "cannot fetch origin/main"
+  [[ "$(git rev-parse --abbrev-ref HEAD)" == main ]] || die "deploys run from main only; this checkout is on $(git rev-parse --abbrev-ref HEAD)"
+  [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || die "deploys run from origin/main's head only; HEAD is $(git rev-parse --short HEAD)"
+  [[ -z "$(git status --porcelain)" ]] || die "deploys run from a clean main checkout only"
+}
+
 main() {
+  [[ "$STEP" == smoke ]] || require_main
   load_config
   ensure_project
   ensure_spend_cap

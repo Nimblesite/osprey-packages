@@ -47,3 +47,4 @@
 - ⏱️ Heavy CPU runs: `nice` + strict timeouts
 - 🤖 Legwork → pi: ONLY `zai/glm-5.4` or `kimi-coding/k3.1-pro`
 - 🙅 Never commit as co-author. Never merge PRs
+- 🚀 Deploys run from `main` only: `deploy.sh` and the deploy workflows fail on any other branch, an unmerged commit or a dirty tree. ❌ Deploy a feature branch

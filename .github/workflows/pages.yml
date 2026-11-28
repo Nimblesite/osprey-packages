@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      - name: Refuse any ref but main
+        run: test "$GITHUB_REF" = refs/heads/main
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-wasm
       - id: pages
