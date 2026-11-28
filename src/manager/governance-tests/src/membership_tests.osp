@@ -151,6 +151,9 @@ module MembershipTests {
     fn grantUntil200(world, grantId, member, permission) =
         Fixture::grantOn(world, "pkg-f1", grantId, member, permission, Maybe::some(200), 100)
 
+    /// The fixture world once `member`'s `permission` grant `grantId` is recorded on `pkg-f1`.
+    fn grantedWorld(grantId, member, permission) = grantUntil200(Fixture::world(), grantId, member, permission)
+
     fn rejoin(world, principal, membership) = {
         let invitation = Fixture::verified("p-alice", "m-alice",
             Governance::invitationStatement("o-finch", principal, membership))
@@ -178,8 +181,7 @@ module MembershipTests {
     /// Departure and rejoin [PACKAGE-OWNERSHIP-PERMISSIONS]: a rejoin is a
     /// new membership id; the revoked row and its grants are never reactivated.
     fn rejoinCreatesNewIdentity() = {
-        let world = Fixture::world()
-        let granted = grantUntil200(world, "g-carol", "m-carol", Governance::ManageSecurity)
+        let granted = grantedWorld("g-carol", "m-carol", Governance::ManageSecurity)
         let departed = aliceRevoked(granted, "m-carol")
         let rejoined = Fixture::orKeep(departed, fn(w) => rejoin(w, "p-carol", "m-carol2"))
         checkAll("rejoin is a fresh membership and revives nothing", [
@@ -205,7 +207,7 @@ module MembershipTests {
     /// the admin reference [PACKAGE-OWNERSHIP-ADMIN].
     fn suspensionFreezesWrites() = {
         let world = Fixture::world()
-        let granted = grantUntil200(world, "g-bob", "m-bob", Governance::YankRelease)
+        let granted = grantedWorld("g-bob", "m-bob", Governance::YankRelease)
         let bobSuspended = suspended(granted, "p-bob")
         let aliceSuspended = suspended(world, "p-alice")
         checkAll("principal suspension denies immediately and freezes administered packages", [

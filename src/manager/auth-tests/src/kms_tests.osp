@@ -53,13 +53,16 @@ module KmsTests {
 
     fn alteredClear(from, to) = replace(clear, from, to) ?: ""
 
+    /// The case of a successful reply whose verifier has `from` replaced by `to`: refused.
+    fn altered(from, to) = { status: 200, encoded: alteredClear(from, to), expected: "denied" }
+
     fn expectedPlaintext() = {
         let cases = [
             { status: 200, encoded: clear, expected: verifier },
             { status: 403, encoded: clear, expected: "denied" },
-            { status: 200, encoded: alteredClear("aw==", "ax=="), expected: "denied" },
-            { status: 200, encoded: alteredClear("ZEJq", "////"), expected: "denied" },
-            { status: 200, encoded: alteredClear("==", ""), expected: "denied" }
+            altered("aw==", "ax=="),
+            altered("ZEJq", "////"),
+            altered("==", "")
         ]
         checkAll("KMS accepts only a successful canonical encoded verifier", [
             foldList(cases, true, fn(valid, c) => unsealCase(c) && valid)

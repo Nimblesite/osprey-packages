@@ -1,7 +1,6 @@
 namespace registry_tests;
 import registry::Digests
 import registry::Identity
-import registry::Names
 import registry::Order
 import registry::Domains
 
@@ -15,21 +14,11 @@ module IdentityTests {
     let hex = "7c4a8d09ca3762af61e59520943dc26494f8941b7c4a8d09ca3762af61e59520"
     let digest = "sha256:7c4a8d09ca3762af61e59520943dc26494f8941b7c4a8d09ca3762af61e59520"
 
-    fn digestShown(text) = match Digests::parse(text) {
-        Success { value } => value
-        Error { message } => message
-    }
-
-    fn shown(text) = match Identity::parse(text) {
-        Success { value } => Identity::display(value)
-        Error { message } => message
-    }
-
     fn digests() = checkAll("digest envelopes carry one algorithm and 64 lowercase hex digits", [
         Fixtures::mapsTo([
             digest, "sha512:${hex}", hex, "sha256:${take(hex, 63)}",
             "sha256:${toUpperCase(hex)}", "sha256:${take(hex, 63)}g"
-        ], [digest, badDigest, badDigest, "digest.length", "digest.hex", "digest.hex"], digestShown),
+        ], [digest, badDigest, badDigest, "digest.length", "digest.hex", "digest.hex"], fn(text) => Fixtures::valueOrMessage(Digests::parse(text))),
         structuralEquals([Digests::format([0, 255]), Digests::algorithmName()], ["sha256:00ff", "sha256"]),
         Fixtures::ints(Digests::preimage("d", [9])) == "100,0,0,0,0,0,0,0,0,1,9",
         Fixtures::ints(Digests::preimage("", [])) == "0,0,0,0,0,0,0,0,0",
@@ -51,18 +40,14 @@ module IdentityTests {
             "release.missing-digest", "release.missing-digest", badDigest, "release.missing-version",
             "release.version", "release.version", badOrdinal, "release.epoch", "release.epoch",
             badOrdinal, badOrdinal, badOrdinal, "name.scope.chars", "name.missing-at"
-        ], shown)
+        ], fn(text) => Fixtures::shown(Identity::parse, Identity::display, text))
     ])
 
-    fn id(scope, name, epoch, ordinal, d) = Identity::ReleaseId { key: Names::Key { scope: scope, name: name }, epoch: epoch, ordinal: ordinal, digest: d }
-
     fn ordering() = {
-        let ids = [id("b", "a", 1, 1, "sha256:aa"), id("a", "a", 2, 1, "sha256:aa"), id("a", "a", 1, 9, "sha256:aa"), id("a", "a", 1, 9, "sha256:ab"), id("a", "a", 1, 2, "sha256:zz")]
-        let at = fn(i) => listGet(ids, i) ?: id("", "", 0, 0, "")
-        let sorted = mapList(Order::permutation(length(ids), fn(i, j) => Identity::compare(at(i), at(j))), at)
+        let ids = [Fixtures::releaseId("b", "a", 1, 1, "sha256:aa"), Fixtures::releaseId("a", "a", 2, 1, "sha256:aa"), Fixtures::releaseId("a", "a", 1, 9, "sha256:aa"), Fixtures::releaseId("a", "a", 1, 9, "sha256:ab"), Fixtures::releaseId("a", "a", 1, 2, "sha256:zz")]
         checkAll("releases order by (package, epoch, ordinal, digest)", [
-            join(mapList(sorted, Identity::display), " ") == "@a/a@e1.r2#sha256:zz @a/a@e1.r9#sha256:aa @a/a@e1.r9#sha256:ab @a/a@e2.r1#sha256:aa @b/a@e1.r1#sha256:aa",
-            Identity::compare(id("a", "a", 1, 1, "sha256:aa"), id("a", "a", 1, 1, "sha256:aa")) == 0
+            Fixtures::sortedText(ids, Identity::compare, Identity::blank(), Identity::display) == "@a/a@e1.r2#sha256:zz @a/a@e1.r9#sha256:aa @a/a@e1.r9#sha256:ab @a/a@e2.r1#sha256:aa @b/a@e1.r1#sha256:aa",
+            Identity::compare(Fixtures::releaseId("a", "a", 1, 1, "sha256:aa"), Fixtures::releaseId("a", "a", 1, 1, "sha256:aa")) == 0
         ])
     }
 

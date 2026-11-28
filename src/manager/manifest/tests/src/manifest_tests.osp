@@ -18,8 +18,10 @@ module ManifestTests {
     /// `[package]` table below it up to its license or summary, the tail those
     /// tables share, and one `[dependencies]` entry key.
     let packageTable = "[project]\nname = \"x\"\n[package]\n"
-    let packageBase = "[project]\nname = \"x\"\n[package]\nname = \"@finch/ledger\"\nlicense = \"MIT\"\n"
-    let packageSummary = "[project]\nname = \"x\"\n[package]\nname = \"@finch/ledger\"\nlicense = \"MIT\"\nsummary = \"s\"\n"
+    /// The `[package]` name every well-formed fixture table declares.
+    let ledgerName = "@finch/ledger"
+    let packageBase = "[project]\nname = \"x\"\n[package]\nname = \"${ledgerName}\"\nlicense = \"MIT\"\n"
+    let packageSummary = "[project]\nname = \"x\"\n[package]\nname = \"${ledgerName}\"\nlicense = \"MIT\"\nsummary = \"s\"\n"
     let packageTail = "summary = \"s\"\nkeywords = []\n"
     let httpDependency = "[dependencies]\n\"@osprey/http\" = "
 
@@ -61,6 +63,13 @@ module ManifestTests {
     fn packageBaseRefused(body, code) = refused(packageBase + body, code)
     fn packageSummaryRefused(body, code) = refused(packageSummary + body, code)
 
+    /// `refused` for a `[package]` naming `name` under the license expression
+    /// `license` (no license line when ""), then the shared tail.
+    fn licenseRefused(name, license, code) = {
+        let line = if license == "" { "" } else { "license = \"${license}\"\n" }
+        packageTableRefused("name = \"${name}\"\n${line}" + packageTail, code)
+    }
+
     /// `refused` for one `[dependencies]` entry on the canonical key.
     fn httpRefused(value, code) = rejected(httpDependency + value, code)
 
@@ -97,28 +106,39 @@ module ManifestTests {
         "${ManifestModel::edgeRank(e)}:${Names::display(r.package)}@e${r.epoch}.r${r.minimumOrdinal}"
     }
 
-    fn edges(text) = projected(text, fn(m) => join(mapList(m.dependencies, edgeText), " "))
+    /// `text`'s `pick` of the manifest, each item through `show` and joined
+    /// with spaces; or the parse message.
+    fn joined(text, pick, show) = projected(text, fn(m) => join(mapList(pick(m), show), " "))
+
+    fn edges(text) = joined(text, ManifestModel::edgesOf, edgeText)
 
     fn publicationKey(m: ManifestModel::Manifest) = Maybe::fold(m.publication, "none", fn(p) => Names::display(p.package))
 
     fn grantText(g: ManifestModel::Grant) = "${Names::display(g.package)}:${join(g.capabilities, ",")}"
 
-    fn grants(text) = projected(text, fn(m) => join(mapList(m.grants, grantText), " "))
+    fn grants(text) = joined(text, ManifestModel::grantsOf, grantText)
 
     /// A `[project]` document declaring exactly one `@a/a` dependency.
     fn grantDocument(value) = project("[dependencies]\n\"@a/a\" = " + value)
 
+    /// A published `[project]` with `src` roots, the sources line `line` and
+    /// the ledger `[package]`, refused with `code`.
+    fn publishedProjectRefused(line, code) = rejected("source_roots = [\"src\"]\n${line}\n[package]\nname = \"${ledgerName}\"\nlicense = \"MIT\"\nsummary = \"s\"\nkeywords = [\"a\"]\n", code)
+
     /// A `[project]` with `src` roots and the ML sources at `model`, plus a package.
-    fn pythonProjectRefused(model, code) = rejected("source_roots = [\"src\"]\npython_sources = [\"${model}\"]\n[package]\nname = \"@finch/ledger\"\nlicense = \"MIT\"\nsummary = \"s\"\nkeywords = [\"a\"]\n", code)
+    fn pythonProjectRefused(model, code) = publishedProjectRefused("python_sources = [\"${model}\"]", code)
 
     /// A published `[project]` with `src` roots and the TypeScript sources at `path`.
-    fn typescriptProjectRefused(path, code) = rejected("source_roots = [\"src\"]\ntypescript_sources = [\"${path}\"]\n[package]\nname = \"@finch/ledger\"\nlicense = \"MIT\"\nsummary = \"s\"\nkeywords = [\"a\"]\n", code)
+    fn typescriptProjectRefused(path, code) = publishedProjectRefused("typescript_sources = [\"${path}\"]", code)
 
     /// A dependency grant whose `capabilities` value is refused by the grammar.
     fn badCapability(value) = startsWith(verdict(grantDocument("{ epoch = 1, capabilities = ${value} }\n")), "manifest.dependency.capability at ")
 
     /// One `[system.<name>]` declaration of `capability`, then `body`.
     fn systemTable(name, capability, body) = "[system.${name}]\ncapability = \"${capability}\"\n" + body
+
+    /// One `[system.sqlite]` declaration of `capability`, then `body`.
+    fn sqliteTable(capability, body) = systemTable("sqlite", capability, body)
 
     /// One `[[assets]]` declaration; `extra` adds a trailing key or nothing.
     fn asset(path, role, kind, byteLength, digest, extra) = "[[assets]]\npath = \"${path}\"\nrole = \"${role}\"\nkind = \"${kind}\"\nbyte_length = ${byteLength}\ndigest = ${digest}\n${extra}"
@@ -202,11 +222,11 @@ module ManifestTests {
     ])
 
     fn rejectsPackage() = checkAll("[package]: names, licenses, summaries, keywords", [
-        packageTableRefused("name = \"ledger\"\nlicense = \"MIT\"\n" + packageTail, "name.missing-at at 4:1"),
-        packageTableRefused("name = \"@Finch/ledger\"\nlicense = \"MIT\"\n" + packageTail, "name.scope.chars at 4:1"),
-        packageTableRefused("name = \"@finch/ledger\"\n" + packageTail, "manifest.license at 3:1"),
-        packageTableRefused("name = \"@finch/ledger\"\nlicense = \"MIT AND\"\n" + packageTail, "manifest.license at 5:1"),
-        packageTableRefused("name = \"@finch/ledger\"\nlicense = \"(MIT OR Apache-2.0\"\n" + packageTail, "manifest.license at 5:1"),
+        licenseRefused("ledger", "MIT", "name.missing-at at 4:1"),
+        licenseRefused("@Finch/ledger", "MIT", "name.scope.chars at 4:1"),
+        licenseRefused(ledgerName, "", "manifest.license at 3:1"),
+        licenseRefused(ledgerName, "MIT AND", "manifest.license at 5:1"),
+        licenseRefused(ledgerName, "(MIT OR Apache-2.0", "manifest.license at 5:1"),
         packageBaseRefused("keywords = []\n", "manifest.summary.missing at 3:1"),
         packageBaseRefused("summary = \"${repeat("s", 513) ?: ""}\"\nkeywords = []\n", "manifest.summary.length at 6:1"),
         packageBaseRefused("summary = \"tab\\there\"\nkeywords = []\n", "manifest.summary.text at 6:1"),
@@ -239,21 +259,21 @@ module ManifestTests {
     ])
 
     fn rejectsSystemsAndAssets() = checkAll("system capabilities and asset declarations", [
-        rejected(systemTable("sqlite", "SQLite/C-API", minRevisionOne), "manifest.system.capability at 3:1"),
-        rejected(systemTable("sqlite", "sqlite//c", minRevisionOne), "manifest.system.capability at 3:1"),
-        rejected(systemTable("sqlite", sqliteCapability, ""), "manifest.system.min-revision at 3:1"),
-        rejected(systemTable("sqlite", sqliteCapability, "min_revision = -1\n"), "manifest.system.min-revision at 5:1"),
-        rejected(systemTable("sqlite", sqliteCapability, "min_revision = 1\nprovider = \"brew\"\n"), "manifest.system.unknown-key at 6:1"),
+        rejected(sqliteTable("SQLite/C-API", minRevisionOne), "manifest.system.capability at 3:1"),
+        rejected(sqliteTable("sqlite//c", minRevisionOne), "manifest.system.capability at 3:1"),
+        rejected(sqliteTable(sqliteCapability, ""), "manifest.system.min-revision at 3:1"),
+        rejected(sqliteTable(sqliteCapability, "min_revision = -1\n"), "manifest.system.min-revision at 5:1"),
+        rejected(sqliteTable(sqliteCapability, "min_revision = 1\nprovider = \"brew\"\n"), "manifest.system.unknown-key at 6:1"),
         rejected(systemTable("a", sqliteCapability, minRevisionOne) + systemTable("b", sqliteCapability, "min_revision = 2\n"), "manifest.system.duplicate at 3:1"),
         ManifestDeps::capabilityOk(sqliteCapability) && ManifestDeps::capabilityOk("zlib") && !ManifestDeps::capabilityOk("") && !ManifestDeps::capabilityOk("/x") && !ManifestDeps::capabilityOk("a/.b") && !ManifestDeps::capabilityOk("${repeat("a", 65) ?: ""}"),
-        rejected(asset("x.md", docsKind, "text", 1, hexDigest("sha256"), "mime = \"text/markdown\"\n"), "manifest.asset.unknown-key at 9:1"),
+        rejected(assetAt("x.md", "text", 1) + "mime = \"text/markdown\"\n", "manifest.asset.unknown-key at 9:1"),
         rejected(assetAt("x.md", "html", 1), "manifest.asset.kind at 6:1"),
         rejected(assetAt("x.html", "text", 1), "manifest.asset.extension at 4:1"),
         rejected(assetAt("../x.md", "text", 1), "manifest.asset.path at 4:1"),
         rejected(assetAt("x.md", "text", -1), "manifest.asset.byte-length at 7:1"),
         rejected(asset("x.md", docsKind, "text", 1, hexDigest("md5"), ""), "digest.algorithm at 8:1"),
         rejected(asset("x.md", "attachment", "text", 1, hexDigest("sha256"), ""), "manifest.asset.role at 5:1"),
-        rejected(asset("x.md", docsKind, "text", 1, hexDigest("sha256"), "required_capability = \"asset.read\"\n"), "manifest.asset.capability at 5:1"),
+        rejected(assetAt("x.md", "text", 1) + "required_capability = \"asset.read\"\n", "manifest.asset.capability at 5:1"),
         rejected(asset("x.json", "runtime-data", "json", 1, hexDigest("sha256"), ""), "manifest.asset.capability at 5:1"),
         rejected(assetAt("x.md", "text", 1) + assetAt("X.md", "text", 1), "path.case-collision at 3:1")
     ])

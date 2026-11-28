@@ -21,9 +21,6 @@ module LockTests {
 
     fn pair() = [RegistryFixture::one(), RegistryFixture::two()]
 
-    /// `<prefix> <release>` for every package of `pkgs`.
-    fn marked(prefix, pkgs) = mapList(pkgs, fn(p) => "${prefix} ${RegistryFixture::compact(p)}")
-
     /// A run of `lock` over `served`, read beside `rootText`'s manifest.
     fn readsRun(rootText, served) = lockOver(RegistryFixture::reads(rootText, served), served)
 
@@ -68,14 +65,14 @@ module LockTests {
     fn sourceKinds() = [RegistryFixture::io(), RegistryFixture::interpolatedIo()]
 
     /// The first run: two packages resolved, exact lock bytes, `+` lines.
-    fn firstRun() = resolves("a two-package registry resolves to the exact lock bytes and + lines", freshRun(pair()), 1, RegistryFixture::one(), marked("+", pair()))
+    fn firstRun() = resolves("a two-package registry resolves to the exact lock bytes and + lines", freshRun(pair()), 1, RegistryFixture::one(), RegistryFixture::deltaLines("+", pair()))
 
     /// A second run with the same lock prints only `=` lines.
-    fn secondRun() = acceptedLines("a second run prints only = lines", lockedRun(pair()), marked("=", pair()))
+    fn secondRun() = acceptedLines("a second run prints only = lines", lockedRun(pair()), RegistryFixture::deltaLines("=", pair()))
 
     /// A raised floor selects the newer release of one and prints `~`.
     fn changedFloor() =
-        resolves("a raised floor prints ~ for the changed release", priorRun(2, [RegistryFixture::one(), RegistryFixture::one2(), RegistryFixture::two()]), 2, RegistryFixture::one2(), listConcat(marked("~", [RegistryFixture::one2()]), marked("=", [RegistryFixture::two()])))
+        resolves("a raised floor prints ~ for the changed release", priorRun(2, [RegistryFixture::one(), RegistryFixture::one2(), RegistryFixture::two()]), 2, RegistryFixture::one2(), listConcat(RegistryFixture::deltaLines("~", [RegistryFixture::one2()]), RegistryFixture::deltaLines("=", [RegistryFixture::two()])))
 
     fn reserved(s) = Release::Served { id: Identity::ReleaseId { key: Fixture::idOf(s).key, epoch: Fixture::idOf(s).epoch, ordinal: Fixture::idOf(s).ordinal, digest: RegistryFixture::otherDigest }, files: Fixture::filesOf(s) }
 
@@ -88,7 +85,7 @@ module LockTests {
     /// With --accept-removals the vanished release is a warning and a `-` line,
     /// and the lock is rewritten without it.
     fn releaseVanishedAccepted() = {
-        let lines = listConcat(["lock.release-vanished ${RegistryFixture::compact(RegistryFixture::three())}"], listConcat(marked("=", pair()), marked("-", [RegistryFixture::three()])))
+        let lines = listConcat(["lock.release-vanished ${RegistryFixture::compact(RegistryFixture::three())}"], listConcat(RegistryFixture::deltaLines("=", pair()), RegistryFixture::deltaLines("-", [RegistryFixture::three()])))
         resolves("--accept-removals warns and removes the vanished release", runLock(threePriorReads(pair()), pair(), ["--accept-removals"]), 1, RegistryFixture::one(), lines)
     }
 

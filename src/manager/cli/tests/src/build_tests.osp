@@ -17,7 +17,6 @@ module BuildTests {
     let compilerPath = "osprey"
     let project = "/abs"
     let derivedPath = ".osprey/build/osprey.toml"
-    let otherDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
     /// What one run observed: the report, the derived manifest, the ensured
     /// directories and the compiler commands, each "" when none.
@@ -90,8 +89,9 @@ module BuildTests {
 
     fn walkOf(s) = Fixture::walkRoute(installDir(s), mapList(Fixture::filesOf(s), fn(f) => f.relPath))
 
+    /// The project's manifest and lock, then every package's installed files.
     fn readsOf(lock, packages) = listConcat(
-        [RegistryFixture::rootRead(manifestText()), Fixture::readRoute("${project}/osprey.lock", lock)],
+        RegistryFixture::readsWithLock(manifestText(), lock, []),
         foldList(packages, [], fn(acc, s) => listConcat(acc, readsFor(s))))
 
     fn walksOf(packages) = mapList(packages, walkOf)
@@ -183,7 +183,7 @@ module BuildTests {
     /// A failing verify runs no compiler and writes nothing.
     fn verifyFailure() = {
         let packages = standardPackages()
-        let a = runBuild(readsOf(RegistryFixture::lockText(otherDigest, [], mapList(packages, pkgOf)), packages), walksOf(packages), ["--project", project])
+        let a = runBuild(readsOf(RegistryFixture::lockText(RegistryFixture::otherDigest, [], mapList(packages, pkgOf)), packages), walksOf(packages), ["--project", project])
         checkAll("a verify failure is the build's failure and compiles nothing", [
             a.report.status == 1,
             structuralEquals([Fixture::line(a.report, 0), a.derived, a.ensures], ["verify.manifest-digest", "", ""]),

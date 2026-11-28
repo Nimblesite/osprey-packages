@@ -56,10 +56,10 @@ module HandoverTests {
     fn accepted(world) = Fixture::orKeep(world, fn(w) => accept(w, "p-bob", "m-bob"))
     fn finalized(world) = Fixture::orKeep(world, fn(w) => GovernanceHandover::finalizeHandover(w, "t-1", 124))
     fn frozen(world) = Fixture::orKeep(world, fn(w) => GovernanceTransitions::suspendPrincipal(w, "p-alice"))
-    fn bobGrant(world) = Fixture::grantOn(world, "pkg-f1", "g-bob", "m-bob", Governance::PublishRelease, Maybe::none(), 100)
-    fn grantedWorld() = Fixture::grantOn(Fixture::grantOn(bobGrant(Fixture::world()),
-        "pkg-f1", "g-carol", "m-carol", Governance::EditMetadata, Maybe::none(), 100),
-        "pkg-f1", "g-alice", "m-alice", Governance::YankRelease, Maybe::none(), 100)
+    fn bobGrant(world) = Fixture::standingGrant(world, "pkg-f1", "g-bob", "m-bob", Governance::PublishRelease)
+    fn grantedWorld() = Fixture::standingGrant(Fixture::standingGrant(bobGrant(Fixture::world()),
+        "pkg-f1", "g-carol", "m-carol", Governance::EditMetadata),
+        "pkg-f1", "g-alice", "m-alice", Governance::YankRelease)
     /// The new administrator `m-bob`'s signed decision for `epoch`.
     fn bobProof(epoch) = Fixture::verified("p-bob", "m-bob", carolGrantStatement(epoch))
     /// `world` once `m-bob`'s decision under `grantId` is recorded; a refusal keeps `world`.

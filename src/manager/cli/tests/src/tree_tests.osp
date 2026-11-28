@@ -24,10 +24,13 @@ module TreeTests {
     export fn served(key, name, manifest) = Fixture::served(key,
         [Fixture::file("osprey.toml", manifest), Fixture::file("src/${name}.osp", "fn ${name}() = 1\n")])
 
-    fn greeting() = served("@demo/greeting/1.1", "greeting", manifest("greeting"))
-    fn maths() = served("@demo/maths/1.2", "maths", manifest("maths"))
-    fn report() = served("@demo/report/1.1", "report", manifest("report"))
-    fn tool() = served("@demo/tool/1.1", "tool", manifest("tool"))
+    /// A `@demo/<name>` release at e1.r<ordinal> serving the plain `name` manifest and module.
+    fn demo(name, ordinal) = served("@demo/${name}/1.${ordinal}", name, manifest(name))
+
+    fn greeting() = demo("greeting", 1)
+    fn maths() = demo("maths", 2)
+    fn report() = demo("report", 1)
+    fn tool() = demo("tool", 1)
 
     /// The lock vocabulary both tree suites build their locks from.
     export fn key(scope, name) = Names::Key { scope: scope, name: name }

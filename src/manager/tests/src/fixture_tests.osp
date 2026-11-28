@@ -55,8 +55,8 @@ module FixtureTests {
     fn treeRows() = {
         let fx = Fixtures::load("paths.json")
         reportCases(fx, "forbidden kinds", "forbiddenKinds", fn(c) => Source::kindCode(Fixtures::textOf(c, "kind")) == Fixtures::textOf(c, "code"))
-        expectTrue(Source::lfsPointer(JsonRead::text(JsonRead::field(JsonRead::field(fx, "lfsPointer"), "content"))))
-        Fixtures::report("submission limits", JsonRead::items(JsonRead::field(JsonRead::field(fx, "limits"), "cases")), fn(c) =>
+        expectTrue(Source::lfsPointer(JsonRead::text(JsonRead::at(fx, "lfsPointer/content"))))
+        Fixtures::report("submission limits", JsonRead::items(JsonRead::at(fx, "limits/cases")), fn(c) =>
             Source::limitCode(Fixtures::numberOf(c, "fileCount"), Fixtures::numberOf(c, "totalBytes"), Fixtures::numberOf(c, "assetBytes")) == Fixtures::textOf(c, "code"))
     }
 

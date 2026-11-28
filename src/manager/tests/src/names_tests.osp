@@ -1,6 +1,5 @@
 namespace registry_tests;
 import registry::Names
-import registry::Order
 
 /// [PACKAGE-NAMES] grammar, reason codes and canonical key order.
 module NamesTests {
@@ -9,19 +8,13 @@ module NamesTests {
 
     fn code(text) = Fixtures::code(Names::parse(text))
 
-    fn shown(text) = match Names::parse(text) {
-        Success { value } => Names::display(value)
-        Error { message } => message
-    }
-
     fn longest(n) = repeat("a", n) ?: ""
 
+    /// The canonical keys every spelling rule accepts, each its own round-trip.
+    fn canonicalKeys() = ["@finch/ledger", "@osprey/http", "@a1/b-2", "@a/a--b", "@${longest(39)}/${longest(63)}"]
+
     fn acceptsCanonicalKeys() = checkAll("canonical keys parse and round-trip", [
-        Fixtures::mapsTo([
-            "@finch/ledger", "@osprey/http", "@a1/b-2", "@a/a--b", "@${longest(39)}/${longest(63)}"
-        ], [
-            "@finch/ledger", "@osprey/http", "@a1/b-2", "@a/a--b", "@${longest(39)}/${longest(63)}"
-        ], shown)
+        Fixtures::mapsTo(canonicalKeys(), canonicalKeys(), fn(text) => Fixtures::shown(Names::parse, Names::display, text))
     ])
 
     fn rejectsWithReasonCodes() = checkAll("every rejection names one stable reason code", [
@@ -38,15 +31,16 @@ module NamesTests {
 
     fn key(scope, name) = Names::Key { scope: scope, name: name }
 
+    /// The order of `@scope/name` against `@otherScope/otherName`.
+    fn compareKeys(scope, name, otherScope, otherName) = Names::compare(key(scope, name), key(otherScope, otherName))
+
     fn ordersByScopeThenName() = {
         let keys = [key("b", "a"), key("a", "z"), key("a", "b"), key("a-b", "a")]
-        let at = fn(i) => listGet(keys, i) ?: key("", "")
-        let sorted = mapList(Order::permutation(length(keys), fn(i, j) => Names::compare(at(i), at(j))), at)
         checkAll("keys order by (scope, name) bytes", [
-            join(mapList(sorted, Names::display), " ") == "@a/b @a/z @a-b/a @b/a",
-            Names::compare(key("a", "b"), key("a", "b")) == 0,
-            Names::compare(key("a", "b"), key("a", "c")) < 0,
-            Names::compare(key("b", "a"), key("a", "z")) > 0
+            Fixtures::sortedText(keys, Names::compare, Names::blank(), Names::display) == "@a/b @a/z @a-b/a @b/a",
+            compareKeys("a", "b", "a", "b") == 0,
+            compareKeys("a", "b", "a", "c") < 0,
+            compareKeys("b", "a", "a", "z") > 0
         ])
     }
 

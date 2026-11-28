@@ -33,9 +33,11 @@ module ArithmeticTests {
     fn rounding() = {
         let roundDiv = over2(Arithmetic::roundDiv)
         checkAll("round-half-up division and signed form", [
-            Fixtures::mapsTo([{ x: 7, y: 2 }, { x: 5, y: 2 }], [4, 3], roundDiv),
-            Fixtures::mapsTo([{ x: 4, y: 3 }, { x: 0, y: 3 }], [1, 0], roundDiv),
-            Fixtures::mapsTo([{ x: 10000 * 1, y: 3 }, { x: 10000 * 2, y: 3 }], [3333, 6667], roundDiv),
+            // Nearest integer with halves rounded up: at unit scale and at full scale.
+            Fixtures::mapsTo([
+                { x: 7, y: 2 }, { x: 5, y: 2 }, { x: 4, y: 3 }, { x: 0, y: 3 },
+                { x: 10000 * 1, y: 3 }, { x: 10000 * 2, y: 3 }
+            ], [4, 3, 1, 0, 3333, 6667], roundDiv),
             Fixtures::mapsTo([{ x: 7, y: 2 }, { x: 0, y: 9 }], [4, 0], over2(Arithmetic::signedRoundDiv)),
             Arithmetic::signedRoundDiv(-7, 2) == -4,
             aborts(fn() => Arithmetic::roundDiv(-1, 2)),
@@ -48,8 +50,10 @@ module ArithmeticTests {
         checkAll("clamp, higher, lower and ratio", [
             Fixtures::mapsTo([{ x: 5, y: 0, z: 10 }, { x: -5, y: 0, z: 10 }], [5, 0], over3(Arithmetic::clamp)),
             structuralEquals([Arithmetic::clamp(15, 0, 10), Arithmetic::higher(0, 0, 100)], [10, 0]),
-            Fixtures::mapsTo([{ x: 100, y: 0, z: 100 }, { x: 150, y: 0, z: 100 }], [10000, 10000], higher),
-            Fixtures::mapsTo([{ x: 50, y: 0, z: 100 }, { x: 1, y: 0, z: 3 }], [5000, 3333], higher),
+            // At or above the top the ramp is full scale; inside the range it is proportional.
+            Fixtures::mapsTo([
+                { x: 100, y: 0, z: 100 }, { x: 150, y: 0, z: 100 }, { x: 50, y: 0, z: 100 }, { x: 1, y: 0, z: 3 }
+            ], [10000, 10000, 5000, 3333], higher),
             structuralEquals([Arithmetic::higher(-5, 0, 100), Arithmetic::lower(0, 0, 100)], [0, 10000]),
             Fixtures::mapsTo([{ x: 100, y: 0, z: 100 }, { x: 25, y: 0, z: 100 }], [0, 7500], over3(Arithmetic::lower)),
             aborts(fn() => Arithmetic::higher(1, 5, 5)),
@@ -64,9 +68,10 @@ module ArithmeticTests {
         checkAll("weighted means, percentiles, days and display", [
             Arithmetic::weighted([w(1, 100), w(3, 200)]) == 175,
             Fixtures::mapsTo([[w(2, 5), w(2, 6)], [w(1, 7)]], [6, 7], Arithmetic::weighted),
-            Fixtures::mapsTo([{ x: 50, y: 1 }, { x: 50, y: 2 }], [0, 0], percentileIndex),
-            Fixtures::mapsTo([{ x: 50, y: 3 }, { x: 50, y: 4 }], [1, 1], percentileIndex),
-            Fixtures::mapsTo([{ x: 90, y: 10 }, { x: 90, y: 11 }], [8, 9], percentileIndex),
+            Fixtures::mapsTo([
+                { x: 50, y: 1 }, { x: 50, y: 2 }, { x: 50, y: 3 }, { x: 50, y: 4 },
+                { x: 90, y: 10 }, { x: 90, y: 11 }
+            ], [0, 0, 1, 1, 8, 9], percentileIndex),
             Arithmetic::percentileIndex(100, 5) == 4,
             (Arithmetic::percentile(50, [30, 10, 20]) ?: -1) == 20,
             (Arithmetic::percentile(90, [5, 4, 3, 2, 1, 6, 7, 8, 9, 10]) ?: -1) == 9,
@@ -103,26 +108,41 @@ module ArithmeticTests {
     /// `compare` ranks `a` strictly before `b`.
     fn before(compare, a, b) = compare(a, b) < 0
 
+    /// `compare` ranks each item of `ranked` strictly before the next one.
+    /// Every pair is checked, whatever the earlier pairs said.
+    fn orders(compare, ranked) = match ranked {
+        [a, b, ...rest] => {
+            let first = before(compare, a, b)
+            let next = orders(compare, listPrepend(rest, b))
+            first && next
+        }
+        _ => true
+    }
+
+    /// The row whose fields before `k` are 1, field `k` is `at` and the rest are `rest`.
+    fn step(k, at, rest) = {
+        let field = fn(i) => if i < k { 1 } else if i == k { at } else { rest }
+        Row(field(0), field(1), field(2), field(3), field(4), field(5), field(6))
+    }
+
+    /// Field `k` is the first to differ: 0 there ranks before 1, whatever the later fields hold.
+    fn firstFieldDecides(k) = before(rank, step(k, 0, 9), step(k, 1, 0))
+
     fn ordering() = {
         // Seven distinct fields: `add` sums each one on its own.
         let spread = cost(Row(1, 2, 3, 4, 5, 6, 7))
+        let zero = Row(0, 0, 0, 0, 0, 0, 0)
         checkAll("lexicographic tuple and canonical tie-breaks", [
-            rank(Row(0, 0, 0, 0, 0, 0, 0), Row(0, 0, 0, 0, 0, 0, 0)) == 0,
-            rank(Row(0, 9, 9, 9, 9, 9, 9), Row(1, 0, 0, 0, 0, 0, 0)) < 0,
-            rank(Row(1, 0, 9, 9, 9, 9, 9), Row(1, 1, 0, 0, 0, 0, 0)) < 0,
-            rank(Row(1, 1, 0, 9, 9, 9, 9), Row(1, 1, 1, 0, 0, 0, 0)) < 0,
-            rank(Row(1, 1, 1, 0, 9, 9, 9), Row(1, 1, 1, 1, 0, 0, 0)) < 0,
-            rank(Row(1, 1, 1, 1, 0, 9, 9), Row(1, 1, 1, 1, 1, 0, 0)) < 0,
-            rank(Row(1, 1, 1, 1, 1, 0, 9), Row(1, 1, 1, 1, 1, 1, 0)) < 0,
-            rank(Row(1, 1, 1, 1, 1, 1, 0), Row(1, 1, 1, 1, 1, 1, 1)) < 0,
-            rank(Row(2, 0, 0, 0, 0, 0, 0), Row(1, 9, 9, 9, 9, 9, 9)) > 0,
+            rank(zero, zero) == 0,
+            Fixtures::mapsTo([0, 1, 2, 3, 4, 5, 6], [true, true, true, true, true, true, true], firstFieldDecides),
+            // The first field alone fixes the sign: the later fields cannot overturn it.
+            rank(step(0, 2, 0), step(0, 1, 9)) > 0,
             Objective::add(spread, cost(Row(1, 1, 1, 1, 1, 1, 1))).lag == 8,
             Objective::add(Objective::zero(), spread).vulnerability == 1,
-            before(Objective::comparePackageTie, id("a", 9, "sha256:aa"), id("a", 3, "sha256:aa")),
-            before(Objective::comparePackageTie, id("a", 3, "sha256:aa"), id("a", 3, "sha256:ab")),
-            before(Objective::comparePackageTie, id("a", 1, "sha256:zz"), id("b", 9, "sha256:aa")),
-            before(Objective::compareSystemTie, sys(sqliteCapability, "homebrew", 1, "sha256:a"), sys(sqliteCapability, "homebrew", 2, "sha256:a")),
-            before(Objective::compareSystemTie, sys(sqliteCapability, "apt", 9, "sha256:a"), sys(sqliteCapability, "homebrew", 1, "sha256:a")),
+            // Canonical tie-breaks, each chain in ranked order.
+            orders(Objective::comparePackageTie, [id("a", 9, "sha256:aa"), id("a", 3, "sha256:aa"), id("a", 3, "sha256:ab")]),
+            orders(Objective::comparePackageTie, [id("a", 1, "sha256:zz"), id("b", 9, "sha256:aa")]),
+            orders(Objective::compareSystemTie, [sys(sqliteCapability, "apt", 9, "sha256:a"), sys(sqliteCapability, "homebrew", 1, "sha256:a"), sys(sqliteCapability, "homebrew", 2, "sha256:a")]),
             Objective::compareSystemTie(sys("a", "x", 1, "sha256:b"), sys("a", "x", 1, "sha256:a")) > 0
         ])
     }

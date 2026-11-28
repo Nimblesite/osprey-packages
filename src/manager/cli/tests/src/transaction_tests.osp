@@ -28,6 +28,9 @@ module TransactionTests {
     fn said(a, i, code) = RegistryFixture::lineOf(a, i) == code
     fn wroteNothing(a) = RegistryFixture::writesTo(a, manifestPath) == 0
 
+    /// `a` reported `head`, then the pair's two packages behind `marker`, and nothing else.
+    fn reportedDelta(a, head, marker) = RegistryFixture::hasLines(a, listPrepend(RegistryFixture::deltaLines(marker, pair()), head))
+
     /// `a` was accepted and left the manifest as `expected`.
     fn acceptedWith(a, expected) = RegistryFixture::accepted(a) && manifestOf(a) == expected
 
@@ -85,7 +88,7 @@ module TransactionTests {
         checkAll("add writes the dependency line and the resolved lock", [
             acceptedWith(a, RegistryFixture::rootManifest(1)),
             lockedTo(a, RegistryFixture::rootManifest(1), RegistryFixture::one()),
-            RegistryFixture::hasLines(a, ["added @demo/one e1.r1", RegistryFixture::deltaLine("+", RegistryFixture::one()), RegistryFixture::deltaLine("+", RegistryFixture::two())])
+            reportedDelta(a, "added @demo/one e1.r1", "+")
         ])
     }
 
@@ -165,7 +168,7 @@ module TransactionTests {
         checkAll("remove drops the line and the lock loses both packages", [
             acceptedWith(a, expectedManifest),
             lockOf(a) == RegistryFixture::expectedLockOf(expectedManifest, []),
-            RegistryFixture::hasLines(a, ["removed @demo/one", RegistryFixture::deltaLine("-", RegistryFixture::one()), RegistryFixture::deltaLine("-", RegistryFixture::two())])
+            reportedDelta(a, "removed @demo/one", "-")
         ])
     }
 

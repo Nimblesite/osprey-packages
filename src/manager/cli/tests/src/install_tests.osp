@@ -76,6 +76,10 @@ module InstallTests {
 
     fn readsOf(s) = RegistryFixture::readRoutesAt(installDir(s), s.files)
 
+    /// The read routes of `s` installed at `dir`, every file's bytes altered: a
+    /// tree that no longer matches its release.
+    export fn tamperedReads(dir, s) = mapList(s.files, fn(f) => Fixture::readRoute("${dir}/${f.relPath}", "${f.content} tampered"))
+
     fn lockRead(served) = Fixture::readRoute("osprey.lock", lockText(served))
 
     fn walkOf(s) = Fixture::walkRoute(installDir(s), mapList(s.files, fn(f) => f.relPath))
@@ -121,7 +125,7 @@ module InstallTests {
         let os = both()
         let first = Fixture::at(os, 0)
         let second = Fixture::at(os, 1)
-        let corruptReads = mapList(second.files, fn(f) => Fixture::readRoute("${installDir(second)}/${f.relPath}", "${f.content} tampered"))
+        let corruptReads = tamperedReads(installDir(second), second)
         let a = runInstall(
             listConcat([lockRead(os)], listConcat(readsOf(first), corruptReads)),
             [walkOf(first), walkOf(second)],

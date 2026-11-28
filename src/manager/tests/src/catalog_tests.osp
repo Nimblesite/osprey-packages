@@ -1,7 +1,6 @@
 namespace registry_tests;
 import registry::Catalog
 import registry::Identity
-import registry::Names
 import registry::Release
 
 /// Catalog ordering, digest and package lookups, and the byte-exact canonical
@@ -17,19 +16,12 @@ module CatalogTests {
     /// 64 `c`s: the digest of `@finch/util` e1.r1.
     export fn digestC() = repeatedDigest("c")
 
-    fn id(scope, name, epoch, ordinal, digest) = Identity::ReleaseId {
-        key: Names::Key { scope: scope, name: name },
-        epoch: epoch,
-        ordinal: ordinal,
-        digest: digest
-    }
-
     fn file(path) = Release::File { relPath: path, content: "" }
 
     /// One served release `@scope/name` at `epoch.rordinal` under `digest`,
     /// with the empty files at `paths`.
     fn servedRelease(scope, name, epoch, ordinal, digest, paths) =
-        Release::Served { id: id(scope, name, epoch, ordinal, digest), files: mapList(paths, file) }
+        Release::Served { id: Fixtures::releaseId(scope, name, epoch, ordinal, digest), files: mapList(paths, file) }
 
     /// `@finch/ledger` e1.r1 as the registry serves it: `osprey.toml` and
     /// `src/lib.osp`, both empty.

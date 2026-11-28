@@ -27,13 +27,18 @@ module TreeGraphTests {
     /// One report line with the status the run must exit with.
     fn oneLine(a, status) = a.status == status && length(a.lines) == 1
 
+    /// `a` answered one accepted line, and its graph names `project`.
+    fn namesProject(a, doc, project) = oneLine(a, 0) && textField(doc, "project") == project
+
     /// The manifest of every served package: its key only.
     fn keyManifest(name) = "key = ${name}\n"
-    fn demoGreeting() = TreeTests::served("@demo/greeting/1.1", "greeting", keyManifest("greeting"))
-    fn otherGreeting() = TreeTests::served("@other/greeting/1.1", "greeting", keyManifest("greeting"))
-    fn maths() = TreeTests::served("@demo/maths/1.1", "maths", keyManifest("maths"))
-    fn report() = TreeTests::served("@demo/report/1.1", "report", keyManifest("report"))
-    fn tool() = TreeTests::served("@demo/tool/1.1", "tool", keyManifest("tool"))
+    /// The `@scope/name` release at e1.r1 whose manifest names only its key.
+    fn keyed(scope, name) = TreeTests::served("@${scope}/${name}/1.1", name, keyManifest(name))
+    fn demoGreeting() = keyed("demo", "greeting")
+    fn otherGreeting() = keyed("other", "greeting")
+    fn maths() = keyed("demo", "maths")
+    fn report() = keyed("demo", "report")
+    fn tool() = keyed("demo", "tool")
 
     fn all() = [demoGreeting(), maths(), report(), tool(), otherGreeting()]
     fn packages() = [TreeTests::pkg(demoGreeting(), []), TreeTests::pkg(maths(), [TreeTests::runtime("demo", "greeting")]),
@@ -80,8 +85,7 @@ module TreeGraphTests {
         let a = runAll(all(), treeGraph)
         let doc = graphOf(a)
         checkAll("tree graph: project, direct keys and empty findings", [
-            oneLine(a, 0),
-            textField(doc, "project") == "app",
+            namesProject(a, doc, "app"),
             structuralEquals(itemsField(doc, "direct"), [reportKey, "@demo/tool"]),
             length(packagesOf(doc)) == 5,
             structuralEquals(itemsField(doc, "findings"), [])
@@ -134,8 +138,7 @@ module TreeGraphTests {
         let a = runGraph([Fixture::readRoute("osprey.toml", fresh)], [], treeGraph)
         let doc = graphOf(a)
         checkAll("tree graph: a new project without a lock has an explicit state", [
-            oneLine(a, 0),
-            textField(doc, "project") == "fresh",
+            namesProject(a, doc, "fresh"),
             structuralEquals(itemsField(doc, "direct"), []),
             isEmpty(packagesOf(doc)),
             structuralEquals(itemsField(doc, "findings"), ["tree.no-lock"])

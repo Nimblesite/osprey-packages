@@ -1,6 +1,4 @@
 namespace registry_tests;
-import registry::Identity
-import registry::Names
 import registry::ReleasePath
 
 /// [PACKAGE-FOLDER-REGISTRY] release directory path grammar.
@@ -17,11 +15,6 @@ module ReleasePathTests {
     let ordinalCode = "release.ordinal"
 
     fn code(text) = Fixtures::code(ReleasePath::parse(text))
-
-    fn shown(text) = match ReleasePath::parse(text) {
-        Success { value } => ReleasePath::format(value)
-        Error { message } => message
-    }
 
     fn digestOf(text) = match ReleasePath::parse(text) {
         Success { value } => value.digest
@@ -41,7 +34,7 @@ module ReleasePathTests {
             ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
         ], [
             ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
-        ], shown),
+        ], fn(text) => Fixtures::shown(ReleasePath::parse, ReleasePath::format, text)),
         digestOf(ledgerRelease) == ""
     ])
 
@@ -67,12 +60,9 @@ module ReleasePathTests {
         ], code)
     ])
 
-    fn formatsWithDigest() = {
-        let id = Identity::ReleaseId { key: Names::Key { scope: "finch", name: "ledger" }, epoch: 3, ordinal: 42, digest: "sha256:aa" }
-        checkAll("format ignores the digest and renders the directory", [
-            ReleasePath::format(id) == ledgerRelease
-        ])
-    }
+    fn formatsWithDigest() = checkAll("format ignores the digest and renders the directory", [
+        ReleasePath::format(Fixtures::releaseId("finch", "ledger", 3, 42, "sha256:aa")) == ledgerRelease
+    ])
 
     /// The release-path suite: parsed fields, canonical round-trips, path,
     /// name and version rejections, and `format`.

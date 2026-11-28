@@ -34,6 +34,9 @@ module GrantTests {
     /// `grant` is live on its package at every moment up to and including `last`.
     fn holdsThrough(world, grant, last) = authorize(world, grant, last) == "" && authorize(world, grant, last - 1) == ""
 
+    /// `world` holds `held`'s grant at the fixture moment and lacks `lacked`'s.
+    fn holdsNot(world, held, lacked) = authorize(world, held, 100) == "" && authorize(world, lacked, 100) == permissionMissing
+
     /// The reason code of one live authorization decision, or "" when granted.
     export fn authorizeCode(world, id, member, permission, at) =
         Fixture::code(GovernanceTransitions::authorize(world, id, member, permission, at))
@@ -115,8 +118,7 @@ module GrantTests {
             grantRow(granted, "g-1").grantor == "m-alice",
             structuralEquals([grantRow(granted, "g-1").packageEpoch, grantRow(granted, "g-1").memberEpoch], [1, 1]),
             Maybe::isPresent(grantRow(granted, "g-1").expiresAt) == false,
-            authorize(granted, carolRelease(), 100) == "",
-            authorize(granted, bobRelease(), 100) == permissionMissing,
+            holdsNot(granted, carolRelease(), bobRelease()),
             authorize(granted, carolYank(), 100) == permissionMissing,
             authorize(granted, carolEdit(), 100) == permissionMissing,
             authorize(granted, carolReleaseOnWren(), 100) == "governance.membership.other-org"
@@ -225,8 +227,7 @@ module GrantTests {
         let granted = grantedUntil(Fixture::world(), "g-ci", ciRelease(), 500)
         let sponsor = Fixture::verified("p-dave", "m-dave", Governance::custodianStatement("o-wren", "m-ci"))
         checkAll("a workflow principal holds exactly its sponsored grant", [
-            authorize(granted, ciRelease(), 100) == "",
-            authorize(granted, ciEdit(), 100) == permissionMissing,
+            holdsNot(granted, ciRelease(), ciEdit()),
             Fixture::code(GovernanceTransitions::grantCustodianship(granted, "o-wren", "m-ci", sponsor, sponsor)) == "governance.custodian.quorum",
             Fixture::code(GovernanceTransitions::grantPermission(granted, "pkg-w1", "g-ci2", Fixture::workflow("p-dave", "m-dave", "ci-sponsorship"), "m-ci", Governance::YankRelease, Maybe::none(), 100)) == "governance.proof.ceremony"
         ])

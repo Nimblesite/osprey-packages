@@ -70,6 +70,9 @@ module RegistryFixture {
     /// Compose the four fixture handlers around one command.
     export fn runHosted(process, files, tree, web, action) = process(fn() => files(fn() => tree(fn() => web(action))))
 
+    /// Compose the four fixture handlers around `Dispatch::run(args)`.
+    fn dispatchOver(process, files, tree, web, args) = runHosted(process, files, tree, web, fn() => Dispatch::run(args))
+
     /// The last text written to `path`, if any.
     fn latest(written, path) = Fixture::readFor(readRoutes(written), path)
 
@@ -119,7 +122,7 @@ module RegistryFixture {
                 Host::Run { status: 0, stdout: "built\n", stderr: "" }
             }
         }
-        let report = runHosted(process, files, tree, web, fn() => Dispatch::run(args))
+        let report = dispatchOver(process, files, tree, web, args)
         Attempt { report: report, written: written, removed: removed, ran: ran }
     }
 
@@ -154,7 +157,7 @@ module RegistryFixture {
         let process = handler Host::Process {
             run command => Host::Run { status: 0, stdout: "", stderr: "fixture: ${label} never runs ${command}" }
         }
-        runHosted(process, files, tree, web, fn() => Dispatch::run(args))
+        dispatchOver(process, files, tree, web, args)
     }
 
     /// Whether the run removed `path`.
@@ -322,4 +325,7 @@ module RegistryFixture {
 
     /// The report line naming served release `s` under change marker `marker` (`+`, `-`, `=` or `~`).
     export fn deltaLine(marker, s) = "${marker} ${compact(s)}"
+
+    /// `deltaLine` for every package of `pkgs`, in order.
+    export fn deltaLines(marker, pkgs) = mapList(pkgs, fn(p) => deltaLine(marker, p))
 }

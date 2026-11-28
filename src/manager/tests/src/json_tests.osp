@@ -36,12 +36,6 @@ module JsonTests {
 
     fn ser(v) = Canonical::serialize(v) ?: "?"
 
-    /// `canonicalize` rendered as one string, success or failure.
-    fn done(text) = match Canonical::canonicalize(text) {
-        Success { value } => value
-        Error { message } => message
-    }
-
     fn found(text, key) = match Json::parse(text) {
         Error { message } => Json::describe(message)
         Success { value } => match Json::get(value, key) {
@@ -148,11 +142,11 @@ module JsonTests {
         checkAll("sorting, duplicate keys and idempotence", [
             once == "{\"a\":[2,{\"c\":true,\"d\":null}],\"b\":1}",
             canon(once) == once,
-            done(once) == once,
+            Fixtures::valueOrMessage(Canonical::canonicalize(once)) == once,
             refusesDuplicates(Json::Obj { members: dupMembers() }),
             refusesDuplicates(Json::Arr { items: [Json::Obj { members: dupMembers() }] }),
-            done("01") == "json.non-integer at byte 0",
-            done("{\"a\":1,\"a\":2}") == "json.duplicate-key at byte 7"
+            Fixtures::valueOrMessage(Canonical::canonicalize("01")) == "json.non-integer at byte 0",
+            Fixtures::valueOrMessage(Canonical::canonicalize("{\"a\":1,\"a\":2}")) == "json.duplicate-key at byte 7"
         ])
     }
 

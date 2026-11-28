@@ -35,10 +35,7 @@ module PathsTests {
         ], pathCode)
     ])
 
-    fn canonical(paths) = match Paths::canonicalSet(paths) {
-        Success { value } => join(value, ",")
-        Error { message } => message
-    }
+    fn canonical(paths) = Fixtures::shown(Paths::canonicalSet, fn(sorted) => join(sorted, ","), paths)
 
     let firstFourOnly = [true, true, true, true, false, false, false]
 
@@ -61,10 +58,12 @@ module PathsTests {
     fn zeros(n) = range(0, n) |> map(fn(_i) => 0) |> toList
     fn zeroDigest() = zeros(32)
     fn entry(path, size, digest) = Source::Entry { path: path, byteLength: size, digest: digest }
+    /// An entry of `size` bytes under the all-zero digest: every envelope case but the malformed ones.
+    fn sized(path, size) = entry(path, size, zeroDigest())
 
     fn envelopeBytes() = {
-        let one = Source::envelope([entry(mainPath, 5, zeroDigest())]) ?: []
-        let two = Source::envelope([entry("src/b.osp", 1, zeroDigest()), entry("src/a.osp", 2, zeroDigest())]) ?: []
+        let one = Source::envelope([sized(mainPath, 5)]) ?: []
+        let two = Source::envelope([sized("src/b.osp", 1), sized("src/a.osp", 2)]) ?: []
         checkAll("the envelope is domain, count, then sorted entries", [
             structuralEquals([length(one), (listGet(two, 21 + 3) ?: -1)], [78, 9]),
             structuralEquals([(listGet(two, 21 + 4 + 4) ?: -1), (listGet(two, 21 + 4 + 9 + 1 + 7) ?: -1)], [97, 2]),
@@ -81,13 +80,13 @@ module PathsTests {
 
     fn envelopeRejections() = checkAll("an invalid tree never hashes", [
         Fixtures::mapsTo([
-            [entry("src/../x.osp", 1, zeroDigest())],
-            [entry("osprey.local.lock", 1, zeroDigest())],
-            [entry(".osprey/state", 1, zeroDigest())],
+            [sized("src/../x.osp", 1)],
+            [sized("osprey.local.lock", 1)],
+            [sized(".osprey/state", 1)],
             [entry("a.osp", -1, zeroDigest())],
             [entry("a.osp", 1, zeros(31))],
-            [entry("a.osp", 1, zeroDigest()), entry("A.osp", 1, zeroDigest())],
-            [entry("a.osp", 1, zeroDigest()), entry("a.osp", 2, zeroDigest())]
+            [sized("a.osp", 1), sized("A.osp", 1)],
+            [sized("a.osp", 1), sized("a.osp", 2)]
         ], [
             dotSegment, "source.excluded-path", "source.excluded-path", "source.negative-length",
             "source.digest-length", caseCollision, "path.duplicate"

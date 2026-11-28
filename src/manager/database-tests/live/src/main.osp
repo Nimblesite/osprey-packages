@@ -312,9 +312,9 @@ fn kmsFixture() = handler Supabase::Provider {
         } else if kmsCall(method, base, path, headers, body, kmsKey, "decrypt") && contains(body, ",\"ciphertext\":\"${fixtureCiphertext}\"") {
             jsonReply("{\"plaintext\":\"ZEJqZnRKZVo0Q1ZQLW1COTJLMjd1aGJVSlUxcDFyX3dXMWdGV0ZPRWpYaw==\"}")
         } else if kmsCall(method, base, path, headers, body, sessionKmsKey, "encrypt") {
-            sessionKmsReply(body, "plaintext", "ciphertext", sessionPlaintext, rotatedPlaintext, sessionCiphertext, rotatedCiphertext)
+            sessionKmsReply(body, "plaintext", "ciphertext", clearOf, sealedOf)
         } else if kmsCall(method, base, path, headers, body, sessionKmsKey, "decrypt") {
-            sessionKmsReply(body, "ciphertext", "plaintext", sessionCiphertext, rotatedCiphertext, sessionPlaintext, rotatedPlaintext)
+            sessionKmsReply(body, "ciphertext", "plaintext", sealedOf, clearOf)
         } else if oauthRequest(method, base, path, "/auth/v1/token?grant_type=pkce")
             && body == "{\"auth_code\":\"fixture-callback-code\",\"code_verifier\":\"dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk\"}" {
             jsonReply("{\"access_token\":\"fixture-provider-access\",\"refresh_token\":\"fixture-provider-refresh\",\"expires_in\":600}")
@@ -326,9 +326,20 @@ fn kmsFixture() = handler Supabase::Provider {
             jsonReply("{\"id\":\"${fixtureBrowserSubject}\",\"identities\":[{\"provider\":\"github\",\"id\":\"421\",\"user_id\":\"${fixtureBrowserSubject}\"}]}")
         } else { Error { message: "fixture.unexpected-encryption-request" } }
 }
-fn sessionKmsReply(body, input, output, oldIn, newIn, oldOut, newOut) = {
-    let payload = if endsWith(body, ",\"${input}\":\"${oldIn}\"}") { oldOut }
-        else if endsWith(body, ",\"${input}\":\"${newIn}\"}") { newOut } else { "" }
+/// The session key's paired envelopes, the current token's first and the rotated token's second: each plaintext beside the ciphertext it seals to.
+fn sessionEnvelopes() = [{ clear: sessionPlaintext, sealed: sessionCiphertext }, { clear: rotatedPlaintext, sealed: rotatedCiphertext }]
+
+/// A session envelope's plaintext, and the ciphertext the session key seals it to.
+fn clearOf(envelope) = envelope.clear
+fn sealedOf(envelope) = envelope.sealed
+
+/// The session key's reply to `body`, which carries one envelope's `source` value under member `input`: that envelope's `target` value under `output`.
+fn sessionKmsReply(body, input, output, source, target) = {
+    let carried = filterList(sessionEnvelopes(), fn(envelope) => endsWith(body, ",\"${input}\":\"${source(envelope)}\"}"))
+    let payload = match listGet(carried, 0) {
+        Success { value } => target(value)
+        Error => ""
+    }
     if payload == "" { Error { message: "fixture.unexpected-envelope" } }
     else { jsonReply("{\"${output}\":\"${payload}\"}") }
 }
@@ -358,10 +369,12 @@ fn reserveOnce(digest, issuer, subject, github, previous) = {
     andThen(runRuntime(script), fn(claim) => andThen(runRuntime(script), fn(replayed) =>
         if replayed == "" && Bytes::canonicalUuid(claim) { Success { value: claim } } else { Error { message: "fixture.refresh-not-exclusive" } }))
 }
-fn finishOnce(cookie, issuer, subject, github, previous, claim, replacement) = andThen(runRuntime(
-    BrowserSessions::finishRefreshScript(cookie, issuer, subject, github, previous, fixtureBrowserSubject, replacement)), fn(stale) =>
-        if stale == "" { runRuntime(BrowserSessions::finishRefreshScript(cookie, issuer, subject, github, previous, claim, replacement)) }
-        else { Error { message: "fixture.stale-refresh-accepted" } })
+/// The finish-refresh script run with `claim` as the accepted claim: the session id it accepts, "" once the runtime refuses the claim.
+fn finishWith(cookie, issuer, subject, github, previous, claim, replacement) =
+    runRuntime(BrowserSessions::finishRefreshScript(cookie, issuer, subject, github, previous, claim, replacement))
+fn finishOnce(cookie, issuer, subject, github, previous, claim, replacement) = andThen(finishWith(cookie, issuer, subject, github, previous, fixtureBrowserSubject, replacement), fn(stale) =>
+    if stale == "" { finishWith(cookie, issuer, subject, github, previous, claim, replacement) }
+    else { Error { message: "fixture.stale-refresh-accepted" } })
 fn fixtureCredentials(digest, envelope, credentials) = if envelope == sessionCiphertext {
     HostedLogin::refreshSession(fixtureOAuth, digest, envelope, credentials, reserveOnce,
         finishOnce,

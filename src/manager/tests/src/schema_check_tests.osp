@@ -71,50 +71,34 @@ module SchemaCheckTests {
         "PackageMaintenanceReport", "GovernanceEventKind", "GovernanceEvent"
     ]
 
-    fn modelLoads() = {
-        let result = TypeDiagram::parse(readFile(schemaPath) ?: "")
-        match result {
-            Success { value } => checkAll("schema model declares every type exactly once", [
-                    structuralEquals([length(value.decls), length(filterList(value.decls, isAlias))], [118, 10]),
-                    length(filterList(value.decls, isStruct)) == 81,
-                    length(filterList(value.decls, isUnion)) == 27,
-                    everyNameResolves(value)
-            ])
-            Error { message } => check(diagramParses, "ok", message)
-        }
+    /// The parsed schema model handed to `use`, or the parse failure reported
+    /// as `typeDiagram parses`.
+    fn withModel(use) = match TypeDiagram::parse(readFile(schemaPath) ?: "") {
+        Success { value } => use(value)
+        Error { message } => check(diagramParses, "ok", message)
     }
 
-    fn validated(model, typeName, value) = match SchemaCheck::validate(model, typeName, value) {
-        Success => true
-        Error => false
-    }
+    fn modelLoads() = withModel(fn(value) => checkAll("schema model declares every type exactly once", [
+            structuralEquals([length(value.decls), length(filterList(value.decls, isAlias))], [118, 10]),
+            length(filterList(value.decls, isStruct)) == 81,
+            length(filterList(value.decls, isUnion)) == 27,
+            everyNameResolves(value)
+    ]))
 
-    fn rejectionOk(model, case) = match SchemaCheck::validate(model, Fixtures::textOf(case, "type"), JsonRead::field(case, "value")) {
-        Error { message } => message == "${Fixtures::textOf(case, "code")} at ${Fixtures::textOf(case, "at")}"
-        Success => false
-    }
+    /// The reason `case`'s `value` is refused as its `type`, or "" when the schema accepts it.
+    fn problemOf(model, case) = Fixtures::code(SchemaCheck::validate(model, Fixtures::textOf(case, "type"), JsonRead::field(case, "value")))
 
-    fn accepts() = {
-        let result = TypeDiagram::parse(readFile(schemaPath) ?: "")
-        match result {
-            Success { value } => {
-                let fx = Fixtures::load("schema/accepts.json")
-                Fixtures::report("schema accepts", Fixtures::itemsOf(fx, "cases"), fn(c) => validated(value, Fixtures::textOf(c, "type"), JsonRead::field(c, "value")))
-            }
-            Error { message } => check(diagramParses, "ok", message)
-        }
-    }
+    fn rejectionOk(model, case) = problemOf(model, case) == "${Fixtures::textOf(case, "code")} at ${Fixtures::textOf(case, "at")}"
 
-    fn rejections() = {
-        let result = TypeDiagram::parse(readFile(schemaPath) ?: "")
-        match result {
-            Success { value } => {
-                let fx = Fixtures::load("schema/rejections.json")
-                Fixtures::report("schema rejections", Fixtures::itemsOf(fx, "cases"), fn(c) => rejectionOk(value, c))
-            }
-            Error { message } => check(diagramParses, "ok", message)
-        }
-    }
+    fn accepts() = withModel(fn(value) => {
+        let fx = Fixtures::load("schema/accepts.json")
+        Fixtures::report("schema accepts", Fixtures::itemsOf(fx, "cases"), fn(c) => problemOf(value, c) == "")
+    })
+
+    fn rejections() = withModel(fn(value) => {
+        let fx = Fixtures::load("schema/rejections.json")
+        Fixtures::report("schema rejections", Fixtures::itemsOf(fx, "cases"), fn(c) => rejectionOk(value, c))
+    })
 
     fn datetimes() = {
         let fx = Fixtures::load("time/datetimes.json")

@@ -40,8 +40,10 @@ module SurfaceTests {
     /// `files` declare no builtin name.
     fn declaresNoShadow(files) = !Surface::shadowsBuiltin(files)
 
-    fn fixturePairs() = mapList(Fixtures::loadItems("capabilities/builtins.json", "builtins"), fn(v) =>
-        "${Fixtures::textOf(v, "builtin")}=${Fixtures::textOf(v, "capability")}")
+    /// One fixture row of the builtin table.
+    fn fixtureNamed(v) = Surface::Named { builtin: Fixtures::textOf(v, "builtin"), capability: Fixtures::textOf(v, "capability") }
+
+    fn fixturePairs() = mapList(Fixtures::loadItems("capabilities/builtins.json", "builtins"), fn(v) => pair(fixtureNamed(v)))
 
     fn tableMatchesFixture() = checkAll("the builtin table is the capabilities fixture", [
         structuralEquals(listSort(mapList(Surface::table(), pair)), listSort(fixturePairs())),
@@ -88,28 +90,34 @@ module SurfaceTests {
         surfaceOfFiles([file("src/a.ospml", "(* readFile is commented out *)\nmain () = print \"done\"")], []),
         surfaceOfFiles([file("src/a.ospml", "(* outer (* extern puts -> int *) readFile *)\nmain () = print \"done\"")], []),
         surfaceOfFiles([file("src/a.ospml", "readFileé = 1\nmain () = print readFileé")], []),
-        surfaceOfFiles([file("src/a.py", "# osprey: flavor=python\nreadFileé = 1\nprint(readFileé)")], []),
-        surfaceOfFiles([file("src/a.py", "# osprey: flavor=python\nreadFileﻴ = 1\nprint(readFileﻴ)")], []),
-        declaresNoShadow([file("src/a.py", "# osprey: flavor=python\nreadFileé = 1\nprint(readFileé)")]),
+        surfaceOfFiles(py("# osprey: flavor=python\nreadFileé = 1\nprint(readFileé)"), []),
+        surfaceOfFiles(py("# osprey: flavor=python\nreadFileﻴ = 1\nprint(readFileﻴ)"), []),
+        declaresNoShadow(py("# osprey: flavor=python\nreadFileé = 1\nprint(readFileé)")),
         declaresNoShadow([file("src/a.ospml", "(* fn readFile(p) = p *)\nmain () = print \"done\"")]),
         declaresNoShadow([file("src/a.ospml", "readFileé = 1\nmain () = print readFileé")])
     ])
 
+    /// The Python source file `text`, as the scanner reads it.
+    fn py(text) = [file("src/a.py", text)]
+
+    /// The whitespace code point `code` spells, as the compiler's own rules admit it.
+    fn gap(code) = fromCodePoint(code) ?: ""
+
     fn pythonTokens() = checkAll("Python token separators and formatted prefixes retain capabilities", [
-        surfaceOfFiles([file("src/a.py", "def load(p):\n    return readFile" + (fromCodePoint(8203) ?: "") + "(p)")], ioFiles),
-        surfaceOfFiles([file("src/a.py", "def load():\n    return input" + (fromCodePoint(8288) ?: "") + "()")], ioTerminal),
-        declaresShadow([file("src/a.py", "def" + (fromCodePoint(8288) ?: "") + "readFile(p):\n    return p")]),
-        surfaceOfFiles([file("src/a.py", "@" + (fromCodePoint(8203) ?: "") + "extern\ndef puts(text: str) -> int: ...")], ioUnknown),
-        surfaceOfFiles([file("src/a.py", "def load(p):\n    return uf\"{readFile(p)}\"")], ioFiles),
-        surfaceOfFiles([file("src/a.py", "def load(p):\n    return fu\"{readFile(p)}\"")], ioFiles),
-        surfaceOfFiles([file("src/a.py", "def load(p):\n    return urf\"{readFile(p)}\"")], ioFiles),
-        surfaceOfFiles([file("src/a.py", "value = u\"readFile(p)\"")], []),
-        surfaceOfFiles([file("src/a.py", "value = uf\"{{readFile(p)}}\"")], []),
-        surfaceOfFiles([file("src/a.py", "value = \"readFile" + (fromCodePoint(8203) ?: "") + "(p)\"")], []),
-        surfaceOfFiles([file("src/a.py", "# readFile note\ninput()")], ioTerminal),
-        surfaceOfFiles([file("src/a.py", "x = 'readFile'")], []),
-        surfaceOfFiles([file("src/a.py", "@extern\ndef puts(text: str) -> int: ...")], ioUnknown),
-        surfaceOfFiles([file("src/a.py", "# osprey: flavor=python\ndef load(path):\n    return" + (fromCodePoint(65279) ?: "") + "readFile(path)")], ioFiles)
+        surfaceOfFiles(py("def load(p):\n    return readFile" + gap(8203) + "(p)"), ioFiles),
+        surfaceOfFiles(py("def load():\n    return input" + gap(8288) + "()"), ioTerminal),
+        declaresShadow(py("def" + gap(8288) + "readFile(p):\n    return p")),
+        surfaceOfFiles(py("@" + gap(8203) + "extern\ndef puts(text: str) -> int: ..."), ioUnknown),
+        surfaceOfFiles(py("def load(p):\n    return uf\"{readFile(p)}\""), ioFiles),
+        surfaceOfFiles(py("def load(p):\n    return fu\"{readFile(p)}\""), ioFiles),
+        surfaceOfFiles(py("def load(p):\n    return urf\"{readFile(p)}\""), ioFiles),
+        surfaceOfFiles(py("value = u\"readFile(p)\""), []),
+        surfaceOfFiles(py("value = uf\"{{readFile(p)}}\""), []),
+        surfaceOfFiles(py("value = \"readFile" + gap(8203) + "(p)\""), []),
+        surfaceOfFiles(py("# readFile note\ninput()"), ioTerminal),
+        surfaceOfFiles(py("x = 'readFile'"), []),
+        surfaceOfFiles(py("@extern\ndef puts(text: str) -> int: ..."), ioUnknown),
+        surfaceOfFiles(py("# osprey: flavor=python\ndef load(path):\n    return" + gap(65279) + "readFile(path)"), ioFiles)
     ])
 
     /// A builtin's name declared with `fn`, `let` or `mut` is a shadowing
@@ -190,10 +198,10 @@ module SurfaceTests {
     ])
 
     fn nativeWhitespace() = checkAll("native declarations use the compiler's whitespace rules", [
-        surfaceOf((fromCodePoint(65279) ?: "") + externPuts, ioUnknown),
-        surfaceOf((fromCodePoint(12) ?: "") + externPuts, ioUnknown),
-        surfaceOf("extern" + (fromCodePoint(12) ?: "") + "fn puts(text: string) -> int", ioUnknown),
-        surfaceOf((fromCodePoint(11) ?: "") + externPuts, ioUnknown),
+        surfaceOf(gap(65279) + externPuts, ioUnknown),
+        surfaceOf(gap(12) + externPuts, ioUnknown),
+        surfaceOf("extern" + gap(12) + "fn puts(text: string) -> int", ioUnknown),
+        surfaceOf(gap(11) + externPuts, ioUnknown),
         surfaceOf("let number = 1\rextern fn puts(text: string) -> int", ioUnknown),
         surfaceOf("namespace prefix; extern fn puts(text: string) -> int", ioUnknown),
         surfaceOf("// comment\rextern fn puts(text: string) -> int", ioUnknown)

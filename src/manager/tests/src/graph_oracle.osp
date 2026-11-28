@@ -116,12 +116,15 @@ module GraphOracle {
     /// `M`: greatest eligible ordinal, plus a captured yank's own ordinal.
     fn greatestOrdinal(graph, key, e) = {
         let eligibles = filterList(Candidates::ofKey(graph, key), fn(c) => eState(c) == "Eligible")
-        let m = foldList(eligibles, 0, fn(acc, c) => if rOrdinal(eRelease(c)) > acc { rOrdinal(eRelease(c)) } else { acc })
+        let m = foldList(eligibles, 0, fn(acc, c) => greater(rOrdinal(eRelease(c)), acc))
         match eState(e) == "Yanked" && Candidates::inCurrent(graph, eRelease(e)) {
-            true => if rOrdinal(eRelease(e)) > m { rOrdinal(eRelease(e)) } else { m }
+            true => greater(rOrdinal(eRelease(e)), m)
             false => m
         }
     }
+
+    /// The larger of two integers.
+    fn greater(a, b) = if a > b { a } else { b }
 
     fn lagOf(graph, e) = Objective::lag(greatestOrdinal(graph, rKey(eRelease(e)), e), rOrdinal(eRelease(e)))
 
@@ -138,11 +141,6 @@ module GraphOracle {
         lag: sumLag(graph, selected)
     }
 
-    fn sortedBy(releases, order) = {
-        let at = fn(i) => listGet(releases, i) ?: Identity::blank()
-        mapList(Order::permutation(length(releases), fn(i, j) => order(at(i), at(j))), fn(i) => at(i))
-    }
-
     fn tailReleases(xs) = range(1, length(xs)) |> map(fn(i) => listGet(xs, i) ?: Identity::blank()) |> toList
 
     fn compareReleaseLists(a, b) = match isEmpty(a) || isEmpty(b) {
@@ -153,7 +151,7 @@ module GraphOracle {
         }
     }
 
-    fn tieOrder(selected) = sortedBy(selectedReleases(selected), Objective::comparePackageTie)
+    fn tieOrder(selected) = Resolution::sortedBy(selectedReleases(selected), Objective::comparePackageTie, Identity::blank())
 
     fn better(graph, a, b) = {
         let cmp = Objective::compare(cost(graph, a), cost(graph, b))
@@ -171,7 +169,7 @@ module GraphOracle {
         let all = search(graph, emptyAssignment(), ManifestModel::targets(graph.rootDeps), 0, emptyAssignments())
         match isEmpty(all) {
             true => Explain::of(graph)
-            false => Resolution::Lock { releases: sortedBy(selectedReleases(bestOf(graph, all)), Identity::compare) }
+            false => Resolution::Lock { releases: Resolution::sortedBy(selectedReleases(bestOf(graph, all)), Identity::compare, Identity::blank()) }
         }
     }
 }

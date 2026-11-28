@@ -14,29 +14,25 @@ module IdentityTests {
     let nameMissingAt = "name.missing-at"
     fn key(scope, name) = Names::Key { scope: scope, name: name }
 
-    fn create(world, org, custodianPrincipal, custodianMembership, k, id, admin, adminPrincipal) = {
+    /// `org`'s custodian `custodian` (principal `p-<custodian>` on membership
+    /// `m-<custodian>`) creates package `id` at key `k`, administered by
+    /// `admin` whose proof `adminPrincipal` signs.
+    fn create(world, org, custodian, k, id, admin, adminPrincipal) = {
         let statement = Governance::creationStatement(id, k, admin)
         GovernanceTransitions::createPackage(world, org, k, id, admin,
-            Fixture::verified(custodianPrincipal, custodianMembership, statement),
+            Fixture::verified("p-${custodian}", "m-${custodian}", statement),
             Fixture::verified(adminPrincipal, admin, statement))
     }
 
-    fn createFor(world, org, custodian, k, id, admin, adminPrincipal) =
-        create(world, org, "p-${custodian}", "m-${custodian}", k, id, admin, adminPrincipal)
+    /// The reason code of that creation: "" once the package exists.
+    fn createCode(world, org, custodian, k, id, admin, adminPrincipal) =
+        Fixture::code(create(world, org, custodian, k, id, admin, adminPrincipal))
 
-    fn createFinch(world, k, id, admin, adminPrincipal) =
-        createFor(world, "o-finch", "alice", k, id, admin, adminPrincipal)
+    /// The reason code of finch's custodian creating `k`'s package `id`, administered by bob.
+    fn finchCode(world, k, id) = createCode(world, "o-finch", "alice", k, id, "m-bob", "p-bob")
 
-    fn createWren(world, k, id, admin, adminPrincipal) =
-        createFor(world, "o-wren", "dave", k, id, admin, adminPrincipal)
-
-    fn finchCode(world, k, id) = Fixture::code(createFinch(world, k, id, "m-bob", "p-bob"))
-
-    fn wrenCode(world, k, id, admin, adminPrincipal) =
-        Fixture::code(createWren(world, k, id, admin, adminPrincipal))
-
-    fn tombstone(world, statement) =
-        GovernanceTransitions::tombstone(world, "pkg-w1", Fixture::verified("p-dave", "m-dave", statement))
+    /// The reason code of wren's custodian creating `k`'s package `id`, administered by `admin` as `adminPrincipal` signs.
+    fn wrenCode(world, k, id, admin, adminPrincipal) = createCode(world, "o-wren", "dave", k, id, admin, adminPrincipal)
 
     /// One leaf, two organizations, no interaction between them. The second
     /// organization's admin must be a human member: [PACKAGE-OWNERSHIP-ADMIN]
@@ -47,8 +43,8 @@ module IdentityTests {
         let world = Fixture::world()
         let finchToolkitKey = key("finch", "toolkit")
         let wrenToolkitKey = key("wren", "toolkit")
-        let finchToolkit = Fixture::orKeep(world, fn(w) => createFinch(w, finchToolkitKey, "pkg-f2", "m-bob", "p-bob"))
-        let bothToolkit = Fixture::orKeep(finchToolkit, fn(w) => createWren(w, wrenToolkitKey, "pkg-w2", "m-dave", "p-dave"))
+        let finchToolkit = Fixture::orKeep(world, fn(w) => create(w, "o-finch", "alice", finchToolkitKey, "pkg-f2", "m-bob", "p-bob"))
+        let bothToolkit = Fixture::orKeep(finchToolkit, fn(w) => create(w, "o-wren", "dave", wrenToolkitKey, "pkg-w2", "m-dave", "p-dave"))
         checkAll("the same leaf name serves two organizations independently", [
             finchCode(world, finchToolkitKey, "pkg-f2") == "",
             finchCode(world, key("finch", "ledger"), "pkg-f9") == governancePackageDuplicateName,
@@ -62,18 +58,24 @@ module IdentityTests {
         ])
     }
 
+    /// The reason code of finch's custodian creating the package `name` under
+    /// `scope`, administered by bob in a fresh world.
+    fn keyProblem(scope, name) = finchCode(Fixture::world(), key(scope, name), "pkg-x")
+
     /// The scope is the owning organization's immutable handle, and the
     /// components keep the canonical grammar; unscoped and global spellings
     /// have no creation path at all.
     fn orgBoundKeys() = checkAll("a package key is bound to its organization's handle", [
-        finchCode(Fixture::world(), key("wren", "ledger"), "pkg-x") == "governance.package.org-handle-mismatch",
-        finchCode(Fixture::world(), key("Finch", "toolkit"), "pkg-x") == "name.scope.chars",
-        finchCode(Fixture::world(), key("finch", "Toolkit"), "pkg-x") == "name.name.chars",
-        finchCode(Fixture::world(), key("finch", ""), "pkg-x") == "name.name.length",
+        structuralEquals([keyProblem("wren", "ledger"), keyProblem("Finch", "toolkit"), keyProblem("finch", "Toolkit"), keyProblem("finch", "")],
+            ["governance.package.org-handle-mismatch", "name.scope.chars", "name.name.chars", "name.name.length"]),
         Fixture::code(Names::parse("ledger")) == nameMissingAt,
         Fixture::code(Names::parse("finch/ledger")) == nameMissingAt,
         Fixture::code(Names::parse("HelperFunctions")) == nameMissingAt
     ])
+
+    /// `wren`'s custodian tombstones `ledger`, the package `pkg-w1`: the transition's result.
+    fn tombstone(world, statement) =
+        GovernanceTransitions::tombstone(world, "pkg-w1", Fixture::verified("p-dave", "m-dave", statement))
 
     /// A tombstone keeps occupying its organization's key forever.
     fn tombstonedKeysStayTaken() = {

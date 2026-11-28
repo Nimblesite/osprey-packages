@@ -1,6 +1,9 @@
 namespace registry_tests;
+import registry::Identity
 import registry::Json
 import registry::JsonRead
+import registry::Names
+import registry::Resolution
 
 /// Reading the declarative fixtures under src/manager/tests/fixtures: every
 /// suite loads, walks and reports fixture tables through these helpers so no
@@ -58,4 +61,27 @@ module Fixtures {
         Success => ""
         Error { message } => message
     }
+
+    /// The value of a result, or its error message.
+    export fn valueOrMessage(result) = match result {
+        Success { value } => value
+        Error { message } => message
+    }
+
+    /// `text` through `parse` then `display`: the rendered value, or the parse's reason code.
+    export fn shown(parse, display, text) = match parse(text) {
+        Success { value } => display(value)
+        Error { message } => message
+    }
+
+    /// The release `@scope/name` at `epoch.rordinal` under `digest`.
+    export fn releaseId(scope, name, epoch, ordinal, digest) = Identity::ReleaseId {
+        key: Names::Key { scope: scope, name: name },
+        epoch: epoch,
+        ordinal: ordinal,
+        digest: digest
+    }
+
+    /// The releases of `items` sorted by `Resolution::sortedBy` and `compare`, each rendered by `display`, joined by one space.
+    export fn sortedText(items, compare, missing, display) = join(mapList(Resolution::sortedBy(items, compare, missing), display), " ")
 }

@@ -73,8 +73,6 @@ module PythonTests {
     fn bar(xs) = join(xs, " | ")
 
     /// What a run wrote and said, for a failing check's label.
-    fn pyprojectPath() = "${pythonDir}/pyproject.toml"
-
     fn observed(a) = "pyproject<<${RegistryFixture::writtenTo(a, pyprojectPath())}>> lock<<${RegistryFixture::writtenTo(a, RegistryFixture::lockPath)}>> ran<<${bar(RegistryFixture::ranOf(a))}>> lines<<${bar(RegistryFixture::linesOf(a))}>>"
 
     fn ranUv(a, words) = {
@@ -86,8 +84,11 @@ module PythonTests {
             && contains(command, PythonPlane::digestOf(expectedPyproject()))
     }
 
-    /// The run's first line names the release it acted on behind `mark`.
-    fn firstLineMarks(a, mark) = RegistryFixture::lineOf(a, 0) == "${mark} ${RegistryFixture::compact(py())}"
+    /// The run's two report lines: the release it acted on behind `mark`, then `python: <verb> <dir>`.
+    fn reports(a, mark, verb) = RegistryFixture::lineOf(a, 0) == "${mark} ${RegistryFixture::compact(py())}"
+        && RegistryFixture::lineOf(a, 1) == "python: ${verb} ${pythonDir}"
+
+    fn pyprojectPath() = "${pythonDir}/pyproject.toml"
 
     /// `lock` composes the project, runs `uv lock` and pins both digests.
     fn lockPins() = {
@@ -97,8 +98,7 @@ module PythonTests {
             RegistryFixture::writtenTo(a, "${pythonDir}/pyproject.toml") == expectedPyproject(),
             RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == expectedLock(),
             ranUv(a, "lock"),
-            firstLineMarks(a, "+"),
-            RegistryFixture::lineOf(a, 1) == "python: locked ${pythonDir}"
+            reports(a, "+", "locked")
         ])
     }
 
@@ -196,8 +196,7 @@ module PythonTests {
         let a = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk()], [], ["fetch", "--project", project])
         checkAll("fetch runs uv sync --frozen once the trees are present", [
             RegistryFixture::accepted(a),
-            firstLineMarks(a, "="),
-            RegistryFixture::lineOf(a, 1) == "python: synced ${pythonDir}",
+            reports(a, "=", "synced"),
             ranUv(a, "sync --frozen --no-editable")
         ])
     }

@@ -23,6 +23,9 @@ module AdminTests {
     /// The reason code of `member` publishing `id` at the fixture moment.
     fn publishCode(world, id, member) = authorizeCode(world, id, member, Governance::PublishRelease, 100)
 
+    /// Whether `alice` holds no `permission` on `pkg-f1` at the fixture moment.
+    fn aliceLacks(world, permission) = authorizeCode(world, "pkg-f1", "m-alice", permission, 100) == permissionMissing
+
     /// Custodian alice's verified proof of `signed`.
     fn aliceProof(signed) = Fixture::verified("p-alice", "m-alice", signed)
 
@@ -88,11 +91,11 @@ module AdminTests {
     /// they can like anyone else.
     fn adminIsNotAPermission() = {
         let world = Fixture::world()
-        let withSelfGrant = Fixture::grantOn(world, "pkg-f1", "g-alice", "m-alice", Governance::PublishRelease, Maybe::none(), 100)
+        let withSelfGrant = Fixture::standingGrant(world, "pkg-f1", "g-alice", "m-alice", Governance::PublishRelease)
         checkAll("the administrator has no implicit operational capability", [
             publishCode(world, "pkg-f1", "m-alice") == permissionMissing,
-            authorizeCode(world, "pkg-f1", "m-alice", Governance::YankRelease, 100) == permissionMissing,
-            authorizeCode(world, "pkg-f1", "m-alice", Governance::ManageSecurity, 100) == permissionMissing,
+            aliceLacks(world, Governance::YankRelease),
+            aliceLacks(world, Governance::ManageSecurity),
             publishCode(withSelfGrant, "pkg-f1", "m-alice") == "",
             join(mapList([Governance::PublishRelease, Governance::YankRelease, Governance::EditMetadata,
                 Governance::ManageMaintenance, Governance::ManageSecurity], Governance::permissionName), ",") == "publish-release,yank-release,edit-metadata,manage-maintenance,manage-security"
