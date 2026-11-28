@@ -43,11 +43,18 @@ module IdentityTests {
         ], fn(text) => Fixtures::shown(Identity::parse, Identity::display, text))
     ])
 
+    /// The release ids `texts` spell in the display grammar. One that does not
+    /// parse reads as the blank identity, whose display never sorts into place.
+    fn releaseIds(texts) = mapList(texts, fn(text) => Identity::parse(text) ?: Identity::blank())
+
     fn ordering() = {
-        let ids = [Fixtures::releaseId("b", "a", 1, 1, "sha256:aa"), Fixtures::releaseId("a", "a", 2, 1, "sha256:aa"), Fixtures::releaseId("a", "a", 1, 9, "sha256:aa"), Fixtures::releaseId("a", "a", 1, 9, "sha256:ab"), Fixtures::releaseId("a", "a", 1, 2, "sha256:zz")]
+        let ids = releaseIds(["@b/a@e1.r1#sha256:aa", "@a/a@e2.r1#sha256:aa", "@a/a@e1.r9#sha256:aa", "@a/a@e1.r9#sha256:ab", "@a/a@e1.r2#sha256:zz"])
         checkAll("releases order by (package, epoch, ordinal, digest)", [
             Fixtures::sortedText(ids, Identity::compare, Identity::blank(), Identity::display) == "@a/a@e1.r2#sha256:zz @a/a@e1.r9#sha256:aa @a/a@e1.r9#sha256:ab @a/a@e2.r1#sha256:aa @b/a@e1.r1#sha256:aa",
-            Identity::compare(Fixtures::releaseId("a", "a", 1, 1, "sha256:aa"), Fixtures::releaseId("a", "a", 1, 1, "sha256:aa")) == 0
+            match releaseIds(["@a/a@e1.r1#sha256:aa", "@a/a@e1.r1#sha256:aa"]) {
+                [left, right] => Identity::compare(left, right) == 0
+                _ => false
+            }
         ])
     }
 

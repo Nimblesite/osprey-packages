@@ -16,28 +16,23 @@ module Manifest {
     let positionSeparator = ":"
     let topLevelKeys = ["project", "modules", "package", "dependencies", "build-dependencies", "test-dependencies", "system", "assets", "discipline", "lints"]
 
-    fn numberAfter(text, separator, fallback) = match indexOf(text, separator) {
-        Success { value } => parseInt(drop(text, value + 1)) ?: fallback
-        Error => fallback
-    }
-
-    fn numberBefore(text, separator, fallback) = match indexOf(text, separator) {
-        Success { value } => parseInt(take(text, value)) ?: fallback
+    /// The integer after (`part` is "after") or before the first `separator`, else `fallback`.
+    fn numberAround(text, separator, part, fallback) = match indexOf(text, separator) {
+        Success { value } => parseInt(if part == "after" { drop(text, value + 1) } else { take(text, value) }) ?: fallback
         Error => fallback
     }
 
     /// Decode `code at line:column`; a message without a position is at 1:1.
     export fn problemOf(message) = match indexOf(message, encodedSeparator) {
         Error => Problem { code: message, line: 1, column: 1 }
-        Success { value } => Problem {
-            code: take(message, value),
-            line: numberBefore(drop(message, value + byteLength(encodedSeparator)), positionSeparator, 1),
-            column: numberAfter(drop(message, value + byteLength(encodedSeparator)), positionSeparator, 1)
+        Success { value } => {
+            let position = drop(message, value + byteLength(encodedSeparator))
+            Problem { code: take(message, value), line: numberAround(position, positionSeparator, "before", 1), column: numberAround(position, positionSeparator, "after", 1) }
         }
     }
 
     /// `code at line:column`.
-    export fn describe(problem) = "${problem.code} at ${problem.line}:${problem.column}"
+    export fn describe(problem) = Toml::describe(problem)
 
     /// The dependency edges and the root's grants, parsed from the same tables.
     type Edges = { edges: List<ManifestModel::Edge>, grants: List<ManifestModel::Grant> }

@@ -25,7 +25,6 @@ module TreeGraph {
     fn bool(flag) = Json::Bool { flag: flag }
     fn textList(texts) = Json::arr(mapList(texts, Json::str))
 
-    fn versionOf(id: Identity::ReleaseId) = "e${id.epoch}.r${id.ordinal}"
     fn directKeys(manifest) = Names::distinct(mapList(ManifestModel::edgesOf(manifest), ManifestModel::requirementKey))
     fn edgeKeys(edges) = Names::distinct(mapList(edges, ManifestModel::requirementKey))
 
@@ -59,13 +58,11 @@ module TreeGraph {
     // the editor must be able to tell them apart. Absent for a release, keeping a
     // graph with no overrides byte-identical to one from before local checkouts.
     fn overrideMembers(overrides, key) = match Lockfile::overrideFor(overrides, key) {
-        Success { value } => [Json::member("override", Json::str(overridePath(value)))]
+        Success { value } => [Json::member("override", Json::str(Lockfile::overridePathOf(value)))]
         Error => []
     }
 
-    fn overridePath(o: Lockfile::Override) = o.path
-
-    fn localLock(project) = andThen(Project::readLocalLockAt(project), fn(value) => Success { value: Lockfile::overridesOf(value) })
+    fn localLock(project) = Folds::mapped(Project::readLocalLockAt(project), Lockfile::overridesOf)
 
     /// The development lock's overrides; a missing one has none, and an unreadable
     /// one is a finding rather than a graph that looks free of overrides.
@@ -76,7 +73,7 @@ module TreeGraph {
         let keyText = Names::display(Identity::keyOf(id))
         Json::obj(listConcat(overrideMembers(overrides, Identity::keyOf(id)), [
             Json::member("key", Json::str(keyText)),
-            Json::member("version", Json::str(versionOf(id))),
+            Json::member("version", Json::str(Lockfile::versionOf(id))),
             Json::member("digest", Json::str(id.digest)),
             Json::member("direct", bool(Names::includes(direct, Identity::keyOf(id)))),
             Json::member("dependencies", textList(mapList(edgeKeys(Lockfile::edgesOf(pkg)), Names::display))),
@@ -128,5 +125,5 @@ module TreeGraph {
     }
 
     /// The graph of the project at `project` as one canonical JSON report line.
-    export fn reportAt(project) = Reports::checked(Project::readAt(project), fn(value) => withManifest(project, value))
+    export fn reportAt(project) = Project::withManifestAt(project, fn(value) => withManifest(project, value))
 }

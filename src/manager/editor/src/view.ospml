@@ -94,11 +94,13 @@ module View
             ], selected = snapshot.packageTab, bind = TabSwitch),
         ])
 
+    styledAll (texts, style, tone) = mapList (texts, \text => Ui::styled (text, style, tone))
+
     keyList (title, keys) = match isEmpty keys
         true => Ui::section (title, "", [Ui::styled ("None", ui::Callout, ui::Secondary)])
-        false => Ui::section (title, "", mapList (keys, \key => Ui::styled (key, ui::Mono, ui::Secondary)))
+        false => Ui::section (title, "", styledAll (keys, ui::Mono, ui::Secondary))
 
-    findingLines findings = mapList (findings, \finding => Ui::styled (finding, ui::Callout, ui::Danger))
+    findingLines findings = styledAll (findings, ui::Callout, ui::Danger)
 
     findingsSection findings = match isEmpty findings
         true => findingsPanel "Findings are unverified local report data; none recorded is not an audit." [Ui::badge (unverified, unverifiedSymbol, ui::Caution)]
@@ -188,13 +190,16 @@ module View
 
     detailColumn (snapshot, nodes) = Ui::column (withConfirmation (snapshot, nodes))
 
+    (** One selected package: its body, a row of its actions opened as the context menu, and the state note, behind any confirm prompt. *)
+    detail (snapshot, item, body, actions) = Ui::contextMenu (detailColumn (snapshot, listConcat (body (snapshot, item)) [Ui::row (actions (snapshot, item)), stateNote snapshot]), actions (snapshot, item))
+
     (** The detail of the selected package, installed or in the catalog, with its actions, the state note and any confirm prompt; an empty state when the selection names neither. *)
     export detailView () =
         snapshot = current ()
         match Packages::packageAt (snapshot.packageGraph.workspacePackages, snapshot.packageSelection)
-            Success item => Ui::contextMenu (detailColumn (snapshot, listConcat (installedBody (snapshot, item)) [Ui::row (installedActions (snapshot, item)), stateNote snapshot]), installedActions (snapshot, item))
+            Success item => detail (snapshot, item, installedBody, installedActions)
             Error _ => match Packages::catalogAt (snapshot.packageCatalog, snapshot.packageSelection)
-                Success item => Ui::contextMenu (detailColumn (snapshot, listConcat (catalogBody (snapshot, item)) [Ui::row (catalogActions (snapshot, item)), stateNote snapshot]), catalogActions (snapshot, item))
+                Success item => detail (snapshot, item, catalogBody, catalogActions)
                 Error _ => Ui::empty ("shippingbox", "A clear view of your dependencies", "Choose a package to inspect its release, dependencies, security findings and the packages that depend on it.")
 
     noticeNode snapshot = match snapshot.packagePending

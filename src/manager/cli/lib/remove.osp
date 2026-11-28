@@ -19,7 +19,7 @@ module Remove {
 
     fn withSettings(s, key) = Reports::checked(Project::manifestTextAt(Transaction::projectOf(s)), fn(value) => withText(s, key, value))
 
-    fn withKey(key, flags) = Flags::dispatch(flags, [Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText,
+    fn withKey(key, flags) = Flags::dispatch(flags, Transaction::flags, [], usageCode, usageText,
         fn(parsed) => withSettings(Transaction::releaseSettings(parsed), key))
 
     /// The whole command: the key word first, then the flags.

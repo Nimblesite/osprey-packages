@@ -176,12 +176,30 @@ module Governance {
     /// organizational decision is signed by.
     export fn humanMemberOf(registry, m: Membership) = andThen(principalOf(registry, m.principal), humanPrincipal)
 
+    /// The principal with id `id` when it is active, or its missing or suspended refusal.
+    export fn liveOf(registry, id) = andThen(principalOf(registry, id), livePrincipal)
+
+    /// The live human principal with id `id`: the same actor, looked up by id.
+    export fn liveHumanOf(registry, id) = andThen(liveOf(registry, id), humanPrincipal)
+
+    /// The membership `member` of `org` when it is active, else its missing,
+    /// inactive or other-org refusal.
+    export fn activeMemberOfOrg(registry, org, member) = andThen(activeMembershipOf(registry, member), fn(m) => sameOrgMember(m, org))
+
+    /// The active same-organization membership `member` of `org` once its
+    /// principal is a live human; the membership every organizational
+    /// decision is signed by.
+    export fn activeHumanMemberOf(registry, org, member) = andThen(activeMemberOfOrg(registry, org, member), fn(m) =>
+        andThen(humanMemberOf(registry, m), fn(_p) => Success { value: m }))
+
+    /// `pkg` when its lifecycle status is one of `statuses`, else the refusal naming it.
+    fn admitted(pkg: Package, statuses) = if listContains(statuses, pkg.status) {
+        Success { value: pkg }
+    } else { Error { message: refusalCode(pkg.status) } }
+
     /// Package writes need a writable lifecycle status
     /// [PACKAGE-OWNERSHIP-MAINTENANCE]; each refusal names its status.
-    export fn writable(pkg: Package) = match pkg.status {
-        Draft | Active => Success { value: pkg }
-        _ => Error { message: refusalCode(pkg.status) }
-    }
+    export fn writable(pkg: Package) = admitted(pkg, [Draft, Active])
 
     /// The package with id `id` when its status allows writes, or its missing or status refusal.
     export fn writablePackage(registry, id) = andThen(packageOf(registry, id), writable)
@@ -189,13 +207,13 @@ module Governance {
     /// Operational authorization needs an active package: a draft has no
     /// releases, and frozen, deprecated and tombstoned packages refuse
     /// operations with their own reason codes.
-    export fn operational(pkg: Package) = match pkg.status {
-        Active => Success { value: pkg }
-        _ => Error { message: refusalCode(pkg.status) }
-    }
+    export fn operational(pkg: Package) = admitted(pkg, [Active])
 
-    /// The reason code of a lifecycle status that refuses a write; both
-    /// callers above match every status they admit before asking.
+    /// The package with id `id` when it is operational, or its missing or status refusal.
+    export fn operationalPackage(registry, id) = andThen(packageOf(registry, id), operational)
+
+    /// The reason code of a lifecycle status that refuses a write; every
+    /// caller admits each status it names before asking.
     fn refusalCode(status) = match status {
         WriteFrozen => "governance.package.frozen"
         Deprecated => "governance.package.deprecated"
@@ -203,22 +221,21 @@ module Governance {
         _ => "governance.package.draft"
     }
 
+    /// `proof` once its host verification is `HostVerified`, else `governance.proof.rejected:<reason>`.
+    fn verified(proof) = match proof.verification {
+        Rejected { reason } => Error { message: "governance.proof.rejected:${reason}" }
+        HostVerified => Success { value: proof }
+    }
+
     /// Demand one exact verified proof: the host ceremony accepted it, it
     /// was performed by `membership`/`actor`, and it signs exactly
     /// `statement`. A refused proof, another actor or another statement is
     /// never authority.
-    export fn requireProof(proof, actor, membership, statement) = match proof.verification {
-        Rejected { reason } => Error { message: "governance.proof.rejected:${reason}" }
-        HostVerified => match proof.membership == membership {
-            false => Error { message: "governance.proof.wrong-membership" }
-            true => match proof.actor == actor {
-                false => Error { message: "governance.proof.wrong-actor" }
-                true => match proof.statement == statement {
-                    false => Error { message: "governance.proof.statement-mismatch" }
-                    true => Success { value: proof }
-                }
-            }
-        }
+    export fn requireProof(proof: Proof, actor, membership, statement) = {
+        use _ <- andThen(verified(proof))
+        use _ <- andThen(required(proof.membership == membership, proof, "governance.proof.wrong-membership"))
+        use _ <- andThen(required(proof.actor == actor, proof, "governance.proof.wrong-actor"))
+        required(proof.statement == statement, proof, "governance.proof.statement-mismatch")
     }
 
     /// Human control acts are signed through WebAuthn; a workflow DSSE proof

@@ -14,7 +14,7 @@ module GovernanceTransitions {
     /// governance rules as a larger one.
     export fn enrollOrganization(registry, id, orgHandle, founder, founderMembership, proof) = {
         use _ <- andThen(handleChecks(registry, id, orgHandle))
-        use _ <- andThen(humanFounder(registry, founder))
+        use _ <- andThen(Governance::liveHumanOf(registry, founder))
         use _ <- andThen(Governance::requireProof(proof, founder, founderMembership,
             Governance::organizationStatement(id, orgHandle, founderMembership)))
         Success { value: registry {
@@ -34,8 +34,7 @@ module GovernanceTransitions {
     /// recipient must be a human member; each custodian's proof is then
     /// verified for this exact decision.
     export fn grantCustodianship(registry, org, target, proofA, proofB) = {
-        use m <- andThen(Governance::activeMembershipOf(registry, target))
-        use _ <- andThen(Governance::sameOrgMember(m, org))
+        use m <- andThen(Governance::activeMemberOfOrg(registry, org, target))
         use _ <- andThen(distinctProofs(proofA, proofB))
         use _ <- andThen(humanMember(registry, m))
         use _ <- andThen(custodianQuorum(registry, org, target, proofA, proofB))
@@ -51,8 +50,7 @@ module GovernanceTransitions {
     export fn revokeMembership(registry, target, proof) = {
         use m <- andThen(Governance::activeMembershipOf(registry, target))
         use _ <- andThen(custodianProof(registry, m.org, Governance::revocationStatement(m.org, target), proof))
-        use _ <- andThen(notLastCustodian(registry, m))
-        use _ <- andThen(administersNothing(registry, m))
+        use _ <- andThen(structuralProtections(registry, m))
         updatedMembership(registry, m, m.role, Governance::Revoked)
     }
 
@@ -93,8 +91,7 @@ module GovernanceTransitions {
     export fn createPackage(registry, org, key: Names::Key, id, admin, custodianEvidence, adminAcceptance) = {
         use o <- andThen(Governance::organizationOf(registry, org))
         use _ <- andThen(keyChecks(registry, o, key, id))
-        use m <- andThen(activeMemberOfOrg(registry, org, admin))
-        use _ <- andThen(humanMember(registry, m))
+        use m <- andThen(Governance::activeHumanMemberOf(registry, org, admin))
         use _ <- andThen(custodianProof(registry, org, Governance::creationStatement(id, key, admin), custodianEvidence))
         use _ <- andThen(Governance::requireProof(adminAcceptance, m.principal, admin,
             Governance::creationStatement(id, key, admin)))
@@ -158,15 +155,17 @@ module GovernanceTransitions {
     fn recorded(registry, pkg, m, grantId, membership, permission, expiresAt) = registry { grants: listAppend(registry.grants,
         grantRow(pkg, m.authorityEpoch, grantId, membership, permission, expiresAt)) }
 
+    /// The grant `grantId` and its writable package, through `decide`.
+    fn granted(registry, grantId, decide) = andThen(Governance::grantOf(registry, grantId), fn(g) =>
+        andThen(Governance::writablePackage(registry, g.package), fn(pkg) => decide(g, pkg)))
+
     /// The administrator can revoke one grant immediately
     /// [PACKAGE-OWNERSHIP-PERMISSIONS]; the row remains auditable.
-    export fn revokeGrant(registry, grantId, proof) = {
-        use g <- andThen(Governance::grantOf(registry, grantId))
-        use pkg <- andThen(Governance::writablePackage(registry, g.package))
+    export fn revokeGrant(registry, grantId, proof) = granted(registry, grantId, fn(g, pkg) => {
         use _ <- andThen(Governance::requireAdmin(registry, pkg, proof,
             Governance::revokeGrantStatement(pkg.key, pkg.authorityEpoch, grantId)))
         Success { value: Governance::replaceGrant(registry, g { status: Governance::GrantRevoked }) }
-    }
+    })
 
     /// The administrator can revoke every grant immediately
     /// [PACKAGE-OWNERSHIP-PERMISSIONS]; the rows remain auditable.
@@ -182,16 +181,14 @@ module GovernanceTransitions {
     export fn renewalStatementFor(pkg, old, expiresAt) =
         Governance::renewalStatement(pkg.key, pkg.authorityEpoch, old.membership, old.permission, expiresAt)
 
-    export fn renewGrant(registry, grantId, newGrantId, proof, expiresAt, now) = {
-        use old <- andThen(Governance::grantOf(registry, grantId))
-        use pkg <- andThen(Governance::writablePackage(registry, old.package))
+    export fn renewGrant(registry, grantId, newGrantId, proof, expiresAt, now) = granted(registry, grantId, fn(old, pkg) => {
         use _ <- andThen(soleActive(registry, old))
         use _ <- andThen(freshExpiry(expiresAt, now))
         use _ <- andThen(Governance::requireAdmin(registry, pkg, proof,
             renewalStatementFor(pkg, old, expiresAt)))
         use _ <- andThen(unusedGrantId(registry, newGrantId))
         Success { value: renewed(registry, pkg, old, newGrantId, expiresAt) }
-    }
+    })
 
     /// The live authorization predicate [PACKAGE-OWNERSHIP-PERMISSIONS]: an
     /// operational package, an active same-org membership, a live principal,
@@ -200,11 +197,9 @@ module GovernanceTransitions {
     /// organization role are absent here on purpose: they grant no
     /// operational capability.
     export fn authorize(registry, id, membership, permission, now) = {
-        use pkg <- andThen(Governance::packageOf(registry, id))
-        use _ <- andThen(Governance::operational(pkg))
+        use pkg <- andThen(Governance::operationalPackage(registry, id))
         use m <- andThen(subject(registry, pkg, membership))
-        use p <- andThen(Governance::principalOf(registry, m.principal))
-        use _ <- andThen(Governance::livePrincipal(p))
+        use _ <- andThen(Governance::liveOf(registry, m.principal))
         use g <- andThen(liveGrant(registry, pkg, m, permission))
         use _ <- andThen(currentEpochs(g, pkg, m))
         unexpired(g, now)
@@ -221,19 +216,7 @@ module GovernanceTransitions {
     fn updatedMembership(registry, m, role, status) = Success { value: Governance::replaceMembership(registry,
         m { role: role, status: status, authorityEpoch: m.authorityEpoch + 1 }) }
 
-    fn humanFounder(registry, founder) = {
-        use p <- andThen(Governance::principalOf(registry, founder))
-        use _ <- andThen(Governance::livePrincipal(p))
-        Governance::humanPrincipal(p)
-    }
-
     fn humanMember(registry, m) = Governance::humanMemberOf(registry, m)
-
-    /// The membership `member` of `org` when it is active, else its missing, inactive or other-org refusal.
-    fn activeMemberOfOrg(registry, org, member) = {
-        use m <- andThen(Governance::activeMembershipOf(registry, member))
-        Governance::sameOrgMember(m, org)
-    }
 
     /// One custodian's fresh proof for `statement`: the prover must be an
     /// active custodian of `org`. Custodianship grants no package authority.
@@ -255,6 +238,11 @@ module GovernanceTransitions {
 
     fn otherCustodians(registry, m: Governance::Membership) = filterList(registry.memberships, fn(x) =>
         Governance::isCustodian(x) && Governance::isActive(x) && x.org == m.org && x.id != m.id)
+
+    /// The structural protections a revocation never crosses: never the
+    /// organization's last accepted custodian, never a membership still
+    /// administering a package.
+    fn structuralProtections(registry, m) = andThen(notLastCustodian(registry, m), fn(_) => administersNothing(registry, m))
 
     fn notLastCustodian(registry, m) = Governance::unique(m,
         Governance::isCustodian(m) && length(otherCustodians(registry, m)) == 0, "governance.org.last-custodian")
@@ -285,7 +273,7 @@ module GovernanceTransitions {
     }
 
     /// The active same-organization membership a grant or an authorization is for.
-    fn subject(registry, pkg: Governance::Package, membership) = activeMemberOfOrg(registry, pkg.org, membership)
+    fn subject(registry, pkg: Governance::Package, membership) = Governance::activeMemberOfOrg(registry, pkg.org, membership)
 
     fn freshExpiry(expiresAt, now) = Maybe::fold(expiresAt, Success { value: now }, fn(at) =>
         Governance::required(at > now, at, "governance.permission.expiry-past"))

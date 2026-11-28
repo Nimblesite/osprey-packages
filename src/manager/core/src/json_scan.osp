@@ -28,12 +28,15 @@ module JsonScan {
 
     fn nextString(i, out) = Success { value: Scan { text: out, next: i } }
 
+    /// The failure for text that ended in the middle of a value.
+    fn ended(text) = failure(unexpectedEnd, byteLength(text))
+
     /// Decode a string body while keeping call depth logarithmic in input size.
     export fn scan(text, i) = match scanBlock(text, i, byteLength(text) - i + 1) {
         Error { message } => Error { message: message }
         Success { value } => if value.complete {
             Success { value: Scan { text: value.piece, next: value.cursor } }
-        } else { failure(unexpectedEnd, byteLength(text)) }
+        } else { ended(text) }
     }
 
     fn readChunk(text, i) = match scanByte(text, i, "") {
@@ -100,7 +103,7 @@ module JsonScan {
 
     /// Decode one run, code point or escape without recursing into its successor.
     fn scanByte(text, i, out) = match byteAt(text, i) {
-        Error => failure(unexpectedEnd, byteLength(text))
+        Error => ended(text)
         Success { value } => if value == quote {
             Success { value: Scan { text: out, next: i + 1 } }
         } else if value == backslash {
@@ -127,7 +130,7 @@ module JsonScan {
     }
 
     fn scanEscape(text, i, out) = match byteAt(text, i + 1) {
-        Error => failure(unexpectedEnd, byteLength(text))
+        Error => ended(text)
         Success { value } => if value == quote || value == backslash || value == slash {
             nextString(i + 2, out + (substring(text, i + 1, i + 2) ?: ""))
         } else {
@@ -169,7 +172,7 @@ module JsonScan {
 
     /// A short hex run is either truncated input or a non-hex byte.
     fn shortHexRun(text, i, end) = if end >= byteLength(text) {
-        failure(unexpectedEnd, byteLength(text))
+        ended(text)
     } else {
         failure(badEscape, i)
     }

@@ -29,15 +29,13 @@ module NamesTests {
         ], code)
     ])
 
-    fn key(scope, name) = Names::Key { scope: scope, name: name }
-
     /// The order of `@scope/name` against `@otherScope/otherName`.
-    fn compareKeys(scope, name, otherScope, otherName) = Names::compare(key(scope, name), key(otherScope, otherName))
+    fn compareKeys(scope, name, otherScope, otherName) = Names::compare(Fixtures::key(scope, name), Fixtures::key(otherScope, otherName))
 
     fn ordersByScopeThenName() = {
-        let keys = [key("b", "a"), key("a", "z"), key("a", "b"), key("a-b", "a")]
-        checkAll("keys order by (scope, name) bytes", [
-            Fixtures::sortedText(keys, Names::compare, Names::blank(), Names::display) == "@a/b @a/z @a-b/a @b/a",
+        let keys = [Fixtures::key("b", "a"), Fixtures::key("a", "z"), Fixtures::key("a", "b"), Fixtures::key("a-b", "a")]
+        check("keys sort by (scope, name) bytes", "@a/b @a/z @a-b/a @b/a", Fixtures::sortedText(keys, Names::compare, Names::blank(), Names::display))
+        checkAll("keys compare by (scope, name) bytes", [
             compareKeys("a", "b", "a", "b") == 0,
             compareKeys("a", "b", "a", "c") < 0,
             compareKeys("b", "a", "a", "z") > 0

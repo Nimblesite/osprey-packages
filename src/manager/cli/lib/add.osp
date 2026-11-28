@@ -132,9 +132,8 @@ module Add {
 
     fn withWord(parsed, word) = if startsWith(word, "@") { Flags::parsedKey(word, usageCode, usageText, fn(value) => withKey(value, parsed)) } else { withPath(parsed, word) }
 
-    fn routed(parsed, word) = if word == "" || startsWith(word, "--") { Reports::usageFor(usageCode, usageText) } else { withWord(parsed, word) }
+    fn routed(word, parsed) = if word == "" { Reports::usageFor(usageCode, usageText) } else { withWord(parsed, word) }
 
     /// The whole command: the key or path word first, then the flags.
-    export fn run(args) = Flags::dispatch(Flags::tail(args), [epochFlag, Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText,
-        fn(parsed) => routed(parsed, listGet(args, 0) ?: ""))
+    export fn run(args) = Flags::dispatchPositional(args, [epochFlag, Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText, routed)
 }

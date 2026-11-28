@@ -26,16 +26,11 @@ module PublicCatalog {
         _ => false
     }
 
-    fn licenseOk(item) = match Spdx::validate(text(item, "licenseExpression")) {
-        Success => true
-        Error => false
-    }
+    fn licenseOk(item) = Checked::succeeded(Spdx::validate(text(item, "licenseExpression")))
 
     fn validRelease(item) = exact(item, 7) && licenseOk(item) && noticesOk(item) && Bytes::canonicalUuid(text(item, "publisherId"))
-        && trim(text(item, "publisherName")) != "" && byteLength(text(item, "publisherName")) <= 128 && number(item, "epoch") > 0 && number(item, "ordinal") > 0 && match Digests::parse(text(item, "digest")) {
-        Success => true
-        Error => false
-    }
+        && trim(text(item, "publisherName")) != "" && byteLength(text(item, "publisherName")) <= 128 && number(item, "epoch") > 0 && number(item, "ordinal") > 0
+        && Checked::succeeded(Digests::parse(text(item, "digest")))
     fn validReleases(item) = match field(item, "releases") {
         JsonArray(items) => !isEmpty(items) && allOf(items, validRelease)
         _ => false

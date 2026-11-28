@@ -48,10 +48,8 @@ module Bundle {
 
     fn filesOf(items) = Checked::collectAll(items, fileOf)
 
-    fn filesField(root) = match Json::itemsAt(root, "files") {
-        Success { value } => filesOf(value)
-        Error => Error { message: shapeError }
-    }
+    /// The `files` of the root, every entry parsed, or `"bundle.shape"`.
+    fn filesField(root) = shaped(andThen(Json::itemsAt(root, "files"), filesOf))
 
     fn ofValue(root) = reading(root, "digest", withEpoch)
 

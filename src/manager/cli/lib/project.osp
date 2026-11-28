@@ -48,8 +48,16 @@ module Project {
     /// The parsed manifest at `dir`, or the OS reason / `Manifest::describe(problem)`.
     export fn readAt(dir) = andThen(manifestTextAt(dir), fn(value) => Manifest::accepted(Manifest::parse(value)))
 
+    /// `body` over the parsed manifest at `dir`, or the manifest's rejection.
+    export fn withManifestAt(dir, body) = Reports::checked(readAt(dir), body)
+
     /// The decoded folder lock at `dir`, or the OS reason / its first rejection code.
     export fn readLockAt(dir) = decodedAt(lockPathAt(dir))
+
+    /// The folder lock and the manifest at `dir`, the lock first: a lock that
+    /// does not read is the failure naming `code` and the reason, a manifest
+    /// that does not parse is its rejection; `body` continues with both.
+    export fn withLockAt(dir, code, body) = Reports::checkedWith(readLockAt(dir), code, fn(lock) => withManifestAt(dir, fn(manifest) => body(manifest, lock)))
 
     /// The parsed manifest, or the OS reason / `Manifest::describe(problem)`.
     export fn read() = readAt("")

@@ -42,10 +42,7 @@ module ManifestDeps {
     /// An integer pair at or above `floor`, else `code` at `span`.
     fn boundedInt(pair, floor, code, span) = andThen(ManifestSections::intOf(pair, code), fn(value) => if value >= floor { Success { value: value } } else { fail(code, span) })
 
-    fn epochOf(pairs, span) = match ManifestSections::find(pairs, "epoch") {
-        Error => fail("manifest.dependency.epoch", span)
-        Success { value } => boundedInt(value, 1, "manifest.dependency.epoch", span)
-    }
+    fn epochOf(pairs, span) = andThen(ManifestSections::required(pairs, "epoch", "manifest.dependency.epoch", span), fn(value) => boundedInt(value, 1, "manifest.dependency.epoch", span))
 
     fn floorOf(pairs, span) = match ManifestSections::find(pairs, "min_release") {
         Error => Success { value: 0 }
@@ -117,10 +114,9 @@ module ManifestDeps {
     fn missingRequirement() = ManifestModel::requirement(Names::blank(), 0, 0)
 
     /// `items` in canonical order; a hole reads as `fallback`.
-    fn sortedBy(items, compare, fallback) = {
-        let at = fn(i) => listGet(items, i) ?: fallback
-        mapList(Order::permutation(length(items), fn(i, j) => compare(at(i), at(j))), at)
-    }
+    fn sortedBy(items, compare, fallback) = mapList(Order::permutation(length(items), fn(i, j) => compare(itemAt(items, fallback, i), itemAt(items, fallback, j))), fn(i) => itemAt(items, fallback, i))
+
+    fn itemAt(items, fallback, i) = listGet(items, i) ?: fallback
 
     fn sortedEdges(edges) = sortedBy(edges, compareEdges, missingEdge())
 
@@ -257,10 +253,7 @@ module ManifestDeps {
 
     fn assetDigest(pairs, span) = checkedAssetText(pairs, "digest", "manifest.asset.digest", span, validAssetDigest)
 
-    fn assetLength(pairs, span) = match ManifestSections::find(pairs, "byte_length") {
-        Error => fail("manifest.asset.byte-length", span)
-        Success { value } => boundedInt(value, 0, "manifest.asset.byte-length", Toml::pairSpan(value))
-    }
+    fn assetLength(pairs, span) = andThen(ManifestSections::required(pairs, "byte_length", "manifest.asset.byte-length", span), fn(value) => boundedInt(value, 0, "manifest.asset.byte-length", Toml::pairSpan(value)))
 
     fn assetRole(pairs, kind, span) = andThen(ManifestSections::requiredString(pairs, "role", "manifest.asset.role", span), fn(value) => roleOf(value, kind, capabilityText(pairs), ManifestSections::spanOf(pairs, "role", span)))
 
@@ -273,18 +266,22 @@ module ManifestDeps {
         Error => ""
     }
 
+    /// One `[[assets]]` entry: kind, path, role, byte length and digest, each checked in turn.
     fn assetOf(pairs, span) = match ManifestSections::unknownKeys(pairs, assetKeys, "manifest.asset.unknown-key") {
         Error { message } => Error { message: message }
-        Success => andThen(assetKind(pairs, span), fn(value) => assetWithKind(pairs, span, value))
+        Success => assetFromKind(pairs, span, assetKind(pairs, span))
     }
 
-    fn assetWithKind(pairs, span, kind) = andThen(assetPath(pairs, kind, span), fn(value) => assetRoled(pairs, span, kind, value))
+    /// The entry once its kind is read: `kind` is the kind result, the rest follow in turn.
+    fn assetFromKind(pairs, span, kind) = andThen(kind, fn(k) => assetOfKind(pairs, span, k))
 
-    fn assetRoled(pairs, span, kind, path) = andThen(assetRole(pairs, kind, span), fn(value) => assetSized(pairs, span, path, value))
+    fn assetOfKind(pairs, span, k) = andThen(assetPath(pairs, k, span), fn(path) => assetRoled(pairs, span, k, path))
 
-    fn assetSized(pairs, span, path, role) = andThen(assetLength(pairs, span), fn(value) => assetDigested(pairs, span, path, role, value))
+    fn assetRoled(pairs, span, k, path) = andThen(assetRole(pairs, k, span), fn(role) => assetSized(pairs, span, path, role))
 
-    fn assetDigested(pairs, span, path, role, size) = andThen(assetDigest(pairs, span), fn(value) => Success { value: ManifestModel::Asset { path: path, byteLength: size, digest: value, role: role } })
+    fn assetSized(pairs, span, path, role) = andThen(assetLength(pairs, span), fn(size) => assetDigested(pairs, span, path, role, size))
+
+    fn assetDigested(pairs, span, path, role, size) = andThen(assetDigest(pairs, span), fn(digest) => Success { value: ManifestModel::Asset { path: path, byteLength: size, digest: digest, role: role } })
 
     fn assetItems(items, span) = Checked::collectAll(items, fn(item) => match item {
         Toml::Table { pairs } => assetOf(pairs, span)

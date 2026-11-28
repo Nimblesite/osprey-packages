@@ -136,16 +136,16 @@ module RouterTests {
 
     /// The router suite: every route and status, ETags, method rejection,
     /// query strings, hardening headers and hostile probes.
-    export fn run() = {
-        test("router: hardening headers", hardeningHeaders)
-        test("router: hostile probes", hostileProbes)
-        test("router: health route", healthRoute)
-        test("router: packages route", packagesRoute)
-        test("router: package route", packageRoute)
-        test("router: release route", releaseRoute)
-        test("router: source route", sourceRoute)
-        test("router: non-GET rejected", methodRejection)
-        test("router: query strings ignored", queryStrings)
-        test("router: unknown routes 404", unknownRoutes)
-    }
+    export fn run() = testCases([
+        Fixtures::case("router: hardening headers", hardeningHeaders),
+        Fixtures::case("router: hostile probes", hostileProbes),
+        Fixtures::case("router: health route", healthRoute),
+        Fixtures::case("router: packages route", packagesRoute),
+        Fixtures::case("router: package route", packageRoute),
+        Fixtures::case("router: release route", releaseRoute),
+        Fixtures::case("router: source route", sourceRoute),
+        Fixtures::case("router: non-GET rejected", methodRejection),
+        Fixtures::case("router: query strings ignored", queryStrings),
+        Fixtures::case("router: unknown routes 404", unknownRoutes)
+    ])
 }

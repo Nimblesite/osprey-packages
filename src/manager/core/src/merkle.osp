@@ -103,7 +103,8 @@ module Merkle {
 
     fn within(s, from, to) = s.start >= from && s.start < to
 
-    fn part(spans, from, to) = foldList(spans, [], fn(acc, s) => if within(s, from, to) { listAppend(acc, s) } else { acc })
+    /// The spans that fall inside `[from, to)`.
+    fn part(spans, from, to) = filterList(spans, fn(s) => within(s, from, to))
 
     /// The root of a tree already tiled by complete subtrees, folded at the
     /// 2.1.1 split; a single span is its own root.
@@ -153,5 +154,5 @@ module Merkle {
 
     fn powerOfTwo(n) = n == 1 || (n > 0 && n % 2 == 0 && powerOfTwo(intDiv(n, 2)))
 
-    fn sharedOnly(spans) = foldList(spans, [], fn(acc, s) => if s.shared { listAppend(acc, s) } else { acc })
+    fn sharedOnly(spans) = filterList(spans, fn(s) => s.shared)
 }

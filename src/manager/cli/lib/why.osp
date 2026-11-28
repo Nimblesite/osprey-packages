@@ -47,9 +47,8 @@ module Why {
         Success => chains(manifest, lock, key)
     }
 
-    fn withLock(project, lock, key) = Reports::checked(Project::readAt(project), fn(value) => pinned(value, lock, key))
-
-    fn at(project, key) = Reports::checkedWith(Project::readLockAt(project), noLockCode, fn(value) => withLock(project, value, key))
+    /// The chains to `key` in the project at `project`, or `why.no-lock` with the reason.
+    fn at(project, key) = Project::withLockAt(project, noLockCode, fn(manifest, lock) => pinned(manifest, lock, key))
 
     fn withKey(key, flags) = Flags::dispatch(flags, [Flags::projectFlag], [], usageCode, usageText,
         fn(parsed) => at(Flags::project(parsed), key))

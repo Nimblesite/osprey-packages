@@ -172,19 +172,22 @@ module TomlTests {
         ])
     }
 
+    /// One case of the suite table handed to the prelude's `testCases`: a label and the check it registers.
+    fn case(label, holds) = { name: label, work: holds }
+
     /// The TOML suite: the spec document, arrays of tables, dotted keys,
     /// accessors, escapes, integers, arrays, located rejections and long inputs.
-    export fn run() = {
-        test("toml: manifest example", manifestDoc)
-        test("toml: array-of-tables", arrayTables)
-        test("toml: uv package metadata", uvPackageTables)
-        test("toml: dotted keys", dottedKeys)
-        test("toml: accessors", accessors)
-        test("toml: escapes", escapes)
-        test("toml: integers", integers)
-        test("toml: arrays", arrays)
-        test("toml: rejections", rejections)
-        test("toml: long quoted strings", longQuotedStrings)
-        test("toml: long byte runs", longByteRuns)
-    }
+    export fn run() = testCases([
+        case("toml: manifest example", manifestDoc),
+        case("toml: array-of-tables", arrayTables),
+        case("toml: uv package metadata", uvPackageTables),
+        case("toml: dotted keys", dottedKeys),
+        case("toml: accessors", accessors),
+        case("toml: escapes", escapes),
+        case("toml: integers", integers),
+        case("toml: arrays", arrays),
+        case("toml: rejections", rejections),
+        case("toml: long quoted strings", longQuotedStrings),
+        case("toml: long byte runs", longByteRuns)
+    ])
 }

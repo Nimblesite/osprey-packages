@@ -126,11 +126,14 @@ module Surface {
     /// True when the byte at `i` is `first` and the one after it `second`.
     fn pairAt(text, i, b, first, second) = b == first && byte(text, i + 1) == second
 
-    fn bomAt(text, i) = byte(text, i) == byte(bom, 0) && byte(text, i + 1) == byte(bom, 1) && byte(text, i + 2) == byte(bom, 2)
+    /// True when bytes `i`, `i + 1` and `i + 2` of `text` are `lead`, `second` and `third`.
+    fn tripleAt(text, i, lead, second, third) = byte(text, i) == lead && byte(text, i + 1) == second && byte(text, i + 2) == third
 
-    // The vendored Python lexer also accepts U+200B and U+2060 between tokens.
-    fn pythonSpaceAt(text, i) = bomAt(text, i) || (byte(text, i) == 226 &&
-        ((byte(text, i + 1) == 128 && byte(text, i + 2) == 139) || (byte(text, i + 1) == 129 && byte(text, i + 2) == 160)))
+    fn bomAt(text, i) = tripleAt(text, i, byte(bom, 0), byte(bom, 1), byte(bom, 2))
+
+    // The vendored Python lexer also accepts U+200B (E2 80 8B) and U+2060
+    // (E2 81 A0) between tokens.
+    fn pythonSpaceAt(text, i) = bomAt(text, i) || tripleAt(text, i, 226, 128, 139) || tripleAt(text, i, 226, 129, 160)
 
     fn formattedPrefix(word) = {
         let prefix = toLowerCase(word)

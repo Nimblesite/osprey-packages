@@ -65,15 +65,19 @@ module GraphOracle {
         foldList(selected, [], fn(acc, e) => listConcat(acc, mapList(ManifestModel::activeEdges(eDeps(e)), ManifestModel::requirementOf)))
     )
 
+    /// The items after the first of `xs`; nothing when it has fewer than two.
+    fn tail(xs) = match xs {
+        [_first, ...rest] => rest
+        _ => []
+    }
+
+    /// Whether `from` reaches `to` through the active targets of the selected
+    /// releases, never revisiting a key in `visited`. `to` is never in
+    /// `visited`: a target equal to `to` answers before it could be recorded.
     fn reaches(selected, from, to, visited) = {
         let targets = ManifestModel::activeTargets(eDeps(entryFor(selected, from) ?: Resolution::blankEntry()))
-        foldList(targets, false, fn(found, t) => found || if Names::same(t, to) {
-            true
-        } else if listContains(visited, Names::display(t)) {
-            false
-        } else {
-            reaches(selected, t, to, listAppend(visited, Names::display(t)))
-        })
+        let unseen = fn(t) => !listContains(visited, Names::display(t))
+        foldList(targets, false, fn(found, t) => found || (unseen(t) && (Names::same(t, to) || reaches(selected, t, to, listAppend(visited, Names::display(t))))))
     }
 
     fn acyclic(selected) = foldList(selected, true, fn(ok, e) => ok && !reaches(selected, rKey(eRelease(e)), rKey(eRelease(e)), []))
@@ -141,13 +145,11 @@ module GraphOracle {
         lag: sumLag(graph, selected)
     }
 
-    fn tailReleases(xs) = range(1, length(xs)) |> map(fn(i) => listGet(xs, i) ?: Identity::blank()) |> toList
-
     fn compareReleaseLists(a, b) = match isEmpty(a) || isEmpty(b) {
         true => Order::compareInts(length(a), length(b))
         false => {
             let head = Objective::comparePackageTie(listGet(a, 0) ?: Identity::blank(), listGet(b, 0) ?: Identity::blank())
-            if head == 0 { compareReleaseLists(tailReleases(a), tailReleases(b)) } else { head }
+            if head == 0 { compareReleaseLists(tail(a), tail(b)) } else { head }
         }
     }
 
@@ -160,9 +162,11 @@ module GraphOracle {
         else { compareReleaseLists(tieOrder(a), tieOrder(b)) < 0 }
     }
 
-    fn tailEntries(xs) = range(1, length(xs)) |> map(fn(i) => listGet(xs, i) ?: emptyAssignment()) |> toList
-
-    fn bestOf(graph, all) = foldList(tailEntries(all), listGet(all, 0) ?: emptyAssignment(), fn(best, a) => if better(graph, a, best) { a } else { best })
+    /// The best of a non-empty run of valid assignments: the first, or a later one that beats it.
+    fn bestOf(graph, all) = match all {
+        [first, ...rest] => foldList(rest, first, fn(best, a) => if better(graph, a, best) { a } else { best })
+        _ => emptyAssignment()
+    }
 
     /// Solve one graph: the optimal lock, or its stable explanation.
     export fn solve(graph: Resolution::Graph) = {

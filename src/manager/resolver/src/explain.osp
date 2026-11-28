@@ -44,12 +44,8 @@ module Explain {
     /// The keys reachable from the root's edges, in canonical order.
     fn reachableKeys(graph) = Names::sorted(bfs(graph, ManifestModel::targets(graph.rootDeps), []))
 
-    fn reachesVia(graph, next, to, visited) = if Names::same(next, to) { true }
-        else if listContains(visited, Names::display(next)) { false }
-        else { unionReaches(graph, next, to, listAppend(visited, Names::display(next))) }
-
-    /// Whether `to` is reachable from `from` through viable candidates' edges.
-    fn unionReaches(graph, from, to, visited) = foldList(unionTargets(graph, from), false, fn(found, t) => found || reachesVia(graph, t, to, visited))
+    /// Whether `to` is reachable from `from`'s active edges through viable candidates.
+    fn reaches(graph, from, to) = Names::includes(bfs(graph, unionTargets(graph, from), []), to)
 
     // ---- requirements on one key ----
 
@@ -106,7 +102,7 @@ module Explain {
     fn keyCause(graph, keys, code, cause) = fn() => firstKey(keys, code, fn(k) => cause(graph, k))
 
     /// Every key that reaches itself, as one cycle explanation.
-    fn cycleOutcome(graph, keys) = foundKeys(cycle, filterList(keys, fn(k) => unionReaches(graph, k, k, [])))
+    fn cycleOutcome(graph, keys) = foundKeys(cycle, filterList(keys, fn(k) => reaches(graph, k, k)))
 
     /// The explanation of a refuted graph over its reachable keys: the
     /// oracle's path, and the resolver's when the solver returned no core.

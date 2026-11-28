@@ -65,18 +65,22 @@ module SatSearch {
 
     fn reasonOf(s, v) = slotOf(s, v).reason
 
-    fn withTrack(s, t) = State { vars: s.vars, inputCount: s.inputCount, pseudoCount: s.pseudoCount, track: t, db: s.db }
+    fn withTrack(s, t) = s { track: t }
 
-    fn withDb(s, db) = State { vars: s.vars, inputCount: s.inputCount, pseudoCount: s.pseudoCount, track: s.track, db: db }
+    fn withDb(s, db) = s { db: db }
 
-    fn assign(s, l, level, reason) = withTrack(s, Track {
-        slots: mapSet(s.track.slots, "${SatClauses::absLit(l)}", Slot { value: signOf(l), level: level, reason: reason }),
-        trail: listAppend(s.track.trail, SatClauses::absLit(l)),
-        trailLim: s.track.trailLim,
-        qhead: s.track.qhead
-    })
+    fn assign(s, l, level, reason) = {
+        let t = s.track
+        withTrack(s, t {
+            slots: mapSet(t.slots, "${SatClauses::absLit(l)}", Slot { value: signOf(l), level: level, reason: reason }),
+            trail: listAppend(t.trail, SatClauses::absLit(l))
+        })
+    }
 
-    fn openLevel(s) = withTrack(s, Track { slots: s.track.slots, trail: s.track.trail, trailLim: listAppend(s.track.trailLim, length(s.track.trail)), qhead: s.track.qhead })
+    fn openLevel(s) = {
+        let t = s.track
+        withTrack(s, t { trailLim: listAppend(t.trailLim, length(t.trail)) })
+    }
 
     fn currentLevel(s) = length(s.track.trailLim)
 
@@ -94,8 +98,9 @@ module SatSearch {
         let lim = trailLimit(s, level)
         let undone = slice(s.track.trail, lim, length(s.track.trail))
         let cleared = foldList(undone, s.track.slots, fn(sl, v) => mapRemove(sl, "${v}"))
-        let qh = if s.track.qhead < lim { s.track.qhead } else { lim }
-        withTrack(s, Track { slots: cleared, trail: slice(s.track.trail, 0, lim), trailLim: slice(s.track.trailLim, 0, level), qhead: qh })
+        let t = s.track
+        let qh = if t.qhead < lim { t.qhead } else { lim }
+        withTrack(s, t { slots: cleared, trail: slice(t.trail, 0, lim), trailLim: slice(t.trailLim, 0, level), qhead: qh })
     }
 
     // ---- clause database ----
@@ -108,20 +113,28 @@ module SatSearch {
     /// List element or an empty list, with the element type pinned by the
     /// return annotation: an untyped `listGet(…) ?: []` reads the stored
     /// clause back as an integer word and `length` misreads it (issue #273).
-    fn clauseOrEmpty(xs, i) -> List<int> = listGet(xs, i) ?: []
+    export fn clauseOrEmpty(xs, i) -> List<int> = listGet(xs, i) ?: []
 
     fn watchersOf(db, l) = listOrEmpty(db.watchers, "${l}")
+
+    /// The same database with its `watches` map replaced.
+    fn watchesWith(db, watches) = db { watches: watches }
 
     /// Point the two watched literals of clause `ci` at its first two entries.
     fn attachWatches(db, ci, c) = {
         let w1 = listGet(c, 0) ?: 0
         let w2 = listGet(c, 1) ?: 0
-        Db { clauses: db.clauses, watches: mapSet(db.watches, "${ci}", [w1, w2]), watchers: mapSet(mapSet(db.watchers, "${w1}", listAppend(watchersOf(db, w1), ci)), "${w2}", listAppend(watchersOf(db, w2), ci)), learned: db.learned, learnedRoots: db.learnedRoots }
+        let watching = watchesWith(db, mapSet(db.watches, "${ci}", [w1, w2]))
+        let w1Watchers = mapSet(watching.watchers, "${w1}", listAppend(watchersOf(watching, w1), ci))
+        watchersWith(watching, mapSet(w1Watchers, "${w2}", listAppend(watchersOf(watching, w2), ci)))
     }
 
-    fn moveWatch(s, ci, to) = withDb(s, Db { clauses: s.db.clauses, watches: s.db.watches, watchers: mapSet(s.db.watchers, "${to}", listAppend(watchersOf(s.db, to), ci)), learned: s.db.learned, learnedRoots: s.db.learnedRoots })
+    fn moveWatch(s, ci, to) = withDb(s, watchersWith(s.db, mapSet(s.db.watchers, "${to}", listAppend(watchersOf(s.db, to), ci))))
 
-    fn setWatcherList(s, f, list) = withDb(s, Db { clauses: s.db.clauses, watches: s.db.watches, watchers: mapSet(s.db.watchers, "${f}", list), learned: s.db.learned, learnedRoots: s.db.learnedRoots })
+    fn setWatcherList(s, f, list) = withDb(s, watchersWith(s.db, mapSet(s.db.watchers, "${f}", list)))
+
+    /// The same database with its `watchers` map replaced.
+    fn watchersWith(db, watchers) = db { watchers: watchers }
 
     /// Root ids carried by clause `ci`: itself for input, the assumption
     /// reference `-(i+1)` for the i-th assumption unit, or the stored
@@ -194,7 +207,7 @@ module SatSearch {
         let w1 = listGet(watched, 0) ?: 0
         let other = if w1 == f { listGet(watched, 1) ?: 0 } else { w1 }
         match listGet(replacements(s, c, other), 0) {
-            Success { value } => Swap { at: withDb(s, Db { clauses: s.db.clauses, watches: mapSet(s.db.watches, "${ci}", [value, other]), watchers: s.db.watchers, learned: s.db.learned, learnedRoots: s.db.learnedRoots }), to: value }
+            Success { value } => Swap { at: withDb(s, watchesWith(s.db, mapSet(s.db.watches, "${ci}", [value, other]))), to: value }
             Error => visitEdge(s, ci, other)
         }
     }
@@ -221,7 +234,8 @@ module SatSearch {
     fn advance(s) = {
         let v = listGet(s.track.trail, s.track.qhead) ?: 0
         let falsified = if slotOf(s, v).value > 0 { SatClauses::neg(v) } else { v }
-        let s2 = withTrack(s, Track { slots: s.track.slots, trail: s.track.trail, trailLim: s.track.trailLim, qhead: s.track.qhead + 1 })
+        let t = s.track
+        let s2 = withTrack(s, t { qhead: t.qhead + 1 })
         scan(s2, watchersOf(s2.db, falsified), falsified)
     }
 
@@ -293,7 +307,8 @@ module SatSearch {
     /// propagation, so the same conflicts were relearned without bound.
     fn record(s, a, ci) = {
         let clause = SatClauses::canonical(listPrepend(a.lower, a.uip))
-        let db = Db { clauses: listAppend(s.db.clauses, clause), watches: s.db.watches, watchers: s.db.watchers, learned: listAppend(s.db.learned, clause), learnedRoots: listAppend(s.db.learnedRoots, SatClauses::canonicalInts(a.roots)) }
+        let d = s.db
+        let db = d { clauses: listAppend(d.clauses, clause), learned: listAppend(d.learned, clause), learnedRoots: listAppend(d.learnedRoots, SatClauses::canonicalInts(a.roots)) }
         if length(clause) < 2 { withDb(s, db) } else { withDb(s, attachWatches(db, ci, [a.uip, deepest(s, a.lower)])) }
     }
 
@@ -335,21 +350,20 @@ module SatSearch {
 
     fn falseVars(s, c) = foldList(c, [], fn(vs, l) => if litValue(s, l) < 0 { listAppend(vs, SatClauses::absLit(l)) } else { vs })
 
-    fn shifted(pool) = Pool { seen: pool.seen, ids: pool.ids, pending: slice(pool.pending, 1, length(pool.pending)), vars: pool.vars }
+    fn shifted(pool) = pool { pending: slice(pool.pending, 1, length(pool.pending)) }
 
-    fn openClause(s, pool, ci) = Pool {
+    fn openClause(s, pool, ci) = pool {
         seen: mapSet(pool.seen, "${ci}", 1),
         ids: listConcat(pool.ids, rootIdsOf(s, ci)),
-        pending: pool.pending,
         vars: listConcat(pool.vars, falseVars(s, clauseOrEmpty(s.db.clauses, ci)))
     }
 
     fn explainVar(s, pool) = {
         let v = listGet(pool.vars, 0) ?: 0
-        let rest = Pool { seen: pool.seen, ids: pool.ids, pending: pool.pending, vars: slice(pool.vars, 1, length(pool.vars)) }
+        let rest = pool { vars: slice(pool.vars, 1, length(pool.vars)) }
         match reasonOf(s, v) {
             -1 => rest
-            r => Pool { seen: rest.seen, ids: rest.ids, pending: listAppend(rest.pending, r), vars: rest.vars }
+            r => rest { pending: listAppend(rest.pending, r) }
         }
     }
 

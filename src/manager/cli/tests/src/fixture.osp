@@ -1,5 +1,6 @@
 namespace registry_tests;
 import registry_host::Host
+import registry::Json
 import registry_cli::Reports
 import registry::Identity
 import registry::Manifest
@@ -25,6 +26,19 @@ module Fixture {
     export fn readRoute(path, content) = ReadRoute { path: path, content: content }
     /// One answered `Host::Tree.walk`: the exact directory and its regular files.
     export fn walkRoute(dir, files) = WalkRoute { dir: dir, files: files }
+
+    /// What a run wrote, in order: each write's `path=content|`.
+    export fn writeLog(written) = join(mapList(written, fn(r: ReadRoute) => "${r.path}=${r.content}|"), "")
+
+    /// What a run ensured, in order: each directory and `|`.
+    export fn ensureLog(ensured) = join(mapList(ensured, fn(dir) => "${dir}|"), "")
+
+    /// The decoded fixture `text`; an unreadable or malformed file is a string
+    /// value naming the problem, so every assertion over it fails visibly.
+    export fn decoded(name, text) = match Json::parse(text) {
+        Success { value } => value
+        Error { message } => Json::Str { text: "fixture ${name} unreadable: ${message}" }
+    }
 
     // `path` is shared with `Source::Entry` and `ManifestModel::Asset`; issue
     // #273 needs the receiver spelled out.
@@ -71,16 +85,19 @@ module Fixture {
         } else { Error { message: message } }
     }
 
-    /// The served release no registry has: the `?:` fallback of `served`.
-    export fn missingServed() = Release::Served { id: Identity::blank(), files: [] }
-
     /// Element `i` of a served list, or the missing release: the `?:` fallback
     /// every case over a positional release list repeats.
     export fn at(served, i) = listGet(served, i) ?: missingServed()
 
+    /// The files of a served release.
+    export fn filesOf(s: Release::Served) = s.files
+
     /// A served release assembled from in-memory files, as the server would
     /// serve `@scope/name/<epoch>.<ordinal>`.
     export fn served(dir, files) = ReleaseFiles::assemble(dir, files) ?: missingServed()
+
+    /// The served release no registry has: the `?:` fallback of `served` and `at`.
+    export fn missingServed() = Release::Served { id: Identity::blank(), files: [] }
 
     /// A release file.
     export fn file(relPath, content) = Release::File { relPath: relPath, content: content }
@@ -98,7 +115,4 @@ module Fixture {
 
     /// The identity of a served release.
     export fn idOf(s: Release::Served) = s.id
-
-    /// The files of a served release.
-    export fn filesOf(s: Release::Served) = s.files
 }

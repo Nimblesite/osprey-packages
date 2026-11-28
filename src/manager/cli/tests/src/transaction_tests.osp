@@ -143,14 +143,21 @@ module TransactionTests {
         ])
     }
 
-    fn partialLockWrite() = {
+    /// A partial write of a lock the project did not have removes that lock again.
+    fn partialNewLockWrite() = {
         let a = runDamagedPlain(lockPath)
-        let previous = RegistryFixture::expectedLockOf(plain(), [])
-        let existing = runDamaged(RegistryFixture::readsWithLock(plain(), previous, pair()), lockPath)
         checkAll("a partial lock write restores the manifest and removes the new lock", [
             restoredAfter(a),
             RegistryFixture::removedPath(a, lockPath),
-            lockOf(a) == "",
+            lockOf(a) == ""
+        ])
+    }
+
+    /// A partial write over a lock the project already had keeps that earlier lock.
+    fn partialExistingLockWrite() = {
+        let previous = RegistryFixture::expectedLockOf(plain(), [])
+        let existing = runDamaged(RegistryFixture::readsWithLock(plain(), previous, pair()), lockPath)
+        checkAll("a partial lock write over an earlier lock restores the manifest and keeps it", [
             RegistryFixture::statusOf(existing) == 1,
             manifestOf(existing) == plain(),
             lockOf(existing) == previous,
@@ -215,7 +222,8 @@ module TransactionTests {
         test("add: refusals", addRefusals)
         test("add: a failed relock never changes the manifest", addRestores)
         test("add: partial manifest write is restored", partialManifestWrite)
-        test("add: partial lock write is restored", partialLockWrite)
+        test("add: a partial write of a new lock is removed", partialNewLockWrite)
+        test("add: a partial write over an earlier lock keeps it", partialExistingLockWrite)
         test("remove: a declared dependency", removeDeclared)
         test("remove: missing", removeMissing)
         test("update: inside the epoch", updateInside)

@@ -50,6 +50,9 @@ module ManifestSections {
     /// The section `key` run through `of`; a missing section is [].
     export fn optional(pairs, key, of) = withPair(pairs, key, Success { value: [] }, of)
 
+    /// The pair `key`, else `code` at `span`.
+    export fn required(pairs, key, code, span) = withPair(pairs, key, fail(code, span), fn(value) => Success { value: value })
+
     /// The first pair whose key is not allowed, as `code`.
     export fn unknownKeys(pairs, allowed, code) = foldList(pairs, Success { value: 0 }, fn(acc, pair: Toml::Pair) => match acc {
         Error { message } => Error { message: message }
@@ -117,19 +120,19 @@ module ManifestSections {
         Error => fail("manifest.project.entry", span)
     }
 
-    fn assembleProject(name, sourceRoots, ns, entry, flavor, testRoots, sources: FlavorSources) = Project {
-        name: name, sourceRoots: sourceRoots, defaultNamespace: ns, entry: entry, flavor: flavor, testRoots: testRoots, pythonSources: sources.python, typescriptSources: sources.typescript
+    /// `[project]`'s body: each field read in document order, then assembled.
+    fn projectBody(pairs, span) = {
+        use name <- andThen(nonEmpty(pairs, "name", "manifest.project.name", span))
+        use sourceRoots <- andThen(roots(pairs, "source_roots", defaultRoots, "manifest.project.source-roots", span))
+        use ns <- andThen(optionalString(pairs, "default_namespace", "manifest.project.default-ns"))
+        use entry <- andThen(entryOf(pairs))
+        use flavor <- andThen(flavorOf(pairs))
+        use testRoots <- andThen(roots(pairs, "test_roots", [], "manifest.project.test-roots", span))
+        use sources <- andThen(sourcesOf(pairs, span))
+        Success { value: Project {
+            name: name, sourceRoots: sourceRoots, defaultNamespace: ns, entry: entry, flavor: flavor, testRoots: testRoots,
+            pythonSources: sources.python, typescriptSources: sources.typescript } }
     }
-
-    fn projectBody(pairs, span) = andThen(requiredString(pairs, "name", "manifest.project.name", span), fn(value) => if value == "" { fail("manifest.project.name", spanOf(pairs, "name", span)) } else { projectRoots(pairs, span, value) })
-
-    fn projectRoots(pairs, span, name) = andThen(roots(pairs, "source_roots", defaultRoots, "manifest.project.source-roots", span), fn(value) => projectNamespace(pairs, span, name, value))
-
-    fn projectNamespace(pairs, span, name, sourceRoots) = andThen(optionalString(pairs, "default_namespace", "manifest.project.default-ns"), fn(value) => projectEntry(pairs, span, name, sourceRoots, value))
-
-    fn projectEntry(pairs, span, name, sourceRoots, ns) = andThen(entryOf(pairs), fn(value) => projectFlavor(pairs, span, name, sourceRoots, ns, value))
-
-    fn projectFlavor(pairs, span, name, sourceRoots, ns, entry) = andThen(flavorOf(pairs), fn(value) => projectEnd(pairs, span, name, sourceRoots, ns, entry, value))
 
     type FlavorSources = { python: List<string>, typescript: List<string> }
 
@@ -141,10 +144,6 @@ module ManifestSections {
     fn flavorSources(pairs, span, key, suffix, code) = rootsWith(fn(value) => foldList(value, true, fn(ok, path) => ok && flavorPath(path, suffix)), pairs, key, [], code, span)
 
     fn sourcesOf(pairs, span) = andThen(flavorSources(pairs, span, "python_sources", ".py", "manifest.project.python-sources"), fn(python) => andThen(flavorSources(pairs, span, "typescript_sources", ".ts", "manifest.project.typescript-sources"), fn(typescript) => Success { value: FlavorSources { python: python, typescript: typescript } }))
-
-    fn flavorSourcesOf(pairs, span, name, sourceRoots, ns, entry, flavor, testRoots) = andThen(sourcesOf(pairs, span), fn(value) => Success { value: assembleProject(name, sourceRoots, ns, entry, flavor, testRoots, value) })
-
-    fn projectEnd(pairs, span, name, sourceRoots, ns, entry, flavor) = andThen(roots(pairs, "test_roots", [], "manifest.project.test-roots", span), fn(value) => flavorSourcesOf(pairs, span, name, sourceRoots, ns, entry, flavor, value))
 
     /// A section's body once the table holds exactly `allowed` keys; `body`
     /// gets the pairs and the section's span.
@@ -217,34 +216,35 @@ module ManifestSections {
 
     fn parsedKey(text, span) = located(Names::parse(text), span)
 
-    fn packageName(pairs, span) = andThen(requiredString(pairs, "name", "manifest.package.name", span), fn(value) => parsedKey(value, spanOf(pairs, "name", span)))
+    fn packageName(pairs, span) = {
+        use text <- andThen(requiredString(pairs, "name", "manifest.package.name", span))
+        parsedKey(text, spanOf(pairs, "name", span))
+    }
 
-    fn license(pairs, span) = match requiredString(pairs, "license", "manifest.license", span) {
-        Error { message } => Error { message: message }
-        Success { value } => match Spdx::validate(value) {
-            Success => Success { value: value }
-            Error { message } => fail(message, spanOf(pairs, "license", span))
-        }
+    /// The SPDX `license` expression, validated; its own refusal is located at the pair.
+    fn license(pairs, span) = {
+        use text <- andThen(requiredString(pairs, "license", "manifest.license", span))
+        located(Spdx::validate(text), spanOf(pairs, "license", span))
     }
 
     fn keywords(pairs, span) = if !has(pairs, "keywords") { fail("manifest.keywords.missing", span) }
         else { andThen(stringList(pairs, "keywords", [], "manifest.keyword.grammar"), fn(value) => keywordsOk(value, spanOf(pairs, "keywords", span))) }
 
-    fn discovery(pairs, span) = match requiredString(pairs, "summary", "manifest.summary.missing", span) {
-        Error { message } => Error { message: message }
-        Success { value } => match summaryOk(value, spanOf(pairs, "summary", span)) {
-            Error { message } => Error { message: message }
-            Success => discoveryWith(pairs, span, value)
-        }
+    /// The `summary` and `keywords` of `[package]`, each checked at its own pair.
+    fn discovery(pairs, span) = {
+        use summary <- andThen(requiredString(pairs, "summary", "manifest.summary.missing", span))
+        use _ <- andThen(summaryOk(summary, spanOf(pairs, "summary", span)))
+        use words <- andThen(keywords(pairs, span))
+        Success { value: ManifestModel::Discovery { summary: summary, keywords: words } }
     }
 
-    fn discoveryWith(pairs, span, summary) = andThen(keywords(pairs, span), fn(value) => Success { value: ManifestModel::Discovery { summary: summary, keywords: value } })
-
-    fn packageBody(pairs, span) = andThen(packageName(pairs, span), fn(value) => packageLicensed(pairs, span, value))
-
-    fn packageLicensed(pairs, span, key) = andThen(license(pairs, span), fn(value) => packageEnd(pairs, span, key, value))
-
-    fn packageEnd(pairs, span, key, licenseText) = andThen(discovery(pairs, span), fn(value) => Success { value: Maybe::some(ManifestModel::Publication { package: key, licenseExpression: licenseText, discovery: value }) })
+    /// `[package]`'s body: the key, the license and the discovery, in document order.
+    fn packageBody(pairs, span) = {
+        use key <- andThen(packageName(pairs, span))
+        use licenseText <- andThen(license(pairs, span))
+        use found <- andThen(discovery(pairs, span))
+        Success { value: Maybe::some(ManifestModel::Publication { package: key, licenseExpression: licenseText, discovery: found }) }
+    }
 
     /// `[package]`: optional for application roots; complete when present.
     export fn publication(root) = section(root, "package", Success { value: Maybe::none() },

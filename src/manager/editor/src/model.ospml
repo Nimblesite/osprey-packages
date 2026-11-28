@@ -121,4 +121,4 @@ module Store
         Error problem => Runtime::step (fault (current, problem))
 
     (** The workspace as the JSON the region comparison reads: project, packages, direct keys, findings, and whether the lock is missing and why. *)
-    export encodeWorkspace workspace = JsonObject [Doc::str ("project", workspace.workspaceProject), JsonMember "packages" (Packages::encodePackages workspace.workspacePackages), JsonMember "direct" (Doc::strings workspace.workspaceDirect), JsonMember "findings" (Doc::strings workspace.workspaceFindings), Doc::bit ("missing", workspace.workspaceMissing), Doc::str ("reason", workspace.workspaceReason)]
+    export encodeWorkspace workspace = JsonObject [Doc::str ("project", workspace.workspaceProject), JsonMember "packages" (Packages::encodePackages workspace.workspacePackages), Packages::strings ("direct", workspace.workspaceDirect), Packages::strings ("findings", workspace.workspaceFindings), Doc::bit ("missing", workspace.workspaceMissing), Doc::str ("reason", workspace.workspaceReason)]

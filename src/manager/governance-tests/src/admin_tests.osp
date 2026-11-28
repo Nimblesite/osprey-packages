@@ -55,12 +55,13 @@ module AdminTests {
     fn creationCases(world, k, statement) = {
         let bobStatement = Governance::creationStatement("pkg-f2", k, "m-bot")
         let bobAcceptance = Fixture::verified("p-bob", "m-bob", statement)
+        let acceptedAs = fn(proof, code) => createAccepted(world, k, proof) == code
         checkAll("creation binds the admin to the nominee's fresh acceptance", [
             createAccepted(world, k, bobAcceptance) == "",
-            createAccepted(world, k, Fixture::verified("p-erin", "m-bob", statement)) == "governance.proof.wrong-actor",
-            createAccepted(world, k, Fixture::verified("p-bob", "m-erin", statement)) == "governance.proof.wrong-membership",
-            createAccepted(world, k, Fixture::refused("p-bob", "m-bob", statement)) == "governance.proof.rejected:ceremony-failed",
-            createAccepted(world, k, Fixture::verified("p-bob", "m-bob", "another-statement")) == "governance.proof.statement-mismatch",
+            acceptedAs(Fixture::verified("p-erin", "m-bob", statement), "governance.proof.wrong-actor"),
+            acceptedAs(Fixture::verified("p-bob", "m-erin", statement), "governance.proof.wrong-membership"),
+            acceptedAs(Fixture::refused("p-bob", "m-bob", statement), "governance.proof.rejected:ceremony-failed"),
+            acceptedAs(Fixture::verified("p-bob", "m-bob", "another-statement"), "governance.proof.statement-mismatch"),
             Fixture::code(createFinch(world, k, "m-bob", bobAcceptance, bobAcceptance)) == "governance.custodian.required",
             Fixture::code(createSeated(world, k, "dave", statement)) == "governance.membership.other-org",
             Fixture::code(createSeated(world, k, "bot", bobStatement)) == "governance.principal.workflow"
@@ -133,10 +134,11 @@ module AdminTests {
     fn lifecycleDecisions() = {
         let world = Fixture::world()
         let deprecated = Fixture::orKeep(world, fn(w) => deprecate(w, "p-alice", "m-alice", 1))
+        let deprecationCode = fn(prover, membership, epoch) => Fixture::code(deprecate(world, prover, membership, epoch))
         checkAll("lifecycle decisions need the administrator's exact proof", [
-            Fixture::code(deprecate(world, "p-alice", "m-alice", 1)) == "",
-            Fixture::code(deprecate(world, "p-erin", "m-erin", 1)) == adminNotCurrent,
-            Fixture::code(deprecate(world, "p-alice", "m-alice", 2)) == "governance.proof.statement-mismatch",
+            deprecationCode("p-alice", "m-alice", 1) == "",
+            deprecationCode("p-erin", "m-erin", 1) == adminNotCurrent,
+            deprecationCode("p-alice", "m-alice", 2) == "governance.proof.statement-mismatch",
             Fixture::code(GovernanceTransitions::tombstone(deprecated, "pkg-f1", aliceProof(Governance::tombstoneStatement(ledger, 1)))) == "governance.package.deprecated",
             publishCode(deprecated, "pkg-f1", "m-alice") == "governance.package.deprecated"
         ])

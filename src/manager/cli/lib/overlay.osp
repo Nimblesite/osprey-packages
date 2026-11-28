@@ -5,7 +5,6 @@ import registry::Identity
 import registry::ManifestSections
 import registry::Maybe
 import registry::Names
-import registry::Order
 import registry::Toml
 
 /// `osprey.local.toml`, the root's development overlay ([PACKAGE-LOCAL-OVERRIDE]):
@@ -64,7 +63,7 @@ module Overlay {
         Success { value } => andThen(ManifestSections::stringOf(value, baselineCode), fn(value) => parsedBaseline(value))
     }
 
-    fn assembled(key, path, epoch, baseline) = andThen(baseline, fn(value) => Success { value: Mapping { package: key, path: path, epoch: epoch, baseline: value } })
+    fn assembled(key, path, epoch, baseline) = Folds::mapped(baseline, fn(value) => Mapping { package: key, path: path, epoch: epoch, baseline: value })
 
     fn withEpoch(key, path, epoch, pairs) = andThen(epoch, fn(value) => assembled(key, path, value, baselineIn(pairs)))
 
@@ -91,11 +90,8 @@ module Overlay {
     /// Whether any key is overridden.
     export fn active(mappings) = !isEmpty(mappings)
 
-    /// The mapping of `key`, if overridden.
-    export fn mappingFor(mappings, key) = Folds::byKey(mappings, keyOf, key, "none")
-
     /// Whether `key` is overridden.
-    export fn overridden(mappings, key) = Checked::succeeded(mappingFor(mappings, key))
+    export fn overridden(mappings, key) = Checked::succeeded(Folds::byKey(mappings, keyOf, key))
 
     /// `mappings` with `m` replacing any mapping of the same key.
     export fn withMapping(mappings, m) = listAppend(without(mappings, keyOf(m)), m)
@@ -109,10 +105,9 @@ module Overlay {
 
     fn line(m) = "\"${Names::display(keyOf(m))}\" = { path = \"${pathOf(m)}\", epoch = ${epochOf(m)}${baselineText(m)} }"
 
-    fn sorted(mappings) = {
-        let at = fn(i) => listGet(mappings, i) ?: blank()
-        mapList(Order::permutation(length(mappings), fn(i, j) => Names::compare(keyOf(at(i)), keyOf(at(j)))), fn(i) => at(i))
-    }
+    fn mappingAt(mappings, i) = listGet(mappings, i) ?: blank()
+
+    fn sorted(mappings) = Folds::sortedBy(mappings, mappingAt, keyOf, Names::compare)
 
     /// The overlay text for `mappings`, sorted by key; the bare header when none remain.
     export fn render(mappings) = join(listPrepend(mapList(sorted(mappings), line), header), "\n") + "\n"

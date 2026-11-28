@@ -16,8 +16,6 @@ module Jwt {
     let refreshWindow = 1800
     export let expired = "auth.jwt-expired"
 
-    fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
-
     fn has(doc, name) = match Json::get(doc, name) { Success => true Error => false }
 
     fn digit(bytes, index) = (listGet(bytes, index) ?: 0) % 64
@@ -43,22 +41,21 @@ module Jwt {
 
     fn section(text) = andThen(Dsse::decodeBase64Url(text), json)
 
-    fn keyId(ident) = byteLength(ident) > 0 && byteLength(ident) <= 128
-        && Bytes::everyByte(ident, fn(b) => Bytes::isAlnumIn(b, [Bytes::hyphen, Bytes::underscore, Bytes::dot]))
+    fn keyId(ident) = AuthText::bounded(ident, 128, [Bytes::hyphen, Bytes::underscore, Bytes::dot])
 
     fn validHeader(header) = {
-        let alg = field(header, "alg")
-        (alg == "ES256" || alg == "RS256") && keyId(field(header, "kid"))
+        let alg = AuthText::field(header, "alg")
+        (alg == "ES256" || alg == "RS256") && keyId(AuthText::field(header, "kid"))
             && !foldList(["crit", "b64", "jku", "jwk", "x5u", "x5c"], false, fn(found, name) => found || has(header, name))
     }
 
     fn keyFor(header, doc) = {
-        let ident = field(header, "kid")
+        let ident = AuthText::field(header, "kid")
         let keys = JsonRead::items(JsonRead::field(doc, "keys"))
-        let selected = filterList(keys, fn(key) => field(key, "kid") == ident)
+        let selected = filterList(keys, fn(key) => AuthText::field(key, "kid") == ident)
         let key = listGet(selected, 0) ?: Json::Null
-        if length(selected) != 1 || length(keys) > 32 || field(key, "alg") != field(header, "alg")
-            || (has(key, "use") && field(key, "use") != "sig")
+        if length(selected) != 1 || length(keys) > 32 || AuthText::field(key, "alg") != AuthText::field(header, "alg")
+            || (has(key, "use") && AuthText::field(key, "use") != "sig")
             || (has(key, "key_ops") && !listContains(JsonRead::texts(JsonRead::field(key, "key_ops")), "verify")) {
             Error { message: "auth.jwt-key" }
         } else { Success { value: key } }
@@ -78,11 +75,11 @@ module Jwt {
     }
 
     fn claims(config, now, doc) = {
-        let subject = field(doc, "sub")
+        let subject = AuthText::field(doc, "sub")
         let aud = JsonRead::field(doc, "aud")
         let starts = JsonRead::number(JsonRead::field(doc, "iat"))
         let expires = JsonRead::number(JsonRead::field(doc, "exp"))
-        if !Bytes::canonicalUuid(subject) || field(doc, "iss") != config.supabaseOrigin + "/auth/v1"
+        if !Bytes::canonicalUuid(subject) || AuthText::field(doc, "iss") != config.supabaseOrigin + "/auth/v1"
             || (JsonRead::text(aud) != audience && !structuralEquals(JsonRead::texts(aud), [audience]))
             || starts < 1 || starts > now + clockSkew || expires <= now - clockSkew - refreshWindow || expires <= starts
             || expires - starts > tokenLife || !beforeWindow(doc, now) { Error { message: invalid } }
@@ -95,7 +92,7 @@ module Jwt {
 
     fn checked(config, now, header, doc, signingInput, encodedSignature) = andThen(claims(config, now, doc), fn(subject) =>
         andThen(Dsse::decodeBase64Url(encodedSignature), fn(signed) => andThen(fetchKey(config, header), fn(key) =>
-            andThen(JwtKeys::verify(field(header, "alg"), key, signed, Sha256::digest(Bytes::ofString(signingInput))),
+            andThen(JwtKeys::verify(AuthText::field(header, "alg"), key, signed, Sha256::digest(Bytes::ofString(signingInput))),
                 fn(_) => if JsonRead::number(JsonRead::field(doc, "exp")) <= now - clockSkew { Error { message: expired } }
                     else { Success { value: subject } }))))
 

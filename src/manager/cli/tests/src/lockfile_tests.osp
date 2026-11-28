@@ -14,21 +14,17 @@ import registry_cli::Lockfile
 module LockfileTests {
     let fixtureRoot = "src/manager/tests/fixtures/lock"
 
-    fn load(name) = match Json::parse(readFile("${fixtureRoot}/${name}.json") ?: "") {
-        Success { value } => value
-        Error { message } => Json::Str { text: "fixture ${name} unreadable: ${message}" }
-    }
+    /// The fixture `name` decoded; an unreadable or malformed file becomes a
+    /// string value naming the problem, so every assertion over it fails visibly.
+    fn load(name) = Fixture::decoded(name, readFile("${fixtureRoot}/${name}.json") ?: "")
 
     /// The text of member `key` of `value`, or "".
-    fn textOf(value, key) = JsonRead::text(JsonRead::field(value, key))
+    fn textOf(value, key) = Json::textAt(value, key) ?: ""
 
     fn roundtrip() = {
         let text = textOf(load("roundtrip"), "text")
         let decoded = Lockfile::decode(text)
-        let reencoded = match decoded {
-            Success { value } => Lockfile::encode(value)
-            Error { message } => Error { message: message }
-        }
+        let reencoded = andThen(decoded, Lockfile::encode)
         let decodedOk = match decoded {
             Success => true
             Error => false

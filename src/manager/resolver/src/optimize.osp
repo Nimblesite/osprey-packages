@@ -18,9 +18,7 @@ module Optimize {
 
     // ---- SAT verdicts ----
 
-    /// True only for a completed satisfiable search; an unknown result is not a proof.
-    fn satisfiable(vars, clauses) = Sat::verdictOf(Sat::solve(vars, clauses)) == Sat::sat
-
+    /// True only for a completed satisfiable search under `assumptions`; an unknown result is not a proof.
     fn satisfiableWith(vars, clauses, assumptions) = Sat::verdictOf(Sat::assume(vars, clauses, assumptions)) == Sat::sat
 
     // ---- sequential-counter cardinality ----
@@ -49,7 +47,7 @@ module Optimize {
     /// Freeze a component at its minimal feasible k.
     fn firstFeasible(acc, lits, k) -> Acc = {
         let t = atMost(lits, k, acc.next)
-        if satisfiable(acc.next + t.used - 1, listConcat(acc.clauses, t.clauses)) {
+        if Sat::decided(acc.next + t.used - 1, listConcat(acc.clauses, t.clauses), Sat::sat) {
             Acc { clauses: listConcat(acc.clauses, t.clauses), next: acc.next + t.used, forced: acc.forced }
         } else {
             firstFeasible(acc, lits, k + 1)

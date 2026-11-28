@@ -90,7 +90,7 @@ module Canonical {
 
     fn missingMember() = Json::Member { key: "", value: Json::Null }
 
-    fn sortMembers(members) = mapList(Order::sortedIndexes(mapList(members, memberKey)), fn(i) => listGet(members, i) ?: missingMember())
+    fn sortMembers(members) = Order::sortedBy(members, memberKey, missingMember)
 
     fn noDuplicateKeys(members) = Order::strictlyAscending(listSort(mapList(members, fn(m) => m.key)))
 

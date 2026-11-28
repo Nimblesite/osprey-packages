@@ -35,8 +35,8 @@ module GovernanceHandover {
     export fn acceptHandover(registry, transferId, proof) = {
         use t <- andThen(liveTransferOf(registry, transferId))
         use m <- andThen(Governance::membershipOf(registry, t.proposed))
-        use p <- andThen(Governance::principalOf(registry, m.principal))
-        use _ <- andThen(liveAcceptingHuman(p, proof))
+        use _ <- andThen(Governance::liveHumanOf(registry, m.principal))
+        use _ <- andThen(Governance::requireHumanCeremony(proof))
         use pkg <- andThen(Governance::packageOf(registry, t.package))
         use _ <- andThen(Governance::requireProof(proof, m.principal, t.proposed,
             Governance::handoverAcceptanceStatement(t.id, pkg.key, t.expectedEpoch, t.current, t.proposed)))
@@ -62,37 +62,37 @@ module GovernanceHandover {
         Success { value: completed(registry, pkg, t) }
     }
 
-    /// The current administrator cancels a live proposal; the evidence row stays.
-    export fn cancelHandover(registry, transferId, proof) = {
+    /// The live proposal `transferId` names once `check` passes it, moved to
+    /// `status`; the evidence row stays.
+    fn restated(registry, transferId, check, status) = {
         use t <- andThen(liveTransferOf(registry, transferId))
+        use _ <- andThen(check(t))
+        withStatus(registry, t, status)
+    }
+
+    /// The current administrator cancels a live proposal.
+    export fn cancelHandover(registry, transferId, proof) = restated(registry, transferId, fn(t) => {
         use pkg <- andThen(Governance::packageOf(registry, t.package))
-        use _ <- andThen(Governance::requireAdmin(registry, pkg, proof, Governance::cancelStatement(transferId)))
-        withStatus(registry, t, Governance::Cancelled)
-    }
+        Governance::requireAdmin(registry, pkg, proof, Governance::cancelStatement(transferId))
+    }, Governance::Cancelled)
 
-    /// The intended recipient declines a live proposal; the evidence row stays.
-    export fn declineHandover(registry, transferId, proof) = {
-        use t <- andThen(liveTransferOf(registry, transferId))
+    /// The intended recipient declines a live proposal.
+    export fn declineHandover(registry, transferId, proof) = restated(registry, transferId, fn(t) => {
         use actor <- andThen(recipientPrincipal(registry, t.proposed))
-        use _ <- andThen(Governance::requireProof(proof, actor, t.proposed, Governance::declineStatement(transferId)))
-        withStatus(registry, t, Governance::Declined)
-    }
+        Governance::requireProof(proof, actor, t.proposed, Governance::declineStatement(transferId))
+    }, Governance::Declined)
 
-    /// Mark a live proposal expired once its window has passed; the row
-    /// stays as evidence and can never replace a newer admin.
-    export fn expireHandover(registry, transferId, now) = {
-        use t <- andThen(liveTransferOf(registry, transferId))
-        use _ <- andThen(Governance::required(now > t.expiresAt, t, "governance.transfer.not-expired"))
-        withStatus(registry, t, Governance::Expired)
-    }
+    /// Mark a live proposal expired once its window has passed; it can never
+    /// replace a newer admin.
+    export fn expireHandover(registry, transferId, now) = restated(registry, transferId,
+        fn(t) => Governance::required(now > t.expiresAt, t, "governance.transfer.not-expired"), Governance::Expired)
 
     /// The canonical 24-hour hold of [PACKAGE-OWNERSHIP-ADMIN].
     export fn hold() = holdHours
 
     fn recipientPrincipal(registry, id) = {
         use m <- andThen(Governance::activeMembershipOf(registry, id))
-        use p <- andThen(Governance::principalOf(registry, m.principal))
-        use _ <- andThen(Governance::liveHuman(p))
+        use p <- andThen(Governance::liveHumanOf(registry, m.principal))
         Success { value: p.id }
     }
 
@@ -100,14 +100,8 @@ module GovernanceHandover {
 
     fn recipient(registry, pkg: Governance::Package, proposed) = match proposed == pkg.admin {
         true => Error { message: "governance.recipient.self" }
-        false => {
-            use m <- andThen(Governance::activeMembershipOf(registry, proposed))
-            use _ <- andThen(Governance::sameOrgMember(m, pkg.org))
-            Governance::humanMemberOf(registry, m)
-        }
+        false => Governance::activeHumanMemberOf(registry, pkg.org, proposed)
     }
-
-    fn liveAcceptingHuman(p, proof) = andThen(Governance::liveHuman(p), fn(_) => Governance::requireHumanCeremony(proof))
 
     fn liveTransfer(t) = Governance::required(Governance::isLiveTransfer(t), t, "governance.transfer.not-pending")
 

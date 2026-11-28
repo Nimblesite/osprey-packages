@@ -107,7 +107,7 @@ module Install {
     /// The whole command: parse `[--registry <base-url>] [--project <dir>]`,
     /// read the lock the overlay selects, and install each locked release in
     /// lock order ([PACKAGE-LOCAL-OVERRIDE]: overridden keys are skipped).
-    export fn run(args) = Flags::dispatchWith(args, [Fetch::registryFlag, Flags::projectFlag], [], usageCode, usageText, Transaction::releaseSettings, withArgs)
+    export fn run(args) = Flags::dispatchWith(args, Transaction::flags, [], usageCode, usageText, Transaction::releaseSettings, withArgs)
 
     fn withArgs(s) = Reports::checkedWith(Overlay::activeLockAt(Transaction::projectOf(s)), noLockCode,
         fn(value) => installLock(Transaction::baseOf(s), Transaction::projectOf(s), value))

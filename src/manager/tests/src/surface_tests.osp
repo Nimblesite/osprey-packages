@@ -231,20 +231,20 @@ module SurfaceTests {
     }
 
     /// Every surface test.
-    export fn run() = {
-        test("surface: table equals the fixture", tableMatchesFixture)
-        test("surface: identifier scan", scans)
-        test("surface: executable interpolations and terminal input", interpolations)
-        test("surface: source file flavors", flavorFiles)
-        test("surface: Python token boundaries", pythonTokens)
-        test("surface: trees and system capabilities", trees)
-        test("surface: shadowed builtin names", shadowing)
-        test("surface: unclassified ambient builtins", unknownBuiltin)
-        test("surface: contextual native identifiers", nativeNames)
-        test("surface: native declaration boundaries", nativeBoundaries)
-        test("surface: native declaration whitespace", nativeWhitespace)
-        test("surface: TypeScript-flavor sources", typescriptSources)
-        test("surface: sample-registry goldens", sampleSurfaces)
-        test("surface: native package requires no ambient grants", nativeSurface)
-    }
+    export fn run() = testCases([
+        Fixtures::case("surface: table equals the fixture", tableMatchesFixture),
+        Fixtures::case("surface: identifier scan", scans),
+        Fixtures::case("surface: executable interpolations and terminal input", interpolations),
+        Fixtures::case("surface: source file flavors", flavorFiles),
+        Fixtures::case("surface: Python token boundaries", pythonTokens),
+        Fixtures::case("surface: trees and system capabilities", trees),
+        Fixtures::case("surface: shadowed builtin names", shadowing),
+        Fixtures::case("surface: unclassified ambient builtins", unknownBuiltin),
+        Fixtures::case("surface: contextual native identifiers", nativeNames),
+        Fixtures::case("surface: native declaration boundaries", nativeBoundaries),
+        Fixtures::case("surface: native declaration whitespace", nativeWhitespace),
+        Fixtures::case("surface: TypeScript-flavor sources", typescriptSources),
+        Fixtures::case("surface: sample-registry goldens", sampleSurfaces),
+        Fixtures::case("surface: native package requires no ambient grants", nativeSurface)
+    ])
 }

@@ -21,7 +21,7 @@ module Permissions {
         })
 
     fn body(l, access, ledger, now) = join([
-        "<main id=\"permissions\"><h1>Permissions for ${Html::escape(Names::display(l.pkg.key))}</h1>",
+        "<main id=\"permissions\"><h1>Permissions for ${PackageView::escapedKey(l)}</h1>",
         Html::field("Organization", "@${l.orgHandle}"),
         Html::field("Package administrator", l.pkg.admin),
         publisherSection(filterList(ledger, fn(g) => g.package == l.pkg.id && Governance::samePermission(g.permission, Governance::PublishRelease)), now),

@@ -19,22 +19,21 @@ module BuildTests {
     let project = "/abs"
     let derivedPath = ".osprey/build/osprey.toml"
 
-    /// What one run observed: the report, the derived manifest, the ensured
-    /// directories and the compiler commands, each "" when none.
-    type Attempt = { report: Reports::Report, derived: string, derivedAt: string, ensures: string, commands: string }
+    /// What one run observed: the report, the derived project it wrote (an
+    /// empty route until then), the ensured directories and the compiler
+    /// commands, each "" when none.
+    type Attempt = { report: Reports::Report, derived: Fixture::ReadRoute, ensures: string, commands: string }
 
     fn runBuild(reads, walks, args) = {
-        mut derived = ""
-        mut derivedAt = ""
+        mut derived = Fixture::readRoute("", "")
         mut ensures = ""
         mut commands = ""
         let files = handler Host::Files {
             read path => RegistryFixture::readFrom(reads, path)
-            exists path => RegistryFixture::existsAmong(reads, path)
             remove path => RegistryFixture::unexpectedRemove(path)
+            exists path => RegistryFixture::existsAmong(reads, path)
             write path content => {
-                derived = content
-                derivedAt = path
+                derived = Fixture::readRoute(path, content)
                 Success { value: byteLength(content) }
             }
         }
@@ -54,8 +53,8 @@ module BuildTests {
                 Host::Run { status: 0, stdout: "built\n", stderr: "" }
             }
         }
-        let report = RegistryFixture::runHosted(process, files, tree, web, fn() => Build::run(args))
-        Attempt { report: report, derived: derived, derivedAt: derivedAt, ensures: ensures, commands: commands }
+        let report = RegistryFixture::over(process, files, tree, web, Build::run, args)
+        Attempt { report: report, derived: derived, ensures: ensures, commands: commands }
     }
 
     // ---- the project and its two packages ----
@@ -136,8 +135,8 @@ module BuildTests {
         let a = buildAll(packages)
         checkAll("the derived osprey.toml is exact and the compiler runs", [
             a.report.status == 0,
-            a.derived == derivedText(),
-            a.derivedAt == "${project}/${derivedPath}",
+            a.derived.content == derivedText(),
+            a.derived.path == "${project}/${derivedPath}",
             a.ensures == "${project}/.osprey/build|",
             a.commands == "'${compilerPath}' build '${project}/.osprey/build' -o '${project}/.osprey/build/app'|",
             Fixture::line(a.report, 0) == "built"
@@ -160,9 +159,9 @@ module BuildTests {
         let a = runBuild(reads, [], args)
         checkAll("relative project ${dir} is rebased from the derived manifest", [
             a.report.status == 0,
-            a.derivedAt == Project::pathAt(dir, derivedPath),
-            containsAll(a.derived, ["source_roots = [\"../../src\"]", "python_sources = [\"../../src/model.py\"]", "typescript_sources = [\"../../src/view.ts\"]"]),
-            contains(a.derived, "entry = \"../../src/main.osp\"")
+            a.derived.path == Project::pathAt(dir, derivedPath),
+            containsAll(a.derived.content, ["source_roots = [\"../../src\"]", "python_sources = [\"../../src/model.py\"]", "typescript_sources = [\"../../src/view.ts\"]"]),
+            contains(a.derived.content, "entry = \"../../src/main.osp\"")
         ])
     }
 
@@ -176,8 +175,8 @@ module BuildTests {
         let a = buildAll(standardPackages())
         checkAll("derived Python sources obey the compiler's manifest-relative path contract", [
             a.report.status == 0,
-            !contains(a.derived, "python_sources = [\"/"),
-            !contains(a.derived, "typescript_sources = [\"/")
+            !contains(a.derived.content, "python_sources = [\"/"),
+            !contains(a.derived.content, "typescript_sources = [\"/")
         ])
     }
 
@@ -187,7 +186,7 @@ module BuildTests {
         let a = runBuild(readsOf(RegistryFixture::lockText(RegistryFixture::otherDigest, [], mapList(packages, pkgOf)), packages), walksOf(packages), ["--project", project])
         checkAll("a verify failure is the build's failure and compiles nothing", [
             a.report.status == 1,
-            structuralEquals([Fixture::line(a.report, 0), a.derived, a.ensures], ["verify.manifest-digest", "", ""]),
+            structuralEquals([Fixture::line(a.report, 0), a.derived.path, a.ensures], ["verify.manifest-digest", "", ""]),
             a.commands == ""
         ])
     }
@@ -199,7 +198,7 @@ module BuildTests {
         checkAll("a rejected package manifest is build.manifest with no compiler run", [
             a.report.status == 1,
             startsWith(Fixture::line(a.report, 0), "build.manifest @demo/one manifest.project.name at "),
-            structuralEquals([a.derived, a.commands], ["", ""])
+            structuralEquals([a.derived.path, a.commands], ["", ""])
         ])
     }
 

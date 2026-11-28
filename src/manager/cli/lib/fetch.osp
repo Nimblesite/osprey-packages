@@ -63,11 +63,14 @@ module Fetch {
     /// flag, when given, only after the target.
     fn commandLine(args) = match length(args) {
         1 => Success { value: FromRegistry { target: wordAt(args, 0), base: defaultRegistry } }
-        3 => if wordAt(args, 1) == registryFlag { Success { value: FromRegistry { target: wordAt(args, 0), base: wordAt(args, 2) } } }
-            else if wordAt(args, 1) == bundleFlag { Success { value: FromBundle { digest: wordAt(args, 0), path: wordAt(args, 2) } } }
-            else { Error { message: usageCode } }
+        3 => flagged(wordAt(args, 0), wordAt(args, 1), wordAt(args, 2))
         _ => Error { message: usageCode }
     }
+
+    /// The command line `target <flag> word` makes: the flag in the middle decides.
+    fn flagged(target, flag, word) = if flag == registryFlag { Success { value: FromRegistry { target: target, base: word } } }
+        else if flag == bundleFlag { Success { value: FromBundle { digest: target, path: word } } }
+        else { Error { message: usageCode } }
 
     /// One argument parsed as a release selector, or `fetch.usage`.
     fn ask(parsed, make) = match parsed {
@@ -124,18 +127,16 @@ module Fetch {
 
     fn sourcePath(digest) = "${sourcePrefix}${digest}${sourceSuffix}"
 
-    fn rowWith(item, digest, epoch) = andThen(JsonRead::requiredInt(item, "ordinal", shapeCode), fn(value) => Success { value: Row { digest: digest, epoch: epoch, ordinal: value } })
+    /// One `{"digest","epoch","ordinal"}` row; any member missing or of
+    /// another kind is `fetch.package-shape`.
+    fn rowOf(item) = andThen(JsonRead::requiredText(item, "digest", shapeCode), fn(digest) =>
+        andThen(JsonRead::requiredInt(item, "epoch", shapeCode), fn(epoch) =>
+            Folds::mapped(JsonRead::requiredInt(item, "ordinal", shapeCode), fn(ordinal) => Row { digest: digest, epoch: epoch, ordinal: ordinal })))
 
-    fn rowFrom(item, digest) = andThen(JsonRead::requiredInt(item, "epoch", shapeCode), fn(value) => rowWith(item, digest, value))
+    fn rowsOf(items) = Checked::collectAll(items, rowOf)
 
-    fn rowOf(item) = andThen(JsonRead::requiredText(item, "digest", shapeCode), fn(value) => rowFrom(item, value))
-
-    fn rowsOf(items) = Checked::collectAll(items, fn(item) => rowOf(item))
-
-    fn releasesOf(root) = match JsonRead::field(root, "releases") {
-        Json::Arr { items } => rowsOf(items)
-        _ => Error { message: shapeCode }
-    }
+    /// `releases` of a package document: its rows, or `fetch.package-shape` when it is not an array.
+    fn releasesOf(root) = andThen(JsonRead::requiredItems(root, "releases", shapeCode), rowsOf)
 
     /// A parsed JSON document handed to `ofRoot`; a document that is not
     /// JSON, or of any other shape, is `"fetch.package-shape"`.
@@ -146,7 +147,7 @@ module Fetch {
 
     fn releaseOf(key, row: Row) = Identity::ReleaseId { key: key, epoch: row.epoch, ordinal: row.ordinal, digest: row.digest }
 
-    fn keyedRows(key, rows) = andThen(rows, fn(value) => Success { value: mapList(value, fn(row) => releaseOf(key, row)) })
+    fn keyedRows(key, rows) = Folds::mapped(rows, fn(value) => mapList(value, fn(row) => releaseOf(key, row)))
 
     /// The `key` member as a package key; one that does not parse is `fetch.package-shape`.
     fn keyOfItem(item) = andThen(JsonRead::requiredText(item, "key", shapeCode), fn(value) => Checked::mapError(Names::parse(value), fn(_reason) => shapeCode))
@@ -154,10 +155,9 @@ module Fetch {
     /// The releases of one `{"key","releases"}` package item as identities.
     fn packageReleases(item) = andThen(keyOfItem(item), fn(value) => keyedRows(value, releasesOf(item)))
 
-    fn packagesOf(root) = match JsonRead::field(root, "packages") {
-        Json::Arr { items } => Folds::collect(items, Success { value: [] }, fn(done, item) => andThen(packageReleases(item), fn(value) => Success { value: listConcat(done, value) }))
-        _ => Error { message: shapeCode }
-    }
+    /// The `packages` array of the listing document, every item's releases in order.
+    fn packagesOf(root) = andThen(JsonRead::requiredItems(root, "packages", shapeCode), fn(items) =>
+        Folds::collect(items, Success { value: [] }, fn(done, item) => Folds::mapped(packageReleases(item), fn(value) => listConcat(done, value))))
 
     /// Every release of `{"packages":[{"key","releases":[…]}]}` as identities
     /// in listing order, so `lock` reads the whole registry in one request;

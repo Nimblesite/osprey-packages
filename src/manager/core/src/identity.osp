@@ -59,7 +59,8 @@ module Identity {
 
     fn ordinalWith(epoch, text) = andThen(positive(text, firstOrdinal, "release.ordinal"), fn(value) => Success { value: [epoch, value] })
 
-    fn assemble(key, numbers, digest) = ReleaseId {
+    /// The release identity of `key` at the `[epoch, ordinal]` pair `numbers` (`Identity::numbers`) with `digest`.
+    export fn assemble(key: Names::Key, numbers, digest) = ReleaseId {
         key: key,
         epoch: listGet(numbers, 0) ?: 0,
         ordinal: listGet(numbers, 1) ?: 0,

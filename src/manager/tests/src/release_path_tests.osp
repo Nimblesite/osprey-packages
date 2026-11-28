@@ -1,4 +1,5 @@
 namespace registry_tests;
+import registry::Identity
 import registry::ReleasePath
 
 /// [PACKAGE-FOLDER-REGISTRY] release directory path grammar.
@@ -61,7 +62,7 @@ module ReleasePathTests {
     ])
 
     fn formatsWithDigest() = checkAll("format ignores the digest and renders the directory", [
-        ReleasePath::format(Fixtures::releaseId("finch", "ledger", 3, 42, "sha256:aa")) == ledgerRelease
+        ReleasePath::format(Identity::ReleaseId { key: Fixtures::key("finch", "ledger"), epoch: 3, ordinal: 42, digest: "sha256:aa" }) == ledgerRelease
     ])
 
     /// The release-path suite: parsed fields, canonical round-trips, path,

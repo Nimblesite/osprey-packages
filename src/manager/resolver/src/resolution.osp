@@ -67,12 +67,5 @@ module Resolution {
     /// canonical edge order, so clause numbering, the search and the minimal
     /// core never depend on how the input was listed ([PACKAGE-RESOLUTION]:
     /// no permutation changes a lock or an explanation).
-    export fn canonical(g: Graph) = Graph {
-        target: g.target,
-        granted: g.granted,
-        grants: g.grants,
-        rootDeps: sortedEdges(g.rootDeps),
-        current: g.current,
-        catalog: mapList(sortedEntries(g.catalog), canonicalEntry)
-    }
+    export fn canonical(g: Graph) = g { rootDeps: sortedEdges(g.rootDeps), catalog: mapList(sortedEntries(g.catalog), canonicalEntry) }
 }

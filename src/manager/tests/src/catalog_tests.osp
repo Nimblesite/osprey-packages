@@ -21,7 +21,7 @@ module CatalogTests {
     /// One served release `@scope/name` at `epoch.rordinal` under `digest`,
     /// with the empty files at `paths`.
     fn servedRelease(scope, name, epoch, ordinal, digest, paths) =
-        Release::Served { id: Fixtures::releaseId(scope, name, epoch, ordinal, digest), files: mapList(paths, file) }
+        Release::Served { id: Identity::ReleaseId { key: Fixtures::key(scope, name), epoch: epoch, ordinal: ordinal, digest: digest }, files: mapList(paths, file) }
 
     /// `@finch/ledger` e1.r1 as the registry serves it: `osprey.toml` and
     /// `src/lib.osp`, both empty.

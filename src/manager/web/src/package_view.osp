@@ -22,6 +22,9 @@ module PackageView {
         Success => render()
     }
 
+    /// The package's canonical key, escaped for a heading.
+    export fn escapedKey(l) = Html::escape(Names::display(l.pkg.key))
+
     /// Organization and lifecycle fields shared by package listings.
     export fn listingFields(l) = join([
         Html::field("Organization", "@${l.orgHandle}"),
@@ -29,7 +32,7 @@ module PackageView {
     ], "")
 
     fn body(l, access, now) = join([
-        "<main id=\"package\"><h1>${Html::escape(Names::display(l.pkg.key))}</h1>",
+        "<main id=\"package\"><h1>${escapedKey(l)}</h1>",
         listingFields(l),
         Html::field("Security review evidence", Model::reviewOf(l.evidence)),
         warningsSection(l),

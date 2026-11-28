@@ -11,7 +11,7 @@ module ReleaseFiles {
 
     fn pathKey(file) = Bytes::hex(Bytes::ofString(file.relPath))
 
-    fn sorted(files) = mapList(Order::sortedIndexes(mapList(files, pathKey)), fn(i) => listGet(files, i) ?: missingFile())
+    fn sorted(files) = Order::sortedBy(files, pathKey, missingFile)
 
     /// `ReleaseId` and `Json::Member` share `key`; issue #273 needs the
     /// receiver spelled out when reading that shared field.

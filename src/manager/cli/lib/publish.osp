@@ -30,12 +30,6 @@ module Publish {
 
     fn commandLine(parsed) = CommandLine { folder: Flags::given(parsed, folderFlag, ""), project: Flags::project(parsed), breaking: Flags::has(parsed, breakingFlag) }
 
-    // Shared field names need typed receivers (issue #273).
-    fn folderOf(cmd: CommandLine) = cmd.folder
-    fn projectOf(cmd: CommandLine) = cmd.project
-    fn breakingOf(cmd: CommandLine) = cmd.breaking
-    fn assetPath(a: ManifestModel::Asset) = a.path
-
     // Implements [PACKAGE-LICENSE-DISTRIBUTION] alongside source and asset selection.
 
     fn underRoot(path, root) = startsWith(path, "${root}/")
@@ -44,7 +38,7 @@ module Publish {
         || foldList(mf.sourceRoots, false, fn(found, root) => found || underRoot(path, root))
         || listContains(mf.pythonSources, path)
         || listContains(mf.typescriptSources, path)
-        || listContains(mapList(mf.assets, assetPath), path) }
+        || listContains(mapList(mf.assets, fn(a) => a.path), path) }
 
     /// The walk cut down to the files `selected` keeps, kind by kind.
     fn selectedWalk(mf, walk: Host::Walk) = {
@@ -91,7 +85,7 @@ module Publish {
 
     // ---- placing the release ----
 
-    fn placedAt(cmd, served) = "${folderOf(cmd)}/${ReleasePath::format(Release::idOf(served))}"
+    fn placedAt(cmd, served) = "${cmd.folder}/${ReleasePath::format(Release::idOf(served))}"
 
     fn placedLines(cmd, served) = [
         "published ${Lockfile::compact(Release::idOf(served))}",
@@ -103,13 +97,13 @@ module Publish {
     fn placed(cmd, served) = Reports::checked(Fetch::writeFiles(placedAt(cmd, served), Release::filesOf(served)), fn(_finished) => Reports::success(placedLines(cmd, served)))
 
     /// Check and digest the tree as the server will, then place it.
-    fn assembled(cmd, key, fileList) = Reports::checked(ReleaseFiles::assemble(nextDir(key, existing(folderOf(cmd), key), breakingOf(cmd)), fileList), fn(value) => placed(cmd, value))
+    fn assembled(cmd, key, fileList) = Reports::checked(ReleaseFiles::assemble(nextDir(key, existing(cmd.folder, key), cmd.breaking), fileList), fn(value) => placed(cmd, value))
 
-    fn withKey(cmd, mf, key) = Reports::checked(treeFiles(projectOf(cmd), mf), fn(value) => assembled(cmd, key, value))
+    fn withKey(cmd, mf, key) = Reports::checked(treeFiles(cmd.project, mf), fn(value) => assembled(cmd, key, value))
 
     fn withManifest(cmd, mf) = Reports::checked(ManifestEdit::publicationKey(mf, noPackageCode), fn(value) => withKey(cmd, mf, value))
 
-    fn withCommand(cmd) = if folderOf(cmd) == "" { Reports::usageFor(usageCode, usageText) } else { Reports::checked(Project::readAt(projectOf(cmd)), fn(value) => withManifest(cmd, value)) }
+    fn withCommand(cmd) = if cmd.folder == "" { Reports::usageFor(usageCode, usageText) } else { Project::withManifestAt(cmd.project, fn(value) => withManifest(cmd, value)) }
 
     /// The whole command.
     export fn run(args) = Flags::dispatchWith(args, [folderFlag, Flags::projectFlag], [breakingFlag], usageCode, usageText, commandLine, withCommand)

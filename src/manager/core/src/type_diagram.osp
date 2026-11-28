@@ -157,8 +157,5 @@ module TypeDiagram {
     }
 
     /// The declaration named `name`, or `schema.unknown-type`.
-    export fn lookup(model, name) = foldList(model.decls, Error { message: unknownType }, fn(acc, d) => match acc {
-        Success => acc
-        Error => if declName(d) == name { Success { value: d } } else { acc }
-    })
+    export fn lookup(model, name) = Checked::firstMatch(model.decls, fn(d) => declName(d) == name, unknownType)
 }

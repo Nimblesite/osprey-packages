@@ -1,7 +1,6 @@
 namespace registry_api;
 import registry::Bytes
 import registry::Dsse
-import registry::JsonRead
 import registry_host::Host
 
 /// JWA verification keys and signatures, encoded for the platform OpenSSL verifier.
@@ -11,9 +10,7 @@ module JwtKeys {
     let ecSpki = "3059301306072a8648ce3d020106082a8648ce3d03010703420004"
     let rsaAlgorithm = "300d06092a864886f70d0101010500"
 
-    fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
-
-    fn value(doc, name) = Dsse::decodeBase64Url(field(doc, name))
+    fn value(doc, name) = Dsse::decodeBase64Url(AuthText::field(doc, name))
 
     fn span(bytes, start, count) = range(start, start + count) |> map(fn(i) => listGet(bytes, i) ?: 0) |> toList
 
@@ -45,8 +42,8 @@ module JwtKeys {
             Error { message: invalid }
         } else { Success { value: rsaSpki(n, e) } }))
 
-    fn publicKey(algorithm, key) = if algorithm == "ES256" && field(key, "kty") == "EC" && field(key, "crv") == "P-256" { ecPoint(key) }
-    else if algorithm == "RS256" && field(key, "kty") == "RSA" { rsaPublic(key) }
+    fn publicKey(algorithm, key) = if algorithm == "ES256" && AuthText::field(key, "kty") == "EC" && AuthText::field(key, "crv") == "P-256" { ecPoint(key) }
+    else if algorithm == "RS256" && AuthText::field(key, "kty") == "RSA" { rsaPublic(key) }
     else { Error { message: invalid } }
 
     fn signatureDer(algorithm, bytes) = if algorithm == "ES256" && length(bytes) == 64 {

@@ -31,10 +31,9 @@ module RegistryFixture {
 
     /// One `Host::Web.get` the fixture answers: the exact base, path, status and body.
     export type WebRoute = { base: string, path: string, status: int, body: string }
-    /// One `Host::Files.write` a command performed.
-    export type Written = { at: string, text: string }
-    /// What one run observed: the report, every write in order and every command run.
-    export type Attempt = { report: Reports::Report, written: List<Written>, removed: List<string>, ran: List<string> }
+    /// What one run observed: the report, every write, fetch, removal, ensured
+    /// directory and command run, each in order.
+    export type Attempt = { report: Reports::Report, written: List<Fixture::ReadRoute>, fetched: List<string>, removed: List<string>, ensured: List<string>, ran: List<string> }
 
     // ---- handlers ----
 
@@ -54,10 +53,8 @@ module RegistryFixture {
         Error => if w.base == b && webPath(w) == path { Success { value: replyOf(w) } } else { answer }
     })
 
-    fn writtenAt(w: Written) = w.at
-    fn writtenText(w: Written) = w.text
-
-    fn readRoutes(written) = foldList(written, [], fn(reads, w) => listPrepend(reads, Fixture::readRoute(writtenAt(w), writtenText(w))))
+    /// The writes of a run, latest first: the order a read of a path written twice must meet.
+    fn latestFirst(written) = listReverse(written)
 
     /// The read routes for `files` installed below `dir`.
     export fn readRoutesAt(dir, files) = mapList(files, fn(f) => Fixture::readRoute("${dir}/${f.relPath}", f.content))
@@ -70,11 +67,14 @@ module RegistryFixture {
     /// Compose the four fixture handlers around one command.
     export fn runHosted(process, files, tree, web, action) = process(fn() => files(fn() => tree(fn() => web(action))))
 
+    /// Compose the four fixture handlers around `command args`.
+    export fn over(process, files, tree, web, command, args) = runHosted(process, files, tree, web, fn() => command(args))
+
     /// Compose the four fixture handlers around `Dispatch::run(args)`.
-    fn dispatchOver(process, files, tree, web, args) = runHosted(process, files, tree, web, fn() => Dispatch::run(args))
+    fn dispatchOver(process, files, tree, web, args) = over(process, files, tree, web, Dispatch::run, args)
 
     /// The last text written to `path`, if any.
-    fn latest(written, path) = Fixture::readFor(readRoutes(written), path)
+    fn latest(written, path) = Fixture::readFor(latestFirst(written), path)
 
     fn readOf(written, reads, path) = match latest(written, path) {
         Success { value } => Success { value: value }
@@ -86,35 +86,39 @@ module RegistryFixture {
     /// earlier in the run answers the written text.
     fn runFault(reads, walks, webs, args, partialPath) = {
         mut partial = false
-        mut written: List<Written> = []
+        mut written: List<Fixture::ReadRoute> = []
+        mut fetched: List<string> = []
         mut removed: List<string> = []
         mut ran: List<string> = []
         mut ensured: List<string> = []
         let files = handler Host::Files {
             read path => if listContains(removed, path) { Error { message: "fixture: removed ${path}" } } else { readOf(written, reads, path) }
-            exists path => if listContains(removed, path) { Success { value: false } } else { Fixture::existsIn(listConcat(readRoutes(written), reads), path) }
+            exists path => if listContains(removed, path) { Success { value: false } } else { Fixture::existsIn(listConcat(latestFirst(written), reads), path) }
             remove path => {
                 removed = listAppend(removed, path)
-                written = filterList(written, fn(w) => writtenAt(w) != path)
+                written = filterList(written, fn(w: Fixture::ReadRoute) => w.path != path)
                 Success { value: 0 }
             }
             write path content => {
                 removed = filterList(removed, fn(p) => p != path)
                 let damaged = path == partialPath && !partial
                 partial = partial || damaged
-                written = listAppend(written, Written { at: path, text: if damaged { take(content, 7) } else { content } })
+                written = listAppend(written, Fixture::readRoute(path, if damaged { take(content, 7) } else { content }))
                 if damaged { Error { message: "fixture: partial write" } } else { Success { value: byteLength(content) } }
             }
         }
         let tree = handler Host::Tree {
-            walk dir => Fixture::walkAfter(readRoutes(written), walks, ensured, dir)
+            walk dir => Fixture::walkAfter(latestFirst(written), walks, ensured, dir)
             ensure dir => {
                 ensured = listAppend(ensured, dir)
                 Success { value: byteLength(dir) }
             }
         }
         let web = handler Host::Web {
-            get b path => replyFor(webs, b, path)
+            get b path => {
+                fetched = listAppend(fetched, path)
+                replyFor(webs, b, path)
+            }
         }
         let process = handler Host::Process {
             run command => {
@@ -123,7 +127,7 @@ module RegistryFixture {
             }
         }
         let report = dispatchOver(process, files, tree, web, args)
-        Attempt { report: report, written: written, removed: removed, ran: ran }
+        Attempt { report: report, written: written, fetched: fetched, removed: removed, ensured: ensured, ran: ran }
     }
 
     /// Run `args` through `Dispatch::run` over `reads`, `walks` and `webs`,
@@ -160,6 +164,15 @@ module RegistryFixture {
         dispatchOver(process, files, tree, web, args)
     }
 
+    /// Every write of the run, in order, as `path=content|`.
+    export fn writeLogOf(a: Attempt) = Fixture::writeLog(a.written)
+
+    /// Every directory the run ensured, in order, as `dir|`.
+    export fn ensureLogOf(a: Attempt) = Fixture::ensureLog(a.ensured)
+
+    /// The paths the run fetched, in order.
+    export fn fetchedOf(a: Attempt) = a.fetched
+
     /// Whether the run removed `path`.
     export fn removedPath(a: Attempt, path) = listContains(a.removed, path)
 
@@ -173,7 +186,7 @@ module RegistryFixture {
     }
 
     /// How many writes hit `path`.
-    export fn writesTo(a: Attempt, path) = length(filterList(a.written, fn(w) => writtenAt(w) == path))
+    export fn writesTo(a: Attempt, path) = length(filterList(a.written, fn(w: Fixture::ReadRoute) => w.path == path))
 
     /// The process status the run's report answers.
     export fn statusOf(a: Attempt) = a.report.status
@@ -250,7 +263,19 @@ module RegistryFixture {
 
     fn fullListing(served) = "{\"packages\":[${join(mapList(distinctKeys(served), fn(k) => packageListing(served, k)), ",")}]}"
 
-    fn sourceWeb(s) = webRoute("/v1/releases/${Fixture::digestOf(s)}/source", Bundle::encode(s) ?: "")
+    fn sourceWeb(s) = sourceRoute(base, s)
+
+    /// The source endpoint of the release with `digest`.
+    export fn releaseSourcePath(digest) = "/v1/releases/${digest}/source"
+
+    /// The source endpoint of `s`.
+    export fn sourcePath(s) = releaseSourcePath(Fixture::digestOf(s))
+
+    /// A route of `b` answering `path` with the encoded bundle of `s`.
+    export fn bundleRouteAt(b, path, s) = webRouteAt(b, path, 200, Bundle::encode(s) ?: "")
+
+    /// A route of `b` serving `s`'s own source bundle.
+    export fn sourceRoute(b, s) = bundleRouteAt(b, sourcePath(s), s)
 
     /// The one listing request plus every release's source bundle.
     export fn websOf(served) = listPrepend(mapList(served, sourceWeb), webRoute(Fetch::packagesListingPath, fullListing(served)))

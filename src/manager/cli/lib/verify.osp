@@ -103,12 +103,10 @@ module Verify {
         else { Reports::failure(lines) }
     }
 
-    fn digested(project, lock, manifest) = Reports::checked(ManifestJson::digest(manifest), fn(value) => findings(project, lock, manifest, value))
-
-    fn checked(project, lock) = Reports::checked(Project::readAt(project), fn(value) => digested(project, lock, value))
+    fn digested(project, manifest, lock) = Reports::checked(ManifestJson::digest(manifest), fn(value) => findings(project, lock, manifest, value))
 
     /// The offline check of `osprey.lock` at `project`; `build --release` runs this.
-    export fn verifyReleaseAt(project) = Reports::checkedWith(Project::readLockAt(project), noLockCode, fn(value) => checked(project, value))
+    export fn verifyReleaseAt(project) = Project::withLockAt(project, noLockCode, fn(manifest, lock) => digested(project, manifest, lock))
 
     /// Read the development lock or report its command-specific stable code.
     export fn withLocalLockAt(project, code, onLock) = match Project::readLocalLockAt(project) {
@@ -117,7 +115,7 @@ module Verify {
     }
 
     /// The offline check of `osprey.local.lock` at `project`; a bare `build` runs this while the overlay is active.
-    export fn verifyLocalAt(project) = withLocalLockAt(project, noLocalLockCode, fn(value) => checked(project, value))
+    export fn verifyLocalAt(project) = withLocalLockAt(project, noLocalLockCode, fn(lock) => Project::withManifestAt(project, fn(manifest) => digested(project, manifest, lock)))
 
     /// The offline check of whichever lock the overlay selects.
     export fn verifyOfflineAt(project) = Reports::checked(Overlay::readAt(project), fn(value) => if Overlay::active(value) { verifyLocalAt(project) } else { verifyReleaseAt(project) })

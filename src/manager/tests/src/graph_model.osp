@@ -1,8 +1,6 @@
 namespace registry_tests;
 import registry::JsonRead
 import registry::Json
-import registry::Names
-import registry::Identity
 import registry::ManifestModel
 import registry::Resolution
 
@@ -13,25 +11,14 @@ import registry::Resolution
 /// `Resolution`, and requirements and edges reuse `ManifestModel`. Implements
 /// [PACKAGE-RESOLUTION].
 module GraphModel {
-    fn key(v) = Names::Key { scope: Fixtures::textOf(v, "scope"), name: Fixtures::textOf(v, "name") }
-
-    /// The `package` key and `epoch` a release identity and a requirement share in the fixture encoding.
-    type PackageEpoch = { package: Names::Key, epoch: int }
+    /// Whether `v` carries a member `key`.
+    fn has(v, key) = !Json::isNull(JsonRead::field(v, key))
 
     /// The `package` member of `v` as the key it names.
-    fn packageKey(v) = key(JsonRead::field(v, "package"))
+    fn packageKey(v) = Fixtures::keyOf(JsonRead::field(v, "package"))
 
-    fn packageEpoch(v) = PackageEpoch { package: packageKey(v), epoch: Fixtures::numberOf(v, "epoch") }
-
-    fn releaseId(v) = {
-        let at = packageEpoch(v)
-        Identity::ReleaseId { key: at.package, epoch: at.epoch, ordinal: Fixtures::numberOf(v, "ordinal"), digest: Fixtures::textOf(v, "digest") }
-    }
-
-    fn requirement(v) = {
-        let at = packageEpoch(v)
-        ManifestModel::Requirement { package: at.package, epoch: at.epoch, minimumOrdinal: Fixtures::numberOf(v, "minimumOrdinal") }
-    }
+    /// The requirement object `v`: its package, epoch and minimumOrdinal floor.
+    fn requirement(v) = ManifestModel::Requirement { package: packageKey(v), epoch: Fixtures::numberOf(v, "epoch"), minimumOrdinal: Fixtures::numberOf(v, "minimumOrdinal") }
 
     /// The requirement an edge body `value` carries.
     fn required(value) = requirement(JsonRead::field(value, "requirement"))
@@ -39,13 +26,9 @@ module GraphModel {
     /// One edge object `{"Runtime": {"requirement": {...}}}` into its
     /// `ManifestModel::Edge` variant: `Runtime` outranks `Build`, and a body
     /// naming neither is a `Test` edge whose requirement may be absent.
-    fn edge(v) = match Json::get(v, "Runtime") {
-        Success { value } => ManifestModel::Runtime { requirement: required(value) }
-        Error => match Json::get(v, "Build") {
-            Success { value } => ManifestModel::Build { requirement: required(value) }
-            Error => ManifestModel::Test { requirement: required(JsonRead::field(v, "Test")) }
-        }
-    }
+    fn edge(v) = if has(v, "Runtime") { ManifestModel::Runtime { requirement: required(JsonRead::field(v, "Runtime")) } }
+        else if has(v, "Build") { ManifestModel::Build { requirement: required(JsonRead::field(v, "Build")) } }
+        else { ManifestModel::Test { requirement: required(JsonRead::field(v, "Test")) } }
 
     fn releaseState(v) = match Json::get(v, "Eligible") {
         Success => "Eligible"
@@ -56,24 +39,24 @@ module GraphModel {
     }
 
     fn entry(v) = Resolution::Entry {
-        release: releaseId(JsonRead::field(v, "release")),
+        release: Fixtures::releaseId(JsonRead::field(v, "release")),
         activation: releaseState(JsonRead::field(v, "state")),
         targets: Fixtures::textsOf(v, "targets"),
         capabilities: Fixtures::textsOf(v, "capabilities"),
-        dependencies: mapList(Fixtures::itemsOf(v, "dependencies"), edge)
+        dependencies: Fixtures::mappedItems(v, "dependencies", edge)
     }
 
     /// One `{"package": {...}, "capabilities": [...]}` grant of the root.
     fn grant(v) = ManifestModel::Grant { package: packageKey(v), capabilities: Fixtures::textsOf(v, "capabilities") }
 
-    /// The typed graph of one parsed fixture object; `grants` is optional and
-    /// empty when the fixture carries none.
+    /// The typed graph of one parsed fixture object, its members read in
+    /// fixture order; `grants` is optional and empty when the fixture carries none.
     export fn graphOf(v) = Resolution::Graph {
         target: Fixtures::textOf(v, "target"),
         granted: Fixtures::textsOf(v, "grantedCapabilities"),
-        grants: mapList(Fixtures::itemsOf(v, "grants"), grant),
         rootDeps: mapList(JsonRead::items(JsonRead::at(v, "root/dependencies")), edge),
-        current: mapList(Fixtures::itemsOf(v, "current"), releaseId),
-        catalog: mapList(Fixtures::itemsOf(v, "catalog"), entry)
+        current: Fixtures::mappedItems(v, "current", Fixtures::releaseId),
+        catalog: Fixtures::mappedItems(v, "catalog", entry),
+        grants: Fixtures::mappedItems(v, "grants", grant)
     }
 }

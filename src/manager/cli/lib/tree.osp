@@ -61,16 +61,14 @@ module Tree {
     /// The tree: the project name, then the root edges and their subtrees.
     fn treeOf(manifest, lock) = Reports::success(listPrepend(printedOf(childLines(lock, 1, Walk { printed: [], visited: [] }, Lockfile::rootEdges(lock))), ManifestModel::nameOf(manifest)))
 
-    fn withLock(project, lock) = Reports::checked(Project::readAt(project), fn(value) => treeOf(value, lock))
-
     /// The tree of the project at `project`, or `tree.no-lock` with the reason.
-    fn at(project) = Reports::checkedWith(Project::readLockAt(project), noLockCode, fn(value) => withLock(project, value))
+    fn at(project) = Project::withLockAt(project, noLockCode, treeOf)
 
     fn directNames(manifest: ManifestModel::Manifest) = Names::distinct(mapList(manifest.dependencies, ManifestModel::requirementKey))
 
     // Implements [PACKAGE-API]: the editor asks the canonical manifest parser;
     // no lock, registry connection or editor-side TOML parser is needed.
-    fn directAt(project) = Reports::checked(Project::readAt(project), fn(value) => Reports::success(mapList(directNames(value), Names::display)))
+    fn directAt(project) = Project::withManifestAt(project, fn(value) => Reports::success(mapList(directNames(value), Names::display)))
 
     fn selected(parsed) = if Flags::has(parsed, "--graph") {
         TreeGraph::reportAt(Flags::project(parsed))

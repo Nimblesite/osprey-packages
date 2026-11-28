@@ -11,6 +11,8 @@ module HeaderTests {
     fn parseCode(block) = HostedHeaders::codeOf(HostedHeaders::parse(block))
     fn parseStatus(block) = HostedHeaders::statusOf(HostedHeaders::parse(block))
     fn rejected(c) = parseCode(c.block) == c.expected
+    fn nameOf(header) = match header { HostedHeaders::Header { name } => name }
+    fn valueOf(header) = match header { HostedHeaders::Header { value } => value }
 
     fn flatHeaders() = {
         let parsed = HostedHeaders::parse("X-One:one\nX-Two:two")
@@ -18,8 +20,8 @@ module HeaderTests {
         checkAll("headers: flat records retain wire order", [
             HostedHeaders::isOk(parsed),
             length(headers) == 2,
-            structuralEquals(mapList(headers, fn(header) => match header { HostedHeaders::Header { name } => name }), ["X-One", "X-Two"]),
-            structuralEquals(mapList(headers, fn(header) => match header { HostedHeaders::Header { value } => value }), ["one", "two"])
+            structuralEquals(mapList(headers, nameOf), ["X-One", "X-Two"]),
+            structuralEquals(mapList(headers, valueOf), ["one", "two"])
         ])
     }
 
@@ -45,7 +47,7 @@ module HeaderTests {
             { block: "Ho(st: v", expected: "req.header-name" },
             { block: "Host: a\eb", expected: "req.header-value" }
         ]
-        checkAll("headers: malformed lines rejected", [foldList(cases, true, fn(valid, c) => rejected(c) && valid)])
+        checkAll("headers: malformed lines rejected", [RequestTests::allHold(cases, rejected)])
     }
 
     fn duplicates() = {

@@ -68,7 +68,7 @@ module Lockfile {
     export fn overridePathOf(o: Override) = o.path
 
     /// The override of `key` among `overrides`, if the lock takes it locally.
-    export fn overrideFor(overrides, key) = Folds::byKey(overrides, overrideKey, key, "none")
+    export fn overrideFor(overrides, key) = Folds::byKey(overrides, overrideKey, key)
 
     /// The package pinned for `key` in `lock`, if one is.
     export fn packageIn(lock: Lock, key) = packageFor(packagesOf(lock), key)
@@ -81,8 +81,11 @@ module Lockfile {
 
     // `ReleaseId` shares `key`, `epoch`, `ordinal` and `digest` with other
     // records; issue #273 needs the receiver spelled out.
-    /// `@scope/name e1.r2`: the slot a release occupies, digest aside.
-    export fn spot(id: Identity::ReleaseId) = "${Names::display(id.key)} e${id.epoch}.r${id.ordinal}"
+    /// `e1.r2`: the slot a release occupies, digest aside.
+    export fn versionOf(id: Identity::ReleaseId) = "e${id.epoch}.r${id.ordinal}"
+
+    /// `@scope/name e1.r2`: the release's package and slot.
+    export fn spot(id: Identity::ReleaseId) = "${Names::display(id.key)} ${versionOf(id)}"
 
     /// `@scope/name e1.r2 sha256:…`: the release spelling of every line the
     /// lock-consuming commands print ([PACKAGE-FOLDER-REGISTRY]).
@@ -92,7 +95,7 @@ module Lockfile {
     export fn blankPackage() = Package { release: Identity::blank(), dependencies: [], surface: [] }
 
     /// The package pinned for `key` among `packages`, if one is.
-    export fn packageFor(packages, key) = Folds::byKey(packages, keyOf, key, "none")
+    export fn packageFor(packages, key) = Folds::byKey(packages, keyOf, key)
 
     /// The release `lock` pins for `key`, when it has one.
     export fn releaseIn(lock: Lock, key) = match packageIn(lock, key) {
@@ -142,17 +145,11 @@ module Lockfile {
 
     // `Package` shares `dependencies` with `Root` and `ManifestModel::Manifest`;
     // issue #273 needs the receiver spelled out.
-    
     fn packageAt(packages, i) = listGet(packages, i) ?: blankPackage()
 
     fn packageRelease(packages, i) = releaseOf(packageAt(packages, i))
 
-    /// `items` read through `at`, ordered by `before`.
-    fn sortedBy(items, at, before) = mapList(
-        Order::permutation(length(items), fn(i, j) => before(at(items, i), at(items, j))),
-        fn(i) => at(items, i))
-
-    fn sortedPackages(packages) = sortedBy(packages, packageAt, fn(a, b) => Identity::compare(releaseOf(a), releaseOf(b)))
+    fn sortedPackages(packages) = Folds::sortedBy(packages, packageAt, releaseOf, Identity::compare)
 
     fn blankOverride() = Override { package: Names::blank(), path: "", epoch: 0, manifestDigest: "" }
     fn overrideAt(overrides, i) -> Override = listGet(overrides, i) ?: blankOverride()
@@ -165,7 +162,7 @@ module Lockfile {
         Json::member("path", Json::str(o.path))
     ])
 
-    fn sortedOverrides(overrides) = sortedBy(overrides, overrideAt, fn(a, b) => Names::compare(overrideKey(a), overrideKey(b)))
+    fn sortedOverrides(overrides) = Folds::sortedBy(overrides, overrideAt, overrideKey, Names::compare)
 
     /// `overrides` is written only when the lock has any, so a release lock's
     /// bytes never carry the member.
@@ -185,12 +182,7 @@ module Lockfile {
         _ => Error { message: formatCode }
     }
 
-    /// Read the text member `key`, then hand it to `next`.
-    fn textField(object, key, next) = andThen(JsonRead::requiredText(object, key, shapeCode), next)
-
-    fn intField(object, key, next) = andThen(JsonRead::requiredInt(object, key, shapeCode), next)
-
-    fn readKey(object) = textField(object, "scope", fn(value) => readName(object, value))
+    fn readKey(object) = andThen(JsonRead::requiredText(object, "scope", shapeCode), fn(value) => readName(object, value))
 
     /// A key only when scope and name pass [PACKAGE-NAMES]; anything else is
     /// `lock.shape`, so no lock string reaches a filesystem path
@@ -199,12 +191,12 @@ module Lockfile {
         Success { value: Names::Key { scope: scope, name: name } }
     } else { Error { message: shapeCode } }
 
-    fn readName(object, scope) = textField(object, "name", fn(value) => checkedKey(scope, value))
+    fn readName(object, scope) = andThen(JsonRead::requiredText(object, "name", shapeCode), fn(value) => checkedKey(scope, value))
 
     fn parsedDigest(text) = Checked::mapError(Digests::parse(text), fn(_reason) => shapeCode)
 
     /// A member that must be a well-formed `sha256:` envelope ([PACKAGE-HARDENING] C3).
-    fn digestMember(object, key) = textField(object, key, parsedDigest)
+    fn digestMember(object, key) = andThen(JsonRead::requiredText(object, key, shapeCode), parsedDigest)
 
     /// A member `package` key, then `next(object, key)` — the first step every
     /// locked identity shares.
@@ -212,20 +204,20 @@ module Lockfile {
         andThen(readKey(value), fn(key) => next(object, key)))
 
     /// The `epoch` member, then `next(object, key, epoch)`.
-    fn readEpoch(object, key, next) = intField(object, "epoch", fn(value) => next(object, key, value))
+    fn readEpoch(object, key, next) = andThen(JsonRead::requiredInt(object, "epoch", shapeCode), fn(value) => next(object, key, value))
 
     /// `readKeyed` then `readEpoch`, then `next(object, key, epoch)`.
     fn keyedEpoch(object, next) = readKeyed(object, fn(o, key) => readEpoch(o, key, next))
 
     fn readRelease(object) = keyedEpoch(object, readOrdinal)
 
-    fn readOrdinal(object, key, epoch) = intField(object, "ordinal", fn(value) => readDigest(object, key, epoch, value))
+    fn readOrdinal(object, key, epoch) = andThen(JsonRead::requiredInt(object, "ordinal", shapeCode), fn(value) => readDigest(object, key, epoch, value))
 
-    fn readDigest(object, key, epoch, ordinal) = andThen(digestMember(object, "digest"), fn(value) => Success { value: Identity::ReleaseId { key: key, epoch: epoch, ordinal: ordinal, digest: value } })
+    fn readDigest(object, key, epoch, ordinal) = Folds::mapped(digestMember(object, "digest"), fn(value) => Identity::ReleaseId { key: key, epoch: epoch, ordinal: ordinal, digest: value })
 
     fn readRequirement(object) = keyedEpoch(object, readReqFloor)
 
-    fn readReqFloor(object, key, epoch) = intField(object, "minimumOrdinal", fn(value) => Success { value: ManifestModel::requirement(key, epoch, value) })
+    fn readReqFloor(object, key, epoch) = Folds::mapped(JsonRead::requiredInt(object, "minimumOrdinal", shapeCode), fn(value) => ManifestModel::requirement(key, epoch, value))
 
     // The variant is chosen by the union member key; any other name is `lock.shape`.
     fn readEdgeNamed(kind, requirement) = match kind {
@@ -253,7 +245,7 @@ module Lockfile {
 
     fn readRoot(object) = andThen(digestMember(object, manifestDigestKey), fn(value) => readRootWithDeps(object, value))
 
-    fn readRootWithDeps(object, digest) = andThen(edgesFrom(object), fn(value) => Success { value: Root { manifestDigest: digest, dependencies: value } })
+    fn readRootWithDeps(object, digest) = Folds::mapped(edgesFrom(object), fn(value) => Root { manifestDigest: digest, dependencies: value })
 
     fn packageOf(pkg) = andThen(JsonRead::requiredObject(pkg, "release", shapeCode), fn(value) => packageWithRelease(pkg, readRelease(value)))
 
@@ -276,7 +268,7 @@ module Lockfile {
 
     fn surfaceOf(pkg) = andThen(JsonRead::requiredItems(pkg, "surface", shapeCode), fn(value) => andThen(textsOf(value), fn(value) => canonicalSurface(value)))
 
-    fn packageWithSurface(pkg, release, deps) = andThen(surfaceOf(pkg), fn(value) => Success { value: Package { release: release, dependencies: deps, surface: value } })
+    fn packageWithSurface(pkg, release, deps) = Folds::mapped(surfaceOf(pkg), fn(value) => Package { release: release, dependencies: deps, surface: value })
 
     fn packageKeyText(p) = Names::display(keyOf(p))
 
@@ -289,9 +281,9 @@ module Lockfile {
 
     fn overridePath(object, key) = andThen(JsonRead::requiredText(object, "path", shapeCode), fn(value) => if value == "" { Error { message: shapeCode } } else { overrideEpoch(object, key, value) })
 
-    fn overrideEpoch(object, key, path) = intField(object, "epoch", fn(value) => if value < 1 { Error { message: shapeCode } } else { overrideDigest(object, key, path, value) })
+    fn overrideEpoch(object, key, path) = andThen(JsonRead::requiredInt(object, "epoch", shapeCode), fn(value) => if value < 1 { Error { message: shapeCode } } else { overrideDigest(object, key, path, value) })
 
-    fn overrideDigest(object, key, path, epoch) = andThen(digestMember(object, manifestDigestKey), fn(value) => Success { value: Override { package: key, path: path, epoch: epoch, manifestDigest: value } })
+    fn overrideDigest(object, key, path, epoch) = Folds::mapped(digestMember(object, manifestDigestKey), fn(value) => Override { package: key, path: path, epoch: epoch, manifestDigest: value })
 
     fn readOverride(object) = readKeyed(object, fn(o, key) => overridePath(o, key))
 
@@ -309,7 +301,7 @@ module Lockfile {
 
     fn overridesOrdered(overrides) = Order::strictlyAscending(mapList(overrides, overrideKeyText))
 
-    fn pinsWith(object, pyprojectDigest) = andThen(digestMember(object, "uvLockDigest"), fn(value) => Success { value: Maybe::some(PythonPins { pyprojectDigest: pyprojectDigest, uvLockDigest: value }) })
+    fn pinsWith(object, pyprojectDigest) = Folds::mapped(digestMember(object, "uvLockDigest"), fn(value) => Maybe::some(PythonPins { pyprojectDigest: pyprojectDigest, uvLockDigest: value }))
 
     /// `root.python` is optional: absent means no Python plane; present, it
     /// holds the two well-formed digests.

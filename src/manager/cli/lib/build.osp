@@ -99,24 +99,24 @@ module Build {
 
     fn rootsLine(roots) = sourcesLine("source_roots", roots)
 
-    /// One `key = "value"` line of an optional `[project]` member.
-    fn optionLine(key, value) = ["${key} = ${quote(value)}"]
-
-    fn namespaceLine(manifest) = Maybe::fold(manifest.defaultNamespace, [], fn(ns) => optionLine("default_namespace", ns))
-
-    fn entryLine(manifest) = Maybe::fold(manifest.entry, [], fn(e) => optionLine("entry", rootPath(e)))
+    /// The `key = "<value>"` line of an optional `[project]` member, none
+    /// when the member is absent.
+    fn optionLine(member, key, render) = Maybe::fold(member, [], fn(value) => ["${key} = ${quote(render(value))}"])
 
     fn flavorText(flavor) = toLowerCase(ManifestModel::flavorName(flavor))
 
-    fn flavorLine(manifest) = Maybe::fold(manifest.flavor, [], fn(f) => optionLine("flavor", flavorText(f)))
+    /// The optional `[project]` members the root may carry, in this order:
+    /// namespace, entry and flavor.
+    fn optionLines(manifest) = listConcat(
+        optionLine(manifest.defaultNamespace, "default_namespace", fn(ns) => ns),
+        listConcat(optionLine(manifest.entry, "entry", rootPath), optionLine(manifest.flavor, "flavor", flavorText)))
 
     fn boolText(flag) = if flag { "true" } else { "false" }
 
     fn projectLines(manifest, pms) = {
         let header = ["[project]", "name = ${quote(manifest.projectName)}", rootsLine(derivedRoots(manifest, pms)), sourcesLine("python_sources", flavorSources(manifest, pms, pythonOf)), sourcesLine("typescript_sources", flavorSources(manifest, pms, typescriptOf))]
-        let options = listConcat(namespaceLine(manifest), listConcat(entryLine(manifest), flavorLine(manifest)))
         let modules = ["[modules]", "allow_wildcard_imports = ${boolText(manifest.allowWildcardImports)}"]
-        listConcat(listConcat(header, options), modules)
+        listConcat(listConcat(header, optionLines(manifest)), modules)
     }
 
     fn derivedText(manifest, pms) = join(projectLines(manifest, pms), "\n")
@@ -149,7 +149,7 @@ module Build {
     fn compileWithManifest(cmd, lock, manifest) = Reports::checked(packageManifests(cmd.project, lock), fn(value) => compileWithPackages(cmd, manifest, value))
 
     /// Compile against `lock`, every package's tree where the lock says it is.
-    fn compile(cmd, lock) = Reports::checked(Project::readAt(cmd.project), fn(value) => compileWithManifest(cmd, lock, value))
+    fn compile(cmd, lock) = Project::withManifestAt(cmd.project, fn(value) => compileWithManifest(cmd, lock, value))
 
     fn afterVerify(verified: Reports::Report, cmd, read) = if verified.status != 0 { verified } else { Reports::checked(read, fn(value) => compile(cmd, value)) }
 

@@ -57,7 +57,7 @@ module Source {
     fn missingEntry() = Entry { path: "", byteLength: 0, digest: [] }
 
     /// Entries in unsigned path-byte order: hex keys sort exactly as the bytes do.
-    fn byPath(entries) = mapList(Order::sortedIndexes(mapList(entries, pathKey)), fn(i) => listGet(entries, i) ?: missingEntry())
+    fn byPath(entries) = Order::sortedBy(entries, pathKey, missingEntry)
 
     fn header(count) = listConcat(Bytes::ofString(Domains::sourceTreeDomain()), listConcat([0], Bytes::u32be(count)))
 

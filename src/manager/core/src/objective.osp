@@ -68,8 +68,7 @@ module Objective {
     /// Tie-break for package nodes: `(key, epoch, ordinal DESC, digest)`.
     export fn comparePackageTie(a: Identity::ReleaseId, b: Identity::ReleaseId) = chain([
             Names::compare(a.key, b.key),
-            Order::compareInts(a.epoch, b.epoch),
-            Order::compareInts(b.ordinal, a.ordinal),
+            Order::compareSpots(a.epoch, b.ordinal, b.epoch, a.ordinal),
             Order::compareStrings(a.digest, b.digest)
     ])
 

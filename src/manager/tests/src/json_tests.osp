@@ -193,18 +193,18 @@ module JsonTests {
     /// The JSON suite: values, integer edges, problem offsets, nesting depth,
     /// string escapes, UTF-8, member lookup, RFC 8785 escaping and ordering, and
     /// long inputs.
-    export fn run() = {
-        test("json: values and whitespace", values)
-        test("json: integer edges", integers)
-        test("json: number shapes", shapes)
-        test("json: problems and offsets", problems)
-        test("json: nesting depth", depth)
-        test("json: string escapes", strings)
-        test("json: utf8 validation", utf8)
-        test("json: member lookup", lookups)
-        test("canonical: escaping", escaping)
-        test("canonical: key ordering", ordering)
-        test("canonical: duplicates and idempotence", roundTrip)
-        test("json: 100,000-byte strings and whitespace", longInputs)
-    }
+    export fn run() = testCases([
+        Fixtures::case("json: values and whitespace", values),
+        Fixtures::case("json: integer edges", integers),
+        Fixtures::case("json: number shapes", shapes),
+        Fixtures::case("json: problems and offsets", problems),
+        Fixtures::case("json: nesting depth", depth),
+        Fixtures::case("json: string escapes", strings),
+        Fixtures::case("json: utf8 validation", utf8),
+        Fixtures::case("json: member lookup", lookups),
+        Fixtures::case("canonical: escaping", escaping),
+        Fixtures::case("canonical: key ordering", ordering),
+        Fixtures::case("canonical: duplicates and idempotence", roundTrip),
+        Fixtures::case("json: 100,000-byte strings and whitespace", longInputs)
+    ])
 }

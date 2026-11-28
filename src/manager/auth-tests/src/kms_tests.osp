@@ -36,6 +36,8 @@ module KmsTests {
 
     fn sealCase(c) = (seal(c.metadata, c.status, c.reply) ?: "denied") == c.expected
     fn unsealCase(c) = (unseal(c.status, c.encoded) ?: "denied") == c.expected
+    /// No case fails.
+    fn allHold(cases, holds) = isEmpty(filterList(cases, fn(c) => !holds(c)))
 
     fn expectedResponses() = {
         let cases = [
@@ -45,7 +47,7 @@ module KmsTests {
             { metadata: "{\"access_token\":\"fixture-token\"}", status: 200, reply: sealedReply, expected: "denied" }
         ]
         checkAll("KMS sends padded base64 and accepts only ciphertext from a successful response", [
-            foldList(cases, true, fn(valid, c) => sealCase(c) && valid),
+            allHold(cases, sealCase),
             !LoginKms::validKey(key + "/cryptoKeyVersions/1"),
             !LoginKms::validKey("projects/fixture/locations/global/keyRings/registry/cryptoKeys/../key")
         ])
@@ -64,9 +66,7 @@ module KmsTests {
             altered("ZEJq", "////"),
             altered("==", "")
         ]
-        checkAll("KMS accepts only a successful canonical encoded verifier", [
-            foldList(cases, true, fn(valid, c) => unsealCase(c) && valid)
-        ])
+        checkAll("KMS accepts only a successful canonical encoded verifier", [allHold(cases, unsealCase)])
     }
 
     fn failStore(_flow: string, _browser: string, _sealed: string) -> Result<string, string> = Error { message: "fixture.storage-failed" }

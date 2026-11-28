@@ -1,6 +1,7 @@
 namespace registry_api;
 import registry::Bytes
 import registry::Canonical
+import registry::Checked
 import registry::Json
 import registry::JsonRead
 
@@ -24,25 +25,20 @@ module Supabase {
     fn bearerCode(text) = if text == "" || byteLength(text) > 16384 || contains(text, "\n")
     || contains(text, "\r") || contains(text, " ") { "auth.provider-token" } else { "" }
 
-    fn field(document, key) = JsonRead::text(JsonRead::field(document, key))
-
     fn identity(document) = {
         let identities = JsonRead::items(JsonRead::field(document, "identities"))
-        let subject = field(document, "id")
+        let subject = AuthText::field(document, "id")
         let identity = listGet(identities, 0) ?: Json::Null
-        let providerId = field(identity, "id")
-        if length(identities) != 1 || field(identity, "provider") != "github" || !Bytes::canonicalUuid(subject)
-            || field(identity, "user_id") != subject || providerId == "" || startsWith(providerId, "0")
+        let providerId = AuthText::field(identity, "id")
+        if length(identities) != 1 || AuthText::field(identity, "provider") != "github" || !Bytes::canonicalUuid(subject)
+            || AuthText::field(identity, "user_id") != subject || providerId == "" || startsWith(providerId, "0")
             || !Bytes::everyByte(providerId, Bytes::isDigit) { Error { message: "auth.github-identity" } }
         else { Success { value: Identity { authSubject: subject, githubId: providerId } } }
     }
 
     fn parseReply(reply: Reply) = if reply.status != 200 { Error { message: "auth.provider-rejected" } }
     else if byteLength(reply.body) > 131072 { Error { message: "auth.provider-size" } }
-    else { match Json::parse(reply.body) {
-            Success { value } => Success { value: value }
-            Error => Error { message: "auth.provider-json" }
-        } }
+    else { Checked::mapError(Json::parse(reply.body), fn(_reason) => "auth.provider-json") }
 
     fn verifiedReply(reply) = match parseReply(reply) {
         Error { message } => Error { message: message }
@@ -63,8 +59,8 @@ module Supabase {
     }
 
     fn sessionOf(config, document) = {
-        let access = field(document, "access_token")
-        let refresh = field(document, refreshGrant)
+        let access = AuthText::field(document, "access_token")
+        let refresh = AuthText::field(document, refreshGrant)
         let expires = JsonRead::number(JsonRead::field(document, "expires_in"))
         if bearerCode(access) != "" || bearerCode(refresh) != "" || expires < 1 || expires > 86400 { Error { message: "auth.provider-session" } }
         else { match verify(config, access) {

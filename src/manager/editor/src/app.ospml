@@ -2,7 +2,6 @@
 // its boundary runs. Each region refreshes only when the store it reads
 // changed, and the palette is the theme every region is drawn with.
 namespace registry_editor
-import ui::Doc
 import ui::Keyed
 
 (** The editor program: the store's initial state, its keyed regions and the palette they are drawn with. *)
@@ -13,20 +12,12 @@ module App
 
     // The store as the region comparison reads it: every slice, so any change refreshes the regions that read the store.
     stateJson current = JsonObject [
-        Doc::str ("query", current.packageSearch),
-        Doc::str ("selection", current.packageSelection),
-        Doc::str ("tab", current.packageTab),
-        Doc::str ("registry", current.packageRegistry),
-        Doc::str ("workspace", current.packageWorkspace),
+        Packages::strings ("text", [current.packageSearch, current.packageSelection, current.packageTab, current.packageRegistry,
+            current.packageWorkspace, current.packageNotice, current.packageConfirming, current.packageConfirmKey]),
         JsonMember "catalog" (Packages::encodeCatalog current.packageCatalog),
         JsonMember "graph" (Store::encodeWorkspace current.packageGraph),
-        Doc::str ("notice", current.packageNotice),
-        Doc::bit ("pending", current.packagePending),
-        Doc::bit ("fault", current.packageFault),
-        Doc::str ("confirming", current.packageConfirming),
-        Doc::str ("confirmKey", current.packageConfirmKey),
-        Doc::num ("generation", current.packageGeneration),
-        Doc::num ("waiting", current.packageWaiting),
+        Packages::strings ("flags", ["${current.packagePending}", "${current.packageFault}"]),
+        Packages::strings ("counters", ["${current.packageGeneration}", "${current.packageWaiting}"]),
     ]
 
     regions (before, current, frames, _) =

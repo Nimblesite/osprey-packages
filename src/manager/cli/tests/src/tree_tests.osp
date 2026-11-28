@@ -36,11 +36,12 @@ module TreeTests {
     export fn key(scope, name) = Names::Key { scope: scope, name: name }
     export fn requirement(scope, name) = ManifestModel::Requirement { package: key(scope, name), epoch: 1, minimumOrdinal: 1 }
     export fn runtime(scope, name) = ManifestModel::Runtime { requirement: requirement(scope, name) }
-    export fn buildEdge(scope, name) = ManifestModel::Build { requirement: requirement(scope, name) }
+    /// The build edge on the requirement `req`.
+    export fn buildEdge(req: ManifestModel::Requirement) = ManifestModel::Build { requirement: req }
     export fn pkg(s, deps) = Lockfile::Package { release: Fixture::idOf(s), dependencies: deps, surface: [] }
 
     fn lockText() = Lockfile::encode(Lockfile::release(
-            Lockfile::Root { manifestDigest: rootDigest, dependencies: [runtime("demo", "report"), buildEdge("demo", "tool")] },
+            Lockfile::Root { manifestDigest: rootDigest, dependencies: [runtime("demo", "report"), buildEdge(requirement("demo", "tool"))] },
             [pkg(greeting(), []), pkg(maths(), [runtime("demo", "greeting")]), pkg(report(), [runtime("demo", "greeting"), runtime("demo", "maths")]), pkg(tool(), [])])) ?: ""
 
     export fn lockReads(manifest, lock) = [Fixture::readRoute("osprey.toml", manifest), Fixture::readRoute("osprey.lock", lock)]

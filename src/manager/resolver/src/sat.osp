@@ -38,6 +38,10 @@ module Sat {
     /// means taking those input clauses and the referenced assumptions.
     export fn assume(variableCount, clauses, assumptions) = solveOn(variableCount, clauses, assumptions)
 
+    /// True only when `clauses` completed with `verdict`; an unknown result
+    /// is not a proof.
+    export fn decided(vars, clauses, verdict) = verdictOf(solve(vars, clauses)) == verdict
+
     /// `sat` or `unsat` for a completed search, `unknown` when it did not
     /// finish: only a completed verdict is a proof.
     export fn verdictOf(result) = match result {

@@ -7,7 +7,9 @@ namespace registry;
 /// Every export is monomorphic. An exported generic function is instantiated
 /// at one type per program when it is called from another file (the cross-file
 /// form of issue #277), so the sorts here return a permutation of indexes and
-/// each caller gathers its own elements.
+/// each caller gathers its own elements; `sortedBy` is the one generic gather,
+/// shared by the hex-keyed sorts of canonical JSON, release files and source
+/// entries.
 module Order {
     let indexWidth = 10
 
@@ -67,6 +69,10 @@ module Order {
     /// The stable sorting permutation of `keys` by unsigned bytes. Keys must
     /// hold only bytes above space. Built on the builtin `listSort`.
     export fn sortedIndexes(keys) = mapList(listSort(tagged(keys)), tagIndex)
+
+    /// The elements of `items` in the unsigned byte order of the keys
+    /// `keyOf` gives them; an index that is somehow missing answers `blank()`.
+    export fn sortedBy(items, keyOf, blank) = mapList(sortedIndexes(mapList(items, keyOf)), fn(i) => listGet(items, i) ?: blank())
 
     /// True when every adjacent pair of a sorted string list is strictly ascending.
     export fn strictlyAscending(sorted) = fold(range(1, length(sorted)), true, fn(ok, i) =>

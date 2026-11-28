@@ -1,5 +1,6 @@
 namespace registry_tests;
 import registry_cli::Fetch
+import registry_cli::Folds
 import registry_cli::Lockfile
 import registry::Json
 import registry::JsonRead
@@ -41,9 +42,19 @@ module TreeGraphTests {
     fn tool() = keyed("demo", "tool")
 
     fn all() = [demoGreeting(), maths(), report(), tool(), otherGreeting()]
-    fn packages() = [TreeTests::pkg(demoGreeting(), []), TreeTests::pkg(maths(), [TreeTests::runtime("demo", "greeting")]),
+
+    /// The lock's packages: the diamond, the build edge on `@demo/tool`, and the
+    /// other org's identically named leaf.
+    fn packages() = [
+        TreeTests::pkg(demoGreeting(), []),
+        depends(maths(), "demo", "greeting"),
         TreeTests::pkg(report(), [TreeTests::runtime("demo", "greeting"), TreeTests::runtime("demo", "maths")]),
-        TreeTests::pkg(tool(), [TreeTests::runtime("other", "greeting")]), TreeTests::pkg(otherGreeting(), [])]
+        depends(tool(), "other", "greeting"),
+        TreeTests::pkg(otherGreeting(), [])
+    ]
+
+    /// The lock package of `s`, depending at runtime on `@scope/name` only.
+    fn depends(s, scope, name) = TreeTests::pkg(s, [TreeTests::runtime(scope, name)])
 
     fn manifest() = Fixture::manifestOf(manifestText())
     fn root() = Lockfile::Root { manifestDigest: ManifestJson::digest(manifest()) ?: "", dependencies: manifest().dependencies }
@@ -51,7 +62,7 @@ module TreeGraphTests {
 
     fn installDir(s) = Fetch::installDir(Fixture::idOf(s))
     fn readsOf(s) = mapList(s.files, fn(f) => Fixture::readRoute("${installDir(s)}/${f.relPath}", f.content))
-    fn readsOfMany(served) = foldList(served, [], fn(acc, s) => listConcat(acc, readsOf(s)))
+    fn readsOfMany(served) = Folds::flatMap(served, readsOf)
     fn walksOfMany(served) = mapList(served, fn(s) => Fixture::walkRoute(installDir(s), mapList(s.files, fn(f) => f.relPath)))
     fn baseReads() = TreeTests::lockReads(manifestText(), lockText())
     fn allReads(served) = listConcat(baseReads(), readsOfMany(served))
@@ -60,9 +71,15 @@ module TreeGraphTests {
     fn packagesOf(doc) = JsonRead::items(JsonRead::field(doc, "packages"))
     fn nodeFor(doc, keyText) = foldList(packagesOf(doc), Json::Null,
         fn(found, p) => if textField(p, "key") == keyText { p } else { found })
-    fn textField(node, name) = JsonRead::text(JsonRead::field(node, name))
-    fn itemsField(node, name) = JsonRead::texts(JsonRead::field(node, name))
-    fn boolField(node, name) = match JsonRead::field(node, name) {
+    /// Member `name` of `node`, read through `read`: the one shape of every field reader below.
+    fn fieldOf(node, name, read) = read(JsonRead::field(node, name))
+
+    fn textField(node, name) = fieldOf(node, name, JsonRead::text)
+    fn itemsField(node, name) = fieldOf(node, name, JsonRead::texts)
+    fn boolField(node, name) = fieldOf(node, name, flagOf)
+
+    /// The flag of a boolean value, else false.
+    fn flagOf(value) = match value {
         Json::Bool { flag } => flag
         _ => false
     }

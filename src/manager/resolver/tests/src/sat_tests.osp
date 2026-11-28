@@ -1,4 +1,5 @@
 namespace registry_tests;
+import registry::Bytes
 import registry::Sat
 import registry::SatClauses
 
@@ -8,7 +9,7 @@ import registry::SatClauses
 /// determinism under clause permutation, rejection of malformed literals,
 /// and a fixed-seed random 3-SAT instance near the phase transition.
 module SatTests {
-    fn ints(xs) = join(mapList(xs, fn(x) => "${x}"), ",")
+    fn ints(xs) = join(mapList(xs, toString), ",")
     fn intLists(xss) = join(mapList(xss, fn(xs) => ints(xs)), ";")
 
     /// Folds a solver answer: `onError(message)`, `onSat(model)`, `onUnsat(core, learned)`.
@@ -35,23 +36,27 @@ module SatTests {
     fn canonicalModel(vars, model) = length(model) == vars &&
         fold(range(0, vars), true, fn(ok, i) => ok && SatClauses::absLit(listGet(model, i) ?: 0) == i + 1)
     fn modelSound(vars, f, model) = canonicalModel(vars, model) && Sat::check(model, f)
-    fn passesOracle(vars, f) = verdict(Sat::solve(vars, f),
-        fn(_message) => false,
-        fn(model) => modelSound(vars, f, model),
-        fn(_core, _learned) => true)
+    /// The error arm of a verdict: never acceptable.
+    fn noError(_message) = false
+
+    /// The model arm of a verdict over `f`: the model must be canonical and satisfy `f`.
+    fn modelPasses(vars, f) = fn(model) => modelSound(vars, f, model)
+
+    fn passesOracle(vars, f) = verdict(Sat::solve(vars, f), noError, modelPasses(vars, f), fn(_core, _learned) => true)
     fn allPassOracle(vars, formulas) = foldList(formulas, true, fn(ok, f) => ok && passesOracle(vars, f))
 
     // ---- pigeonhole formulas: v(p,h) is 1-based ----
 
     fn indices(n) = range(0, n) |> toList
-    fn flattenAll(xss) = foldList(xss, [], fn(acc, xs) => listConcat(acc, xs))
     fn cell(pigeon, hole, holes) = pigeon * holes + hole + 1
-    fn atLeastOne(pigeon, holes) = mapList(indices(holes), fn(h) => cell(pigeon, h, holes))
-    fn shareBans(pigeons, hole, holes) = flattenAll(mapList(indices(pigeons), fn(p) =>
+    /// `f(x, h, holes)` for every hole `h` of `holes`, in hole order.
+    fn perHole(x, holes, f) = mapList(indices(holes), fn(h) => f(x, h, holes))
+    fn atLeastOne(pigeon, holes) = perHole(pigeon, holes, cell)
+    fn shareBans(pigeons, hole, holes) = Bytes::concatAll(mapList(indices(pigeons), fn(p) =>
         range(p + 1, pigeons) |> map(fn(q) => [SatClauses::neg(cell(p, hole, holes)), SatClauses::neg(cell(q, hole, holes))]) |> toList))
     fn php(pigeons, holes) = listConcat(
         mapList(indices(pigeons), fn(p) => atLeastOne(p, holes)),
-        flattenAll(mapList(indices(holes), fn(h) => shareBans(pigeons, h, holes))))
+        Bytes::concatAll(perHole(pigeons, holes, shareBans)))
     fn coreClauses(clauses, core) = foldList(core, [], fn(acc, i) =>
         if i >= 0 { listAppend(acc, listGet(clauses, i) ?: []) } else { acc })
     fn inRange(core, count) = foldList(core, true, fn(ok, i) => ok && i >= 0 && i < count)
@@ -63,9 +68,7 @@ module SatTests {
     fn refutedWithCore(pigeons, holes) = {
         let f = php(pigeons, holes)
         let vars = pigeons * holes
-        verdict(Sat::solve(vars, f),
-            fn(_message) => false,
-            fn(_model) => false,
+        verdict(Sat::solve(vars, f), noError, fn(_model) => false,
             fn(core, learned) => inRange(core, length(f)) && implied(vars, f, learned) && coreRefutes(vars, f, core))
     }
 
@@ -104,15 +107,14 @@ module SatTests {
         checkAll("200 variables, 800 fixed-seed random 3-clauses", [
             stable(bigVars, f),
             satKind(a) == satKind(b),
-            verdict(a,
-                fn(_message) => false,
-                fn(model) => modelSound(bigVars, f, model),
-                fn(core, _learned) => coreRefutes(bigVars, f, core))
+            verdict(a, noError, modelPasses(bigVars, f), fn(core, _learned) => coreRefutes(bigVars, f, core))
         ])
     }
 
     // ---- case tables: formulas several cases share, and the shape of a check ----
 
+    /// Two clauses over two variables that share `x1`: `{x1, -x2}` and `{x1, x2}`.
+    let twoClauses = [[[1], [-2]], [[1, 2]]]
     let pairs = [[1, 2], [2, 3]]
     let swappedPairs = [[2, 3], [1, 2]]
     let guarded = [[2, 3, 4], [-4]]
@@ -124,13 +126,14 @@ module SatTests {
     fn allRejected(rs) = foldList(rs, true, fn(ok, r) => ok && codeOf(r) == "sat.bad-literal")
 
     fn trivial() = checkAll("trivial satisfiable and unsatisfiable formulas", [
-        answersHold(fn(f) => outcome(Sat::solve(2, f)), [[[1], [-2]], [[1, 2]], [[1], [-1], []]], ["sat:1,-2", "sat:-1,2", "unsat:0,1:"]),
+        answersHold(fn(f) => outcome(Sat::solve(2, f)), twoClauses, ["sat:1,-2", "sat:-1,2"]),
+        solvesAs(2, [[1], [-1], []], "unsat:0,1:"),
         solvesAs(1, [[1], [-1]], "unsat:0,1:"),
         structuralEquals([outcome(Sat::solve(3, [])), outcome(Sat::solve(2, [[]]))], ["sat:-1,-2,-3", "unsat:0:"])
     ])
 
     fn oracle() = checkAll("every model is canonical and passes the oracle", [
-        allPassOracle(2, [[[1], [-2]], [[1, 2]]]),
+        allPassOracle(2, twoClauses),
         allPassOracle(3, [[], [[-1, 2], [-2, 3], [1, 2, 3], [-3]], pairs]),
         allPassOracle(4, [guarded])
     ])

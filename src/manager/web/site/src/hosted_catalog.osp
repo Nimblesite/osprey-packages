@@ -23,12 +23,11 @@ module HostedCatalog {
     fn licenseBadge(item) = Shell::licenseBadge(PublicCatalog::text(item, "licenseExpression"))
     /// The escaped text of the string member `key` of `item`.
     fn escaped(item, key) = Shell::escape(PublicCatalog::text(item, key))
+    fn keyOf(item) = PublicCatalog::text(item, "key")
+    /// The escaped summary paragraph every package card and page opens with.
+    fn summaryOf(item) = "<p>${escaped(item, "summary")}</p>"
 
-    fn card(item) = {
-        let key = PublicCatalog::text(item, "key")
-        let summary = escaped(item, "summary")
-        "<article class=\"prose-package\"><h3><a href=\"/packages/${key}/\">${key}</a></h3><p>${summary}</p>" + licenseBadge(latestRelease(item)) + warningList(item) + "</article>"
-    }
+    fn card(item) = "<article class=\"prose-package\"><h3><a href=\"/packages/${keyOf(item)}/\">${keyOf(item)}</a></h3>${summaryOf(item)}" + licenseBadge(latestRelease(item)) + warningList(item) + "</article>"
     fn matches(item, terms) = {
         let text = toLowerCase(PublicCatalog::text(item, "key") + " " + PublicCatalog::text(item, "summary"))
         foldList(terms, true, fn(ok, term) => ok && contains(text, term))
@@ -57,11 +56,9 @@ module HostedCatalog {
         "<article class=\"prose-release\" id=\"${label}\"><h3>${label}</h3>${action}<p>${license}</p><p>Published by ${publisherLink(item)}</p><code>${digest}</code>${Shell::notices(label, PublicCatalog::notices(item))}</article>"
     }
     fn detail(item, content, popularTags) = {
-        let key = PublicCatalog::text(item, "key")
-        let summary = escaped(item, "summary")
         let releases = join(mapList(releaseItems(item), fn(item) => release(item, content)), "")
         let tags = filterList(PublicCatalog::keywords(item), fn(tag) => listContains(popularTags, tag))
-        "<header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${key}</h1><p>${summary}</p></header><div class=\"prose-columns\"><section class=\"prose-releases\"><h2>Releases</h2>${releases}</section><aside class=\"prose-facts\"><h2>Package details</h2>" + metadata(latestRelease(item)) + "<h2>Security warnings</h2>" + warningList(item) + "<h2>Tags</h2>" + Shell::keywordChips(tags) + "</aside></div>"
+        "<header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${keyOf(item)}</h1>${summaryOf(item)}</header><div class=\"prose-columns\"><section class=\"prose-releases\"><h2>Releases</h2>${releases}</section><aside class=\"prose-facts\"><h2>Package details</h2>" + metadata(latestRelease(item)) + "<h2>Security warnings</h2>" + warningList(item) + "<h2>Tags</h2>" + Shell::keywordChips(tags) + "</aside></div>"
     }
     fn metadata(latest) = {
         let license = licenseBadge(latest)
@@ -91,17 +88,15 @@ module HostedCatalog {
 
     fn publisherProfile(items, name) = {
         let display = Shell::escape(name)
-        let packages = join(mapList(items, fn(item) => {
-            let key = PublicCatalog::text(item, "key")
-            card(item) + "<ul class=\"prose-credits\">" + join(mapList(releaseItems(item), fn(release) => credit(key, release)), "") + "</ul>"
-        }), "")
+        let packages = join(mapList(items, fn(item) =>
+            card(item) + "<ul class=\"prose-credits\">" + join(mapList(releaseItems(item), fn(release) => credit(keyOf(item), release)), "") + "</ul>"), "")
         "<header class=\"prose-publisher\"><a href=\"/\">← Packages</a><h1>${display}</h1></header><section><h2>Published releases</h2>${packages}</section>"
     }
 
     fn directory(title, contents) = "<header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${title}</h1></header><section>${contents}</section>"
 
     fn distinctPackages(items) = mapValues(foldList(items, Map(),
-        fn(seen, item) => mapSet(seen, PublicCatalog::text(item, "key"), item)))
+        fn(seen, item) => mapSet(seen, keyOf(item), item)))
 
     fn popularTags(items) = {
         let counts = foldList(distinctPackages(items), Map(), fn(seen, item) => foldList(PublicCatalog::keywords(item), seen,

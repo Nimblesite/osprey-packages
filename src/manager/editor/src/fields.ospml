@@ -16,10 +16,10 @@ module Fields
             Success found => Success(value = found)
 
     (** The text of member `key`, or `<label> is missing/has a non-string <key>`. *)
-    export stringField (doc, key, label) = reader (doc, key, label, \value => jsonText value, "string")
+    export stringField (doc, key, label) = reader (doc, key, label, jsonText, "string")
 
     (** The integer of member `key`, or `<label> is missing/has a non-integer <key>`. *)
-    export intField (doc, key, label) = reader (doc, key, label, \value => jsonInt value, "integer")
+    export intField (doc, key, label) = reader (doc, key, label, jsonInt, "integer")
 
     (** The flag of member `key`, or `<label> is missing/has a non-boolean <key>`. *)
-    export boolField (doc, key, label) = reader (doc, key, label, \value => jsonBool value, "boolean")
+    export boolField (doc, key, label) = reader (doc, key, label, jsonBool, "boolean")

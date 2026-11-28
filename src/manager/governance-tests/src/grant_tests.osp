@@ -79,10 +79,7 @@ module GrantTests {
         Fixture::code(renewWith(world, oldId, newId, ownProof(member, "self-renewal"), Maybe::some(expiresAt)))
 
     /// The statement text a lookup feeds, or "" when the row is missing.
-    fn orEmpty(lookedUp, build) = match lookedUp {
-        Success { value } => build(value)
-        Error => ""
-    }
+    fn orEmpty(lookedUp, build) = andThen(lookedUp, fn(value) => Success { value: build(value) }) ?: ""
 
     fn grantRow(world, grantId) = match Governance::grantOf(world, grantId) {
         Success { value } => value

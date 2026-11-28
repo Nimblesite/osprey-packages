@@ -77,8 +77,10 @@ module Packages
     identityFor (doc, key) = andThen (Fields::stringField (doc, "version", dataLabel), \version =>
         andThen (Fields::stringField (doc, "digest", dataLabel), \digest => Success(value = EntryIdentity(entryKey = key, entryVersion = version, entryDigest = digest))))
 
-    identity doc = andThen (Fields::stringField (doc, "key", dataLabel), \text =>
-        andThen (canonical text, \key => identityFor (doc, key)))
+    /// The document's package key once it is canonical, handed to `read` with the document.
+    keyed (doc, read) = andThen (Fields::stringField (doc, "key", dataLabel), \text => andThen (canonical text, \key => read (doc, key)))
+
+    identity doc = keyed (doc, identityFor)
 
     flags identityValue doc = andThen (Fields::boolField (doc, "direct", dataLabel), \direct =>
         andThen (Fields::boolField (doc, "present", dataLabel), \present => Success(value = PackageEntry(entryIdentity = identityValue, entryDirect = direct, entryPresent = present, entryDependencies = [], entryDependents = [], entryFindings = []))))
@@ -106,8 +108,9 @@ module Packages
     graph doc = andThen (Fields::stringField (doc, "project", dataLabel), \project =>
         andThen (keyListAt (doc, "direct"), \direct => graphOf (doc, project, direct)))
 
-    release doc = andThen (Fields::intField (doc, "epoch", dataLabel), \epoch =>
-        andThen (Fields::intField (doc, "ordinal", dataLabel), \ordinal => Success(value = "e${epoch}.r${ordinal}")))
+    intAt (doc, key) = Fields::intField (doc, key, dataLabel)
+
+    release doc = andThen (intAt (doc, "epoch"), \epoch => andThen (intAt (doc, "ordinal"), \ordinal => Success(value = "e${epoch}.r${ordinal}")))
 
     releases items = collect (items, release)
 
@@ -124,8 +127,7 @@ module Packages
     catalogEntryAt (doc, key) = andThen (catalogVersion doc, \versions =>
         andThen (catalogFindings doc, \findings => Success(value = CatalogEntry(catalogKey = key, catalogVersions = versions, catalogFindings = findings, catalogEvidence = false))))
 
-    catalogEntry doc = andThen (Fields::stringField (doc, "key", dataLabel), \text =>
-        andThen (canonical text, \key => catalogEntryAt (doc, key)))
+    catalogEntry doc = keyed (doc, catalogEntryAt)
 
     catalog doc = arrayAt (doc, "packages", "Registry catalog", \items => collect (items, catalogEntry))
 
@@ -135,9 +137,7 @@ module Packages
 
     keyOfCatalog item = item.catalogKey
 
-    findPackage (entries, key) = Lists::find (entries, \item => keyOf item == key)
-
-    findCatalog (entries, key) = Lists::find (entries, \item => keyOfCatalog item == key)
+    findBy (entries, nameOf, key) = Lists::find (entries, \item => nameOf item == key)
 
     localAuthority authority = authority == "localhost" || authority == "127.0.0.1" || authority == "[::1]"
 
@@ -149,36 +149,41 @@ module Packages
 
     loopbackAuthority authority = localAuthority authority || localPort (authority, "localhost:") || localPort (authority, "127.0.0.1:") || localPort (authority, "[::1]:")
 
-    (** Whether an `http://` or `https://` registry is served from `localhost`, `127.0.0.1` or `[::1]`, with any valid port: the unverified local registry. *)
-    export isLoopback registry = match startsWith registry "http://"
-        true => loopbackAuthority (drop registry 7)
-        false => match startsWith registry "https://"
-            true => loopbackAuthority (drop registry 8)
-            false => false
+    servedFrom (registry, scheme) = match startsWith registry scheme
+        true => loopbackAuthority (drop registry (byteLength scheme))
+        false => false
 
+    (** Whether an `http://` or `https://` registry is served from `localhost`, `127.0.0.1` or `[::1]`, with any valid port: the unverified local registry. *)
+    export isLoopback registry = match servedFrom (registry, "http://")
+        true => true
+        false => servedFrom (registry, "https://")
+
+    (** The member `name` holding `values` as a string array, for the comparison documents: every scalar slice of the store is spelled as text, in a fixed order. *)
+    export strings (name, values) = JsonMember name (Doc::strings values)
+
+    // Each entry is encoded by kind, in a fixed order, for the region comparison.
     encodePackage item = JsonObject [
-        Doc::str ("key", item.entryIdentity.entryKey),
-        Doc::str ("version", item.entryIdentity.entryVersion),
-        Doc::str ("digest", item.entryIdentity.entryDigest),
-        Doc::bit ("direct", item.entryDirect),
-        Doc::bit ("present", item.entryPresent),
-        JsonMember "dependencies" (Doc::strings item.entryDependencies),
-        JsonMember "dependents" (Doc::strings item.entryDependents),
-        JsonMember "findings" (Doc::strings item.entryFindings),
+        strings ("identity", [item.entryIdentity.entryKey, item.entryIdentity.entryVersion, item.entryIdentity.entryDigest]),
+        strings ("flags", ["${item.entryDirect}", "${item.entryPresent}"]),
+        strings ("dependencies", item.entryDependencies),
+        strings ("dependents", item.entryDependents),
+        strings ("findings", item.entryFindings),
     ]
 
     encodeCatalogEntry item = JsonObject [
         Doc::str ("key", item.catalogKey),
-        JsonMember "versions" (Doc::strings item.catalogVersions),
-        JsonMember "findings" (Doc::strings item.catalogFindings),
+        strings ("versions", item.catalogVersions),
+        strings ("findings", item.catalogFindings),
         Doc::bit ("evidence", item.catalogEvidence),
     ]
 
+    encoded (items, encode) = JsonArray (mapList (items, encode))
+
     (** Package entries as the JSON array the region comparison reads. *)
-    export encodePackages items = JsonArray (mapList (items, \item => encodePackage item))
+    export encodePackages items = encoded (items, encodePackage)
 
     (** Catalog entries as the JSON array the region comparison reads. *)
-    export encodeCatalog items = JsonArray (mapList (items, \item => encodeCatalogEntry item))
+    export encodeCatalog items = encoded (items, encodeCatalogEntry)
 
     (** The graph of a `tree --graph` JSON document, or why its data is invalid. *)
     export validGraph doc = graph doc
@@ -193,7 +198,7 @@ module Packages
     export newest item = latestVersion item
 
     (** The installed-graph entry named `key`, or the failure of a missing entry. *)
-    export packageAt (entries, key) = findPackage (entries, key)
+    export packageAt (entries, key) = findBy (entries, keyOf, key)
 
     (** The catalog entry named `key`, or the failure of a missing entry. *)
-    export catalogAt (entries, key) = findCatalog (entries, key)
+    export catalogAt (entries, key) = findBy (entries, keyOfCatalog, key)

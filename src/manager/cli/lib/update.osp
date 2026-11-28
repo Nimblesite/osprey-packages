@@ -116,5 +116,5 @@ module Update {
     fn withFlags(parsed) = Reports::checked(Overlay::readAt(Flags::project(parsed)), fn(value) => withOverlay(Transaction::settingsOf(parsed, Flags::has(parsed, removalsFlag), true, false), Flags::has(parsed, breakingFlag), value))
 
     /// The whole command.
-    export fn run(args) = Flags::dispatch(args, [Fetch::registryFlag, Flags::projectFlag], [breakingFlag, removalsFlag], usageCode, usageText, withFlags)
+    export fn run(args) = Flags::dispatch(args, Transaction::flags, [breakingFlag, removalsFlag], usageCode, usageText, withFlags)
 }

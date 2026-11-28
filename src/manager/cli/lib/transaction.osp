@@ -13,6 +13,9 @@ module Transaction {
     /// development lock is the target (`local`).
     export type Settings = { base: string, project: string, acceptRemovals: bool, fresh: bool, local: bool }
 
+    /// The flags of every relocking command: the registry and the project.
+    export let flags = [Fetch::registryFlag, Flags::projectFlag]
+
     /// Settings from the parsed command line: `--registry`, `--project`, the
     /// vanished-release policy, sticky-or-fresh choices, and the lock target.
     export fn settingsOf(parsed, acceptRemovals, fresh, local) = Settings {

@@ -12,13 +12,19 @@ import registry::Resolution
 module Fixtures {
     let root = "src/manager/tests/fixtures"
 
+    /// The text of the fixture at `name` under the fixture root, or "" when it cannot be read.
+    export fn text(name) = readFile("${root}/${name}") ?: ""
+
+    /// The value of `result`, or `fallback` of its error message.
+    export fn valueOr(result, fallback) = match result {
+        Success { value } => value
+        Error { message } => fallback(message)
+    }
+
     /// The parsed fixture at `name` under the fixture root; an unreadable or
     /// malformed file becomes a string value naming the problem, so every
     /// assertion over it fails visibly.
-    export fn load(name) = match Json::parse(readFile("${root}/${name}") ?: "") {
-        Success { value } => value
-        Error { message } => Json::Str { text: "fixture ${name} unreadable: ${message}" }
-    }
+    export fn load(name) = valueOr(Json::parse(text(name)), fn(message) => Json::Str { text: "fixture ${name} unreadable: ${message}" })
 
     /// Member `key` of `value`, read through `read`: the one shape of every member reader below.
     fn member(value, key, read) = read(JsonRead::field(value, key))
@@ -38,6 +44,9 @@ module Fixtures {
     /// The items of member `key` of the fixture at `name`.
     export fn loadItems(name, key) = itemsOf(load(name), key)
 
+    /// The items of member `key`, each through `f`.
+    export fn mappedItems(value, key, f) = mapList(itemsOf(value, key), f)
+
     /// The texts of member `key` of the fixture at `name`.
     export fn loadTexts(name, key) = textsOf(load(name), key)
 
@@ -56,6 +65,9 @@ module Fixtures {
         check("${label}: ${length(bad)} of ${length(cases)} failed", 0, length(bad))
     }
 
+    /// One case of a suite table handed to the prelude's `testCases`: `test(label, holds)` once the suite runs.
+    export fn case(label, holds) = { name: label, work: holds }
+
     /// The error message of a result, or "" for success.
     export fn code(result) = match result {
         Success => ""
@@ -63,10 +75,7 @@ module Fixtures {
     }
 
     /// The value of a result, or its error message.
-    export fn valueOrMessage(result) = match result {
-        Success { value } => value
-        Error { message } => message
-    }
+    export fn valueOrMessage(result) = valueOr(result, fn(message) => message)
 
     /// `text` through `parse` then `display`: the rendered value, or the parse's reason code.
     export fn shown(parse, display, text) = match parse(text) {
@@ -74,12 +83,18 @@ module Fixtures {
         Error { message } => message
     }
 
-    /// The release `@scope/name` at `epoch.rordinal` under `digest`.
-    export fn releaseId(scope, name, epoch, ordinal, digest) = Identity::ReleaseId {
-        key: Names::Key { scope: scope, name: name },
-        epoch: epoch,
-        ordinal: ordinal,
-        digest: digest
+    /// The `@scope/name` key.
+    export fn key(scope, name) = Names::Key { scope: scope, name: name }
+
+    /// The `scope` and `name` members of `v` as the key they name.
+    export fn keyOf(v) = key(textOf(v, "scope"), textOf(v, "name"))
+
+    /// The release object `v` (`package`, `epoch`, `ordinal`, `digest`) as the identity it names.
+    export fn releaseId(v) = Identity::ReleaseId {
+        key: keyOf(JsonRead::field(v, "package")),
+        epoch: numberOf(v, "epoch"),
+        ordinal: numberOf(v, "ordinal"),
+        digest: textOf(v, "digest")
     }
 
     /// The releases of `items` sorted by `Resolution::sortedBy` and `compare`, each rendered by `display`, joined by one space.

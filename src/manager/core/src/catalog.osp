@@ -38,10 +38,7 @@ module Catalog {
     export fn of(served, refused) = Release::Catalog { served: ordered(served), refused: refused }
 
     /// The release whose digest is `digest`, or `"catalog.unknown-release"`.
-    export fn byDigest(catalog, digest) = foldList(Release::servedOf(catalog), Error { message: unknownRelease }, fn(found, s) => match found {
-        Success => found
-        Error => if servedDigest(s) == digest { Success { value: s } } else { found }
-    })
+    export fn byDigest(catalog, digest) = Checked::firstMatch(Release::servedOf(catalog), fn(s) => servedDigest(s) == digest, unknownRelease)
 
     /// Every release of one package key, in catalog order.
     export fn releasesOf(catalog, scope, name) = filterList(Release::servedOf(catalog), fn(s) => inPackage(s, scope, name))

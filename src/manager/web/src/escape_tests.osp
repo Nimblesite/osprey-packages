@@ -6,20 +6,30 @@ namespace registry_web;
 /// [PACKAGE-HOSTED-CONFORMANCE] (hostile prose cannot execute or read
 /// anything).
 module EscapeTests {
+    /// `Html::escape` turns `input` into exactly `expected`.
+    fn escaped(input, expected) = Html::escape(input) == expected
+
+    /// `Html::id` turns `input` into exactly `expected`.
+    fn identified(input, expected) = Html::id(input) == expected
+
+    // Each line is one case: the hostile or plain text, and what it must become.
     fn entities() = checkAll("web: escape neutralizes markup, quotes and control bytes", [
-        Html::escape("<script>alert(1)</script>") == "&lt;script&gt;alert(1)&lt;/script&gt;",
-        structuralEquals([Html::escape("AT&T"), Html::escape("'")], ["AT&amp;T", "&#39;"]),
-        Html::escape("\"") == "&quot;",
-        Html::escape("<a href=\"x\">y</a>") == "&lt;a href=&quot;x&quot;&gt;y&lt;/a&gt;",
-        Html::escape((fromCodePoint(27) ?: "?") + "[31m") == "?[31m",
-        structuralEquals([Html::escape((fromCodePoint(127) ?: "?") + "x"), Html::escape("")], ["?x", ""]),
-        Html::escape("plain ascii") == "plain ascii"
+        escaped("<script>alert(1)</script>", "&lt;script&gt;alert(1)&lt;/script&gt;"),
+        escaped("AT&T", "AT&amp;T"),
+        escaped("'", "&#39;"),
+        escaped("\"", "&quot;"),
+        escaped("<a href=\"x\">y</a>", "&lt;a href=&quot;x&quot;&gt;y&lt;/a&gt;"),
+        escaped((fromCodePoint(27) ?: "?") + "[31m", "?[31m"),
+        escaped((fromCodePoint(127) ?: "?") + "x", "?x"),
+        escaped("", ""),
+        escaped("plain ascii", "plain ascii")
     ])
 
     fn identifiers() = checkAll("web: heading identifiers collapse to the name grammar", [
-        structuralEquals([Html::id("@atlas/util"), Html::id("ok-name-1")], ["-atlas-util", "ok-name-1"]),
-        Html::id("<img src=x>") == "-img-src-x-",
-        Html::id("\" onload=\"alert(1)") == "--onload--alert-1-"
+        identified("@atlas/util", "-atlas-util"),
+        identified("ok-name-1", "ok-name-1"),
+        identified("<img src=x>", "-img-src-x-"),
+        identified("\" onload=\"alert(1)", "--onload--alert-1-")
     ])
 
     /// The search value rides in an attribute: quote injection must fail.

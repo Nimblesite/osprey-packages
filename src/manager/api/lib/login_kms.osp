@@ -10,13 +10,14 @@ module LoginKms {
     let unavailable = "auth.encryption-unavailable"
     fn unavailableError() = Error { message: unavailable }
 
-    fn component(s) = byteLength(s) > 0 && byteLength(s) <= 63 && Bytes::everyByte(s, fn(b) =>
-        Bytes::isAlnumIn(b, [Bytes::hyphen, Bytes::underscore]))
+    fn component(s) = AuthText::bounded(s, 63, [Bytes::hyphen, Bytes::underscore])
+
+    /// Segment `index` of `parts` is `word`.
+    fn named(parts, index, word) = (listGet(parts, index) ?: "") == word
 
     export fn validKey(key) = match split(key, "/") {
-        Success { value } => length(value) == 8
-            && (listGet(value, 0) ?: "") == "projects" && (listGet(value, 2) ?: "") == "locations"
-            && (listGet(value, 4) ?: "") == "keyRings" && (listGet(value, 6) ?: "") == "cryptoKeys"
+        Success { value } => length(value) == 8 && named(value, 0, "projects") && named(value, 2, "locations")
+            && named(value, 4, "keyRings") && named(value, 6, "cryptoKeys")
             && foldList([1, 3, 5, 7], true, fn(ok, index) => ok && component(listGet(value, index) ?: ""))
         Error => false
     }
@@ -30,24 +31,18 @@ module LoginKms {
         }
     } else { unavailableError() }
 
-    fn field(doc, key) = JsonRead::text(JsonRead::field(doc, key))
+    /// `value` once `ok` holds, else the encryption-unavailable refusal.
+    fn disclosed(ok, value) = if ok { Success { value: value } } else { unavailableError() }
 
     fn token(doc) = {
-        let value = field(doc, "access_token")
-        if field(doc, "token_type") == "Bearer" && byteLength(value) > 0 && byteLength(value) <= 4096
-            && Bytes::everyByte(value, fn(b) => Bytes::isAlnumIn(b, [Bytes::dot, Bytes::hyphen, Bytes::underscore])) {
-            Success { value: value }
-        } else { unavailableError() }
+        let value = AuthText::field(doc, "access_token")
+        disclosed(AuthText::field(doc, "token_type") == "Bearer"
+            && AuthText::bounded(value, 4096, [Bytes::dot, Bytes::hyphen, Bytes::underscore]), value)
     }
 
-    fn envelopeOk(limit, value) = byteLength(value) > 0 && byteLength(value) <= limit && Bytes::everyByte(value, fn(b) => Bytes::isAlnumIn(b, [43, 47, 61]))
+    fn envelopeOk(limit, value) = AuthText::bounded(value, limit, [43, 47, 61])
 
-    fn ciphertext(limit, doc) = {
-        let value = field(doc, "ciphertext")
-        if envelopeOk(limit, value) {
-            Success { value: value }
-        } else { unavailableError() }
-    }
+    fn ciphertext(limit, doc) = disclosed(envelopeOk(limit, AuthText::field(doc, "ciphertext")), AuthText::field(doc, "ciphertext"))
 
     fn credentials() = andThen(perform Supabase::Provider.request("GET", "http://metadata.google.internal",
         "/computeMetadata/v1/instance/service-accounts/default/token", "Metadata-Flavor: Google", ""), fn(reply) => andThen(json(8192, reply), token))
@@ -57,10 +52,15 @@ module LoginKms {
 
     fn submit(key, operation, body, limit, read) = andThen(credentials(), fn(token) => request(key, operation, token, body, limit, read))
 
-    fn payload(aad, verifier) = Canonical::serialize(Json::obj([
-        Json::member("additionalAuthenticatedData", Json::str(b64(aad))),
-        Json::member("plaintext", Json::str(b64(verifier)))
+    fn textMember(name, text) = Json::member(name, Json::str(text))
+
+    /// The KMS request body binding `aad` as additional authenticated data to the member `name`.
+    fn kmsBody(aad, name, value) = Canonical::serialize(Json::obj([
+        textMember("additionalAuthenticatedData", b64(aad)),
+        textMember(name, value)
     ]))
+
+    fn payload(aad, verifier) = kmsBody(aad, "plaintext", b64(verifier))
 
     fn encrypt(key, aad, text, limit) = if validKey(key) && byteLength(aad) <= 1024 {
         andThen(payload(aad, text), fn(body) => submit(key, "encrypt", body, limit + 1024, fn(doc) => ciphertext(limit, doc)))
@@ -70,18 +70,18 @@ module LoginKms {
     else { unavailableError() }
 
     fn tokens(session: Supabase::Session) = Canonical::serialize(Json::obj([
-        Json::member("accessToken", Json::str(session.accessToken)),
-        Json::member("authSubject", Json::str(session.identity.authSubject)),
+        textMember("accessToken", session.accessToken),
+        textMember("authSubject", session.identity.authSubject),
         Json::member("expiresIn", Json::num(session.expiresIn)),
-        Json::member("githubId", Json::str(session.identity.githubId)),
-        Json::member("refreshToken", Json::str(session.refreshToken))
+        textMember("githubId", session.identity.githubId),
+        textMember("refreshToken", session.refreshToken)
     ]))
 
     /// Persist only a bounded KMS envelope. The database never receives these tokens.
     export fn sealSession(key, aad, session) = andThen(tokens(session), fn(text) =>
         if byteLength(text) > 32768 { unavailableError() } else { encrypt(key, aad, text, 49152) })
     fn plaintext(doc) = {
-        let encoded = field(doc, "plaintext")
+        let encoded = AuthText::field(doc, "plaintext")
         if byteLength(encoded) != 60 || !endsWith(encoded, "==") { unavailableError() }
         else { verifierOf(encoded) }
     }
@@ -100,26 +100,27 @@ module LoginKms {
         Success { value } => ascii(value, encoded)
     }
 
-    fn verifierOf(encoded) = andThen(decodedText(encoded), fn(clear) =>
-        if OAuth::challengeCode(clear) == "" { Success { value: clear } } else { unavailableError() })
+    fn verifierOf(encoded) = andThen(decodedText(encoded), fn(clear) => disclosed(OAuth::challengeCode(clear) == "", clear))
 
-    fn decryptPayload(aad, envelope) = Canonical::serialize(Json::obj([
-        Json::member("additionalAuthenticatedData", Json::str(b64(aad))),
-        Json::member("ciphertext", Json::str(envelope))
-    ]))
+    fn decryptPayload(aad, envelope) = kmsBody(aad, "ciphertext", envelope)
 
-    /// KMS authenticates the callback and both browser-bound digests before disclosing the verifier.
-    export fn unseal(key, aad, envelope) = if validKey(key) && envelopeOk(4096, envelope) && byteLength(aad) <= 1024 {
-        andThen(decryptPayload(aad, envelope), fn(body) => submit(key, "decrypt", body, 8192, plaintext))
+    /// Decrypt `envelope`, at most `limit` bytes bound to `aad`, with `key`; the reply is at most `replyLimit` bytes and is read by `read`.
+    fn decrypting(key, aad, envelope, limit, replyLimit, read) = if validKey(key) && envelopeOk(limit, envelope) && byteLength(aad) <= 1024 {
+        andThen(decryptPayload(aad, envelope), fn(body) => submit(key, "decrypt", body, replyLimit, read))
     } else { unavailableError() }
 
-    fn tokenText(token) = token != "" && byteLength(token) <= 16384 && Bytes::everyByte(token, fn(b) => b > 32 && b < 127)
+    /// KMS authenticates the callback and both browser-bound digests before disclosing the verifier.
+    export fn unseal(key, aad, envelope) = decrypting(key, aad, envelope, 4096, 8192, plaintext)
+
+    fn graphic(b) = b > 32 && b < 127
+
+    fn tokenText(token) = token != "" && byteLength(token) <= 16384 && Bytes::everyByte(token, graphic)
 
     fn storedTokens(doc) = {
-        let access = field(doc, "accessToken")
-        let refresh = field(doc, "refreshToken")
-        let subject = field(doc, "authSubject")
-        let provider = field(doc, "githubId")
+        let access = AuthText::field(doc, "accessToken")
+        let refresh = AuthText::field(doc, "refreshToken")
+        let subject = AuthText::field(doc, "authSubject")
+        let provider = AuthText::field(doc, "githubId")
         let expires = JsonRead::number(JsonRead::field(doc, "expiresIn"))
         if tokenText(access) && tokenText(refresh) && Bytes::canonicalUuid(subject) && provider != "" && expires > 0 {
             Success { value: Supabase::Session { accessToken: access, refreshToken: refresh, expiresIn: expires,
@@ -127,12 +128,10 @@ module LoginKms {
         } else { Error { message: "auth.session-required" } }
     }
 
-    fn openedSession(doc) = andThen(decodedText(field(doc, "plaintext")), fn(clear) =>
+    fn openedSession(doc) = andThen(decodedText(AuthText::field(doc, "plaintext")), fn(clear) =>
         if byteLength(clear) > 32768 { unavailableError() }
         else { andThen(Json::parse(clear), storedTokens) })
 
     /// Open a cookie-bound envelope for access-token revalidation on the API host.
-    export fn openSession(key, aad, envelope) = if validKey(key) && envelopeOk(49152, envelope) && byteLength(aad) <= 1024 {
-        andThen(decryptPayload(aad, envelope), fn(body) => submit(key, "decrypt", body, 50176, openedSession))
-    } else { unavailableError() }
+    export fn openSession(key, aad, envelope) = decrypting(key, aad, envelope, 49152, 50176, openedSession)
 }

@@ -1,10 +1,6 @@
 namespace registry_tests;
-import registry_host::Host
-import registry_cli::Install
 import registry_cli::Fetch
 import registry_cli::Lockfile
-import registry_cli::Reports
-import registry::Bundle
 import registry::Release
 
 /// The lock-consuming `fetch` (no target) against fixture hosts: installed
@@ -15,44 +11,12 @@ module InstallTests {
     let localBase = RegistryFixture::base
     let rootDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
-    type Attempt = { report: Reports::Report, writes: string, ensures: string, fetched: string }
+    /// The lock-consuming `fetch` over `reads`, `walks` and `webs`: the report,
+    /// every write, ensure and fetch, and every command run.
+    fn runInstall(reads, walks, webs) = RegistryFixture::runWith(reads, walks, webs, ["fetch"])
 
-    fn runInstall(reads, walks, webs, args) = {
-        mut writes = ""
-        mut ensures = ""
-        mut ensured: List<string> = []
-        mut fetched = ""
-        mut written: List<Fixture::ReadRoute> = []
-        let files = handler Host::Files {
-            read path => Fixture::readAfter(written, reads, path)
-            exists path => Fixture::existsIn(listConcat(written, reads), path)
-            remove path => Error { message: "fixture: unexpected remove ${path}" }
-            write path content => {
-                written = listPrepend(written, Fixture::readRoute(path, content))
-                writes = "${writes}${path}=${content}|"
-                Success { value: byteLength(content) }
-            }
-        }
-        let tree = handler Host::Tree {
-            walk dir => Fixture::walkAfter(written, walks, ensured, dir)
-            ensure dir => {
-                ensured = listAppend(ensured, dir)
-                ensures = "${ensures}${dir}|"
-                Success { value: 0 }
-            }
-        }
-        let web = handler Host::Web {
-            get base path => {
-                fetched = "${fetched}${path}|"
-                RegistryFixture::replyFor(webs, base, path)
-            }
-        }
-        let process = handler Host::Process {
-            run command => Host::Run { status: 0, stdout: "", stderr: "fixture: install never runs ${command}" }
-        }
-        let report = RegistryFixture::runHosted(process, files, tree, web, fn() => Install::run(args))
-        Attempt { report: report, writes: writes, ensures: ensures, fetched: fetched }
-    }
+    /// Whether `a` wrote and ensured nothing and fetched nothing.
+    fn idle(a) = RegistryFixture::writeLogOf(a) == "" && RegistryFixture::ensureLogOf(a) == "" && isEmpty(RegistryFixture::fetchedOf(a))
 
     /// A release of `manifest` and the entry source `main`: the two files
     /// every fixture release carries.
@@ -73,8 +37,6 @@ module InstallTests {
     /// The lock's second package, `@demo/two`.
     fn second() = Fixture::at(both(), 1)
 
-    fn accepted(a) = a.report.status == 0
-
     fn pkgOf(s: Release::Served) = Lockfile::Package { release: s.id, dependencies: [], surface: [] }
 
     fn lockText(served) = Lockfile::encode(Lockfile::release(Lockfile::Root { manifestDigest: rootDigest, dependencies: [] }, mapList(served, pkgOf))) ?: ""
@@ -94,36 +56,29 @@ module InstallTests {
 
     fn walkOf(s) = installedWalk(installDir(s), s)
 
-    fn sourcePath(s: Release::Served) = "/v1/releases/${s.id.digest}/source"
+    fn sourceWeb(s) = RegistryFixture::sourceRoute(localBase, s)
 
-    fn sourceWeb(s) = RegistryFixture::webRouteAt(localBase, sourcePath(s), 200, Bundle::encode(s) ?: "")
-
-    /// The report of a two-package install: accepted, exactly two lines,
-    /// the first `= @demo/one` and the second `secondLine`.
-    fn reportedPair(a, secondLine) = accepted(a) && length(a.report.lines) == 2 &&
-        startsWith(Fixture::line(a.report, 0), "= @demo/one") && startsWith(Fixture::line(a.report, 1), secondLine)
+    /// The report of a two-package install: accepted, exactly two lines, the
+    /// first `= @demo/one` and the second `secondLine`, and no command run.
+    fn reportedPair(a, secondLine) = RegistryFixture::accepted(a) && length(RegistryFixture::linesOf(a)) == 2 &&
+        startsWith(RegistryFixture::lineOf(a, 0), "= @demo/one") && startsWith(RegistryFixture::lineOf(a, 1), secondLine) && isEmpty(RegistryFixture::ranOf(a))
 
     /// Both trees installed and matching: two `=` lines, no fetch, nothing written.
     fn allPresent() = {
         let os = both()
-        let a = runInstall(listConcat([lockRead(os)], listConcat(readsOf(first()), readsOf(second()))),
-            [walkOf(first()), walkOf(second())], [], [])
+        let a = runInstall(listConcat([lockRead(os)], listConcat(readsOf(first()), readsOf(second()))), [walkOf(first()), walkOf(second())], [])
         checkAll("installed trees are skipped with = lines and no writes", [
             reportedPair(a, "= @demo/two"),
-            structuralEquals([a.writes, a.ensures, a.fetched], ["", "", ""])
+            idle(a)
         ])
     }
 
     /// One installed, one missing: the missing one is fetched through the web fixture.
     fn oneMissing() = {
-        let a = runInstall(
-            listConcat([lockRead(both())], readsOf(first())),
-            [walkOf(first())],
-            [sourceWeb(second())],
-            [])
+        let a = runInstall(listConcat([lockRead(both())], readsOf(first())), [walkOf(first())], [sourceWeb(second())])
         checkAll("a missing tree is fetched with a + line", [
             reportedPair(a, "+ @demo/two"),
-            a.fetched == "${sourcePath(second())}|"
+            structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(second())])
         ])
     }
 
@@ -132,35 +87,34 @@ module InstallTests {
         let a = runInstall(
             listConcat([lockRead(both())], listConcat(readsOf(first()), tamperedReads(installDir(second()), second()))),
             [walkOf(first()), walkOf(second())],
-            [sourceWeb(second())],
-            [])
+            [sourceWeb(second())])
         checkAll("a corrupt installed tree is re-fetched", [
-            structuralEquals([accepted(a), startsWith(Fixture::line(a.report, 0), "= @demo/one")], [true, true]),
-            startsWith(Fixture::line(a.report, 1), "+ @demo/two"),
-            a.fetched == "${sourcePath(second())}|"
+            structuralEquals([RegistryFixture::accepted(a), startsWith(RegistryFixture::lineOf(a, 0), "= @demo/one")], [true, true]),
+            startsWith(RegistryFixture::lineOf(a, 1), "+ @demo/two"),
+            structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(second())])
         ])
     }
 
     /// A failed fetch is that package's code line; the next package still runs.
     fn fetchFailure() = {
-        let broken = RegistryFixture::webRouteAt(localBase, sourcePath(first()), 404, "")
-        let a = runInstall([lockRead(both())], [], [broken, sourceWeb(second())], [])
+        let broken = RegistryFixture::webRouteAt(localBase, RegistryFixture::sourcePath(first()), 404, "")
+        let a = runInstall([lockRead(both())], [], [broken, sourceWeb(second())])
         checkAll("one failed fetch keeps the run going and ends status 1", [
-            structuralEquals([a.report.status, length(a.report.lines)], [1, 2]),
-            Fixture::line(a.report, 0) == "fetch.not-found",
-            startsWith(Fixture::line(a.report, 1), "+ @demo/two"),
-            a.fetched == "${sourcePath(first())}|${sourcePath(second())}|"
+            structuralEquals([RegistryFixture::statusOf(a), length(RegistryFixture::linesOf(a))], [1, 2]),
+            RegistryFixture::lineOf(a, 0) == "fetch.not-found",
+            startsWith(RegistryFixture::lineOf(a, 1), "+ @demo/two"),
+            structuralEquals(RegistryFixture::fetchedOf(a), [RegistryFixture::sourcePath(first()), RegistryFixture::sourcePath(second())])
         ])
     }
 
     /// A missing or invalid lock is `install.no-lock` with the reason.
     fn noLock() = {
-        let missing = runInstall([], [], [], [])
-        let invalid = runInstall([Fixture::readRoute("osprey.lock", "not json")], [], [], [])
+        let missing = runInstall([], [], [])
+        let invalid = runInstall([Fixture::readRoute("osprey.lock", "not json")], [], [])
         checkAll("a missing or invalid lock is install.no-lock", [
-            structuralEquals([missing.report.status, invalid.report.status], [1, 1]),
-            startsWith(Fixture::line(missing.report, 0), "install.no-lock "),
-            Fixture::line(invalid.report, 0) == "install.no-lock lock.shape"
+            structuralEquals([RegistryFixture::statusOf(missing), RegistryFixture::statusOf(invalid)], [1, 1]),
+            startsWith(RegistryFixture::lineOf(missing, 0), "install.no-lock "),
+            RegistryFixture::lineOf(invalid, 0) == "install.no-lock lock.shape"
         ])
     }
 

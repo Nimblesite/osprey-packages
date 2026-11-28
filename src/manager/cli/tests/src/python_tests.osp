@@ -108,17 +108,25 @@ module PythonTests {
 
     fn climbing() = pyWith(pyproject() + "\n[tool.uv.sources]\nnumpy = { path = \"../../elsewhere\" }\n")
 
-    /// P2: a member naming an index or an outside source stops `lock` before uv runs.
-    fn forbiddenMembers() = {
+    /// P2: a member naming an index stops `lock` before uv runs.
+    fn indexedMember() = {
         let index = lockOver(indexed(), uvLockText())
-        let git = lockOver(gitSourced(), uvLockText())
-        let climb = lockOver(climbing(), uvLockText())
-        checkAll("python.index-forbidden and python.source-forbidden name the member and run no uv", [
+        checkAll("python.index-forbidden names the member, writes no lock and runs no uv", [
             RegistryFixture::reported(index, 1, "python.index-forbidden ${pathOf(indexed())}"),
-            RegistryFixture::reported(git, 1, "python.source-forbidden ${pathOf(gitSourced())}"),
-            RegistryFixture::reported(climb, 1, "python.source-forbidden ${pathOf(climbing())}"),
             isEmpty(RegistryFixture::ranOf(index)),
             RegistryFixture::writesTo(index, RegistryFixture::lockPath) == 0
+        ])
+    }
+
+    /// P2: a member naming an outside source, by git or by a climbing path, stops `lock` the same way.
+    fn sourcedMember() = {
+        let git = lockOver(gitSourced(), uvLockText())
+        let climb = lockOver(climbing(), uvLockText())
+        checkAll("python.source-forbidden names the member and runs no uv", [
+            RegistryFixture::reported(git, 1, "python.source-forbidden ${pathOf(gitSourced())}"),
+            RegistryFixture::reported(climb, 1, "python.source-forbidden ${pathOf(climbing())}"),
+            isEmpty(RegistryFixture::ranOf(git)),
+            RegistryFixture::writesTo(git, RegistryFixture::lockPath) == 0
         ])
     }
 
@@ -166,10 +174,17 @@ module PythonTests {
         ])
     }
 
-    fn tamperedInputs() = forEachList(["fetch", "verify"], fn(command) => {
+    /// `command` rejects a tampered pyproject and a tampered uv.lock before running uv.
+    fn tamperedInputs(command) = {
         tamperedInput(command, "# edited\n", uvLockText(), PythonPlane::workspaceDigest)
         tamperedInput(command, expectedPyproject(), "# edited\n", PythonPlane::uvLockStale)
-    })
+    }
+
+    /// Target-less `fetch` never runs uv over tampered generated inputs.
+    fn fetchTamperedInputs() = tamperedInputs("fetch")
+
+    /// `verify --offline` never runs uv over tampered generated inputs.
+    fn verifyTamperedInputs() = tamperedInputs("verify")
 
     /// `verify --offline` regenerates, compares, checks the environment and runs the offline check.
     fn verifyClean() = {
@@ -180,15 +195,19 @@ module PythonTests {
         ])
     }
 
-    /// A changed `uv.lock` and a missing environment are their codes.
-    fn verifyFindings() = {
+    /// A `uv.lock` other than the pinned one is its code, before any uv run.
+    fn staleUvLock() = {
         let stale = verifyOffline(verifyReads("# edited\n"), [installedWalk(), venvWalk()])
-        let noEnv = verifyOffline(verifyReads(uvLockText()), [installedWalk()])
-        checkAll("python.uv-lock-stale and python.environment-missing: stale ${observed(stale)} noEnv ${observed(noEnv)}", [
+        checkAll("a changed uv.lock is python.uv-lock-stale: ${observed(stale)}", [
             RegistryFixture::reported(stale, 1, "python.uv-lock-stale"),
-            isEmpty(RegistryFixture::ranOf(stale)),
-            RegistryFixture::reported(noEnv, 1, "python.environment-missing")
+            isEmpty(RegistryFixture::ranOf(stale))
         ])
+    }
+
+    /// A missing environment is its code.
+    fn missingEnvironment() = {
+        let noEnv = verifyOffline(verifyReads(uvLockText()), [installedWalk()])
+        checkAll("a missing environment is python.environment-missing: ${observed(noEnv)}", [RegistryFixture::reported(noEnv, 1, "python.environment-missing")])
     }
 
     /// Target-less `fetch` syncs the environment after installing.
@@ -205,12 +224,15 @@ module PythonTests {
     export fn run() = {
         test("python: version floor components", floorComposition)
         test("python: lock composes and pins the uv project", lockPins)
-        test("python: forbidden indexes and sources", forbiddenMembers)
+        test("python: a member naming an index", indexedMember)
+        test("python: a member naming an outside source", sourcedMember)
         test("python: unhashed uv.lock", unhashedLock)
         test("python: no plane, no uv", noPlane)
         test("python: verify a pinned plane", verifyClean)
-        test("python: verify findings", verifyFindings)
+        test("python: a stale uv.lock", staleUvLock)
+        test("python: a missing environment", missingEnvironment)
         test("python: fetch syncs", fetchSyncs)
-        test("python: tampered generated inputs never run uv", tamperedInputs)
+        test("python: fetch rejects tampered generated inputs", fetchTamperedInputs)
+        test("python: verify rejects tampered generated inputs", verifyTamperedInputs)
     }
 }

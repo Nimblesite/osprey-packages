@@ -151,11 +151,14 @@ module Probes {
         consumerFiles(dir)(fn() => consumerTree(dir)(fn() => consumerProcess(dir)(fn() => runBuild(cwd, args))))
     }
 
+    /// `build --run` of the project at `dir` through the selected compiler.
+    fn runProject(cwd, dir) = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", dir])
+
     fn buildProbes(cwd, dir, relativeDir, absoluteDir, labels, output) = {
         let bare = defaultBuildAt(cwd, dir, [])
         let run = defaultBuildAt(cwd, dir, ["--run"])
-        let relative = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", relativeDir])
-        let absolute = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", absoluteDir])
+        let relative = runProject(cwd, relativeDir)
+        let absolute = runProject(cwd, absoluteDir)
         [
             observation(labels.bare, "0", "${bare.status}"),
             observation(labels.run, output, firstLine(run)),
@@ -223,10 +226,13 @@ module Probes {
     /// The consumer flow of [PACKAGE-FOLDER-REGISTRY]: `lock` writes the
     /// folder lock, `fetch` installs it, `verify --offline` audits it and
     /// `build --run` compiles and runs the consumer against the locked trees.
+    /// The consumer fixture file `rel`, copied into the project at `dir`.
+    fn copyConsumerFile(dir, rel) = perform Host::Files.write("${dir}/${rel}", readFile("${managerDir}/e2e/consumer/${rel}") ?: "")
+
     fn consumer(cwd, catalog) = {
         let dir = freshProject(consumerDir(cwd))
-        let _manifest = perform Host::Files.write("${dir}/osprey.toml", readFile("${managerDir}/e2e/consumer/osprey.toml") ?: "")
-        let _main = perform Host::Files.write("${dir}/src/main.osp", readFile("${managerDir}/e2e/consumer/src/main.osp") ?: "")
+        let _manifest = copyConsumerFile(dir, "osprey.toml")
+        let _main = copyConsumerFile(dir, "src/main.osp")
         let locked = against(dir, ["lock"])
         let _fetched = against(dir, ["fetch"])
         let verified = verifyOffline(dir)
@@ -268,12 +274,10 @@ module Probes {
 
     fn pythonPinned(dir) = contains(readFile("${dir}/osprey.lock") ?: "", "\"python\":{\"pyprojectDigest\":\"sha256:")
 
-    fn rootPythonFiles(dir) = andThen(perform Host::Tree.walk(dir), fn(value) =>
-        Install::filesOfWalked(Host::Walk {
-            regular: filterList(value.regular, fn(path) => !Paths::excluded(path)),
-            executable: filterList(value.executable, fn(path) => !Paths::excluded(path)),
-            special: filterList(value.special, fn(path) => !Paths::excluded(path))
-        }, dir))
+    fn rootPythonFiles(dir) = andThen(perform Host::Tree.walk(dir), fn(value) => {
+        let kept = fn(paths) => filterList(paths, fn(path) => !Paths::excluded(path))
+        Install::filesOfWalked(Host::Walk { regular: kept(value.regular), executable: kept(value.executable), special: kept(value.special) }, dir)
+    })
 
     fn pythonFiles(dir) = andThen(perform Host::Tree.walk("${dir}/.osprey/packages"), fn(value) =>
         Install::filesOfWalked(value, "${dir}/.osprey/packages"))

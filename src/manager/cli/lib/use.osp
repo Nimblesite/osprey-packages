@@ -145,16 +145,8 @@ module Use {
     fn useKey(s, parsed, word, mappings) = Flags::parsedKey(word, usageCode, usageText,
         fn(value) => if Flags::has(parsed, publishedFlag) { published(s, mappings, value) } else { Reports::usageFor(usageCode, usageText) })
 
-    fn withParsed(parsed, word) = Reports::checked(Overlay::readAt(Flags::project(parsed)), fn(value) => withOverlay(Transaction::settingsOf(parsed, false, false, true), parsed, word, value))
-
-    fn positional(args) = {
-        let first = listGet(args, 0) ?: ""
-        if startsWith(first, "--") { "" } else { first }
-    }
-
-    fn flagsOf(args) = if positional(args) == "" { args } else { Flags::tail(args) }
+    fn withParsed(word, parsed) = Reports::checked(Overlay::readAt(Flags::project(parsed)), fn(value) => withOverlay(Transaction::settingsOf(parsed, false, false, true), parsed, word, value))
 
     /// The whole command: an optional positional word (a path or a key), then the flags.
-    export fn run(args) = Flags::dispatch(flagsOf(args), [epochFlag, Fetch::registryFlag, Flags::projectFlag], [publishedFlag, listFlag, clearFlag], usageCode, usageText,
-        fn(parsed) => withParsed(parsed, positional(args)))
+    export fn run(args) = Flags::dispatchPositional(args, [epochFlag, Fetch::registryFlag, Flags::projectFlag], [publishedFlag, listFlag, clearFlag], usageCode, usageText, withParsed)
 }
