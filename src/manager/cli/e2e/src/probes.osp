@@ -227,7 +227,7 @@ module Probes {
     /// folder lock, `fetch` installs it, `verify --offline` audits it and
     /// `build --run` compiles and runs the consumer against the locked trees.
     /// The consumer fixture file `rel`, copied into the project at `dir`.
-    fn copyConsumerFile(dir, rel) = perform Host::Files.write("${dir}/${rel}", readFile("${managerDir}/e2e/consumer/${rel}") ?: "")
+    fn copyConsumerFile(dir, rel) = perform Host::Files.write("${dir}/${rel}", readFile("${managerDir}/cli/e2e/consumer/${rel}") ?: "")
 
     fn consumer(cwd, catalog) = {
         let dir = freshProject(consumerDir(cwd))

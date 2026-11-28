@@ -2,7 +2,7 @@ namespace consumer;
 import demo_report::Report
 
 /// A project that uses a package fetched from the folder registry, and,
-/// through it, the two packages it depends on. src/manager/e2e writes this
+/// through it, the two packages it depends on. src/manager/cli/e2e writes this
 /// project's osprey.toml with the fetched source roots and runs it.
 fn line() = Report::line("Ada", 3)
 
