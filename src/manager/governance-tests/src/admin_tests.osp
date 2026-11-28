@@ -17,18 +17,22 @@ module AdminTests {
 
     /// The reason code of one live authorization decision, or "" when granted.
     fn authorizeCode(world, id, member, permission, at) =
-        Fixture::code(GovernanceTransitions::authorize(world, id, member, permission, at))
+        GrantTests::authorizeCode(world, id, member, permission, at)
 
     fn createFinch(world, k, id, admin, custodianProof, acceptance) =
         GovernanceTransitions::createPackage(world, "o-finch", k, id, admin,
             Maybe::orElse(custodianProof, Fixture::verified("p-alice", "m-alice", Governance::creationStatement(id, k, admin))), acceptance)
 
-    /// Creation needs the nominee's own fresh credential-backed acceptance
-    /// plus a custodian creator; nobody installs an admin unilaterally.
-    fn creationAcceptance() = {
+    fn withCreationFixture(run) = {
         let world = Fixture::world()
         let k = key("finch", "toolkit")
         let statement = Governance::creationStatement("pkg-f2", k, "m-bob")
+        run(world, k, statement)
+    }
+
+    /// Creation needs the nominee's own fresh credential-backed acceptance
+    /// plus a custodian creator; nobody installs an admin unilaterally.
+    fn creationAcceptance() = withCreationFixture(fn(world, k, statement) => {
         let botStatement = Governance::creationStatement("pkg-f2", k, "m-bot")
         checkAll("creation binds the admin to the nominee's fresh acceptance", [
             Fixture::code(createFinch(world, k, "pkg-f2", "m-bob", Maybe::none(), Fixture::verified("p-bob", "m-bob", statement))) == "",
@@ -43,14 +47,11 @@ module AdminTests {
             Fixture::code(GovernanceTransitions::createPackage(world, "o-finch", k, "pkg-f2", "m-bot",
                 Fixture::verified("p-alice", "m-alice", botStatement), Fixture::verified("p-bot", "m-bot", botStatement))) == "governance.principal.workflow"
         ])
-    }
+    })
 
     /// A fresh package is a draft with one admin and no releases; the
     /// publication path activates it.
-    fn draftLifecycle() = {
-        let world = Fixture::world()
-        let k = key("finch", "toolkit")
-        let statement = Governance::creationStatement("pkg-f2", k, "m-bob")
+    fn draftLifecycle() = withCreationFixture(fn(world, k, statement) => {
         let draft = Fixture::orKeep(world, fn(w) => createFinch(w, k, "pkg-f2", "m-bob", Maybe::none(), Fixture::verified("p-bob", "m-bob", statement)))
         let active = Fixture::orKeep(draft, fn(w) => GovernanceTransitions::activatePackage(w, "pkg-f2"))
         checkAll("creation records one administrator and no operational state", [
@@ -63,7 +64,7 @@ module AdminTests {
             Fixture::code(GovernanceTransitions::activatePackage(active, "pkg-f2")) == "governance.package.not-draft",
             authorizeCode(active, "pkg-f2", "m-bob", Governance::PublishRelease, 100) == permissionMissing
         ])
-    }
+    })
 
     /// The administrator seat is not a permission [PACKAGE-OWNERSHIP-ADMIN]:
     /// without an explicit grant even the admin cannot publish, and with one

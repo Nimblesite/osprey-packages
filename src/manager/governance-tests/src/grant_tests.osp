@@ -17,7 +17,7 @@ module GrantTests {
     fn grantPkgF1(world, grantId, to, permission, expiresAt) = Fixture::grantOn(world, "pkg-f1", grantId, to, permission, expiresAt, 100)
 
     /// The reason code of one live authorization decision, or "" when granted.
-    fn authorizeCode(world, id, member, permission, at) =
+    export fn authorizeCode(world, id, member, permission, at) =
         Fixture::code(GovernanceTransitions::authorize(world, id, member, permission, at))
 
     fn renewWith(world, oldId, newId, proof, expiresAt) = GovernanceTransitions::renewGrant(world, oldId, newId, proof, expiresAt, 100)
@@ -118,7 +118,7 @@ module GrantTests {
     fn renewalStatement(world, grantId, expiresAt) =
         orEmpty(Governance::grantOf(world, grantId), fn(old) =>
             orEmpty(Governance::packageOf(world, old.package), fn(pkg) =>
-                Governance::renewalStatement(pkg.key, pkg.authorityEpoch, old.membership, old.permission, expiresAt)))
+                GovernanceTransitions::renewalStatementFor(pkg, old, expiresAt)))
 
     /// Expiry is live: an expired row still marked active refuses at the
     /// predicate, and a grant cannot start already expired.

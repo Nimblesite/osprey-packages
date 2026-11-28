@@ -11,13 +11,17 @@ fn catalog(local, entries, origin) = {
     Shell::withEscapedTitle("Osprey Packages", "<main><header class=\"prose-intro\"><h1>Osprey Packages</h1><p>The package registry for the Osprey language. Find libraries for your next project, see who published them, and download the source for a specific release.</p></header>${form}<section><h2>Browse packages</h2>${navigation}${notice}<div id=\"results\">${entries}</div>${behavior}</section></main>")
 }
 
-fn catalogAdapter(origin) = {
+fn withAdapterAssets(render) = {
     let adapter = trim(input())
     let host = trim(input())
     let guest = trim(input())
+    render(adapter, host, guest)
+}
+
+fn catalogAdapter(origin) = withAdapterAssets(fn(adapter, host, guest) => {
     let content = trim(input())
     "<script type=\"module\" src=\"/${adapter}\" data-catalog=\"${origin}/v1/packages\" data-content=\"${content}\" data-host=\"/${host}\" data-guest=\"/${guest}\"></script>"
-}
+})
 
 fn hostedPackage() = {
     let origin = trim(input())
@@ -25,12 +29,9 @@ fn hostedPackage() = {
     Shell::withEscapedTitle("Package · Osprey Packages", "<main><p id=\"catalog-status\" class=\"prose-cover\" role=\"status\" data-missing=\"Page not found.\" data-error=\"The registry could not load this page.\">Loading packages…</p><div id=\"package-details\"></div>${adapter}</main>")
 }
 
-fn localFilter() = {
-    let adapter = trim(input())
-    let host = trim(input())
-    let guest = trim(input())
+fn localFilter() = withAdapterAssets(fn(adapter, host, guest) =>
     "<p id=\"filter-status\" role=\"status\" data-empty=\"No matching packages.\" data-error=\"Search is unavailable.\"></p><script type=\"module\" src=\"/${adapter}\" data-list-filter=\"results\" data-status=\"filter-status\" data-host=\"/${host}\" data-guest=\"/${guest}\"></script>"
-}
+)
 
 fn visibility(terms, text) = if foldList(terms, true, fn(matches, term) => matches && contains(text, term)) { "1" } else { "0" }
 

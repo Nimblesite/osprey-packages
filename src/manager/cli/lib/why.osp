@@ -27,10 +27,8 @@ module Why {
     /// Every chain through `edges` that ends at `target`.
     fn pathsFrom(lock, target, chain, edges) = foldList(edges, [], fn(acc, edge) => listConcat(acc, pathsVia(lock, target, chain, edge)))
 
-    fn pathsVia(lock, target, chain, edge) = match Lockfile::packageFor(Lockfile::packagesOf(lock), ManifestModel::requirementKey(edge)) {
-        Error => []
-        Success { value } => pathsThrough(lock, target, chain, value)
-    }
+    fn pathsVia(lock, target, chain, edge) = Tree::withPackage(lock, ManifestModel::requirementKey(edge),
+        fn() => [], fn(value) => pathsThrough(lock, target, chain, value))
 
     fn pathsThrough(lock, target, chain, pkg) = {
         let key = Identity::keyOf(Lockfile::releaseOf(pkg))

@@ -14,13 +14,11 @@ module Permissions {
     /// hidden as `web.permissions.admin-only` for anyone but this package's
     /// current administrator, and as `web.evidence-unavailable` without
     /// verified evidence.
-    export fn render(l, access: Model::Access, ledger, now) = match Model::gate(l.evidence, Names::display(l.pkg.key)) {
-        Error { message } => Model::hidden("web.evidence-unavailable: ${message}")
-        Success => match Model::isAdministeredBy(access, l.pkg) && Model::viewerOrgHandle(access.viewer) == l.pkg.key.scope {
+    export fn render(l, access: Model::Access, ledger, now) = PackageView::withEvidence(l, fn() =>
+        match Model::isAdministeredBy(access, l.pkg) && Model::viewerOrgHandle(access.viewer) == l.pkg.key.scope {
             false => Model::hidden("web.permissions.admin-only")
             true => Model::shown(Html::document("Permissions for ${Names::display(l.pkg.key)} - Osprey Package Registry", body(l, access, ledger, now)))
-        }
-    }
+        })
 
     fn body(l, access, ledger, now) = join([
         "<main id=\"permissions\"><h1>Permissions for ${Html::escape(Names::display(l.pkg.key))}</h1>",

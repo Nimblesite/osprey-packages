@@ -97,7 +97,7 @@ module TomlLexer {
 
     fn oneByte(c) = substring(c.text, c.at, c.at + 1) ?: ""
 
-    fn bareTerm(b) = b == space || b == tab || b == cr || b == newline || b == comma || b == rbracket || b == rbrace || b == hash || b == eq || b == -1
+    fn bareTerm(b) = isSpaceByte(b) || b == newline || b == comma || b == rbracket || b == rbrace || b == hash || b == eq || b == -1
 
     /// The bare token up to the next value terminator; a non-ASCII byte fails.
     export fn scanBare(c) = bareAt(c, scannedRun(c, fn(b) => !bareTerm(b) && b < nonAsciiFloor))
@@ -158,17 +158,12 @@ module TomlLexer {
         else if b == 85 { unicodeEscape(advance(c), acc, start, 8) }
         else { Error { message: failStr(tomlBadEscape, c) } }
 
-    fn hexVal(b) = if b >= 48 && b <= 57 { b - 48 }
-        else if b >= 97 && b <= 102 { b - 87 }
-        else if b >= 65 && b <= 70 { b - 55 }
-        else { -1 }
-
     fn readHex(c, n, acc) = match n == 0 {
         true => Success { value: acc }
         false => match eof(c) {
             true => Error { message: failStr(tomlBadEscape, c) }
             false => {
-                let d = hexVal(cur(c))
+                let d = Bytes::hexValue(cur(c))
                 match d == -1 {
                     true => Error { message: failStr(tomlBadEscape, c) }
                     false => readHex(advance(c), n - 1, acc * 16 + d)

@@ -90,23 +90,24 @@ module TreeGraph {
 
     fn packagesValue(lines, direct, packages, overrides) = Json::arr(mapList(packages, fn(p) => packageValue(lines, direct, packages, overrides, p)))
 
+    fn manifestMembers(manifest) = [
+        Json::member("project", Json::str(ManifestModel::nameOf(manifest))),
+        Json::member("direct", textList(mapList(directKeys(manifest), Names::display)))
+    ]
+
     fn graphValue(manifest, lock, lines, overrides, localFindings) = {
         let direct = directKeys(manifest)
         let packages = Lockfile::packagesOf(lock)
-        Json::obj([
-            Json::member("project", Json::str(ManifestModel::nameOf(manifest))),
-            Json::member("direct", textList(mapList(direct, Names::display))),
+        Json::obj(listConcat(manifestMembers(manifest), [
             Json::member("packages", packagesValue(lines, direct, packages, overrides)),
             Json::member("findings", textList(listConcat(codesOf(globalLines(lines, packages)), localFindings)))
-        ])
+        ]))
     }
 
-    fn notLockedValue(manifest) = Json::obj([
-        Json::member("project", Json::str(ManifestModel::nameOf(manifest))),
-        Json::member("direct", textList(mapList(directKeys(manifest), Names::display))),
+    fn notLockedValue(manifest) = Json::obj(listConcat(manifestMembers(manifest), [
         Json::member("packages", Json::arr([])),
         Json::member("findings", textList([notLockedCode]))
-    ])
+    ]))
 
     fn serialized(value) = match Canonical::serialize(value) {
         Success { value } => Reports::success([value])

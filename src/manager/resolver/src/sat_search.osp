@@ -156,8 +156,10 @@ module SatSearch {
         }
     }
 
+    fn enqueueFirst(s, ci, c) = enqueueUnit(s, ci, listGet(c, 0) ?: 0)
+
     fn setupLong(s, ci, c) = match watchPair(c) {
-        [] => enqueueUnit(s, ci, listGet(c, 0) ?: 0)
+        [] => enqueueFirst(s, ci, c)
         _ => Clear { at: withDb(s, attachWatches(s.db, ci, c)) }
     }
 
@@ -165,7 +167,7 @@ module SatSearch {
         let c = clauseOrEmpty(s.db.clauses, ci)
         match length(c) {
             0 => Clash { at: s, ci: ci }
-            1 => enqueueUnit(s, ci, listGet(c, 0) ?: 0)
+            1 => enqueueFirst(s, ci, c)
             _ => setupLong(s, ci, c)
         }
     }

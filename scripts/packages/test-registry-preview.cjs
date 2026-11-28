@@ -5,6 +5,15 @@ const { withHostedPage } = require('./registry-browser-fixture.cjs');
 const checkHostedAccount = (browser, livePort) => withHostedPage(browser, fixture => checkPackagedAccount(fixture, livePort));
 async function checkPackagedAccount({page, website, api, failures}, livePort) {
   const headers = {'access-control-allow-origin':website,'access-control-allow-credentials':'true'};
+  async function waitForFirstRelease() {
+    await page.getByRole('heading', {name:'e1.r1'}).waitFor();
+    await page.locator('[id="e1.r1"] .prose-license').first().waitFor();
+  }
+  async function assertPublicCatalogUnavailable() {
+    await page.goto(website);
+    await page.getByText('The public catalog is unavailable.').waitFor();
+    assert.equal(await page.locator('#results article').count(), 0);
+  }
   if (livePort) {
     assert.match(livePort, /^[0-9]{4,5}$/);
     await page.route(url => url.origin === api && (url.pathname.startsWith('/v1/packages') || url.pathname.startsWith('/v1/publishers/')), async route => {
@@ -28,8 +37,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
     assert.equal(await page.getByRole('link', {name:'Atlas Engineering', exact:true}).count(), 1);
     await page.goto(website + '/?q=http');
     await page.getByRole('link', {name:'@atlas/net'}).click();
-    await page.getByRole('heading', {name:'e1.r1'}).waitFor();
-    await page.locator('[id="e1.r1"] .prose-license').first().waitFor();
+    await waitForFirstRelease();
     await page.getByText("NOTICE.md", {exact:true}).first().click();
     await page.getByText("Adapted from Atlas upstream.", {exact:false}).waitFor();
     assert.equal(await page.locator('[id="e1.r2"] .prose-license').textContent(), "Apache-2.0");
@@ -80,8 +88,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
     await page.getByText('Network access', {exact:true}).waitFor();
     await page.getByRole('link', {name:'@atlas/net e1.r1'}).click();
     assert.equal(new URL(page.url()).hash, '#e1.r1');
-    await page.getByRole('heading', {name:'e1.r1'}).waitFor();
-    await page.locator('[id="e1.r1"] .prose-license').first().waitFor();
+    await waitForFirstRelease();
     await page.getByText("NOTICE.md", {exact:true}).first().waitFor();
     assert.deepEqual(failures.filter(failure => !(failure.url === href.href && failure.error === "net::ERR_ABORTED")), []);
     await page.close();
@@ -176,14 +183,10 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
   await page.getByRole('heading', {name:'Tag not found'}).waitFor();
   for (const keywords of [null, ['../escape'], ['web', 'networking'], ['web', 'web']]) {
     payload = {packages:[{...entry,keywords}]};
-    await page.goto(website);
-    await page.getByText('The public catalog is unavailable.').waitFor();
-    assert.equal(await page.locator('#results article').count(), 0);
+    await assertPublicCatalogUnavailable();
   }
   payload = {packages:[entry, {key:'@atlas/incomplete',summary:'Missing warnings'}]};
-  await page.goto(website);
-  await page.getByText('The public catalog is unavailable.').waitFor();
-  assert.equal(await page.locator('#results article').count(), 0);
+  await assertPublicCatalogUnavailable();
   assert.deepEqual(failures, []);
   await page.close();
 }

@@ -114,6 +114,9 @@ module Surface {
 
     fn popped(s, skip) = moved(s, listGet(s.frames, 0) ?: codeMode, -1, fold(range(1, length(s.frames)), [], fn(acc, j) => listAppend(acc, listGet(s.frames, j) ?: codeMode)), skip)
 
+    fn skipped(s) = moved(s, s.mode, -1, s.frames, 1)
+    fn closedComment(s) = popped(s, 1)
+
     fn atBoundary(s: Scan) = s { boundary: s.previous != continuation }
 
     fn byte(text, i) = byteAt(text, i) ?: 0
@@ -164,15 +167,15 @@ module Surface {
         let wide = s.mode % formattedOffset >= tripleOffset
         let formatted = s.mode >= formattedOffset
         if b == delimiter && (!wide || triple(text, i, delimiter)) { popped(s, if wide { 2 } else { 0 }) }
-        else if b == backslash && !(formatted && byte(text, i + 1) == 123) && !(interpolates(s, delimiter) && byte(text, i + 1) == 36) { moved(s, s.mode, -1, s.frames, 1) }
-        else if formatted && b == 123 && byte(text, i + 1) == 123 { moved(s, s.mode, -1, s.frames, 1) }
+        else if b == backslash && !(formatted && byte(text, i + 1) == 123) && !(interpolates(s, delimiter) && byte(text, i + 1) == 36) { skipped(s) }
+        else if formatted && b == 123 && byte(text, i + 1) == 123 { skipped(s) }
         else if formatted && b == 123 { pushed(s, codeMode, 0) }
         else if interpolates(s, delimiter) && b == 36 && byte(text, i + 1) == 123 { pushed(s, codeMode, 1) }
         else { s }
     }
 
     fn inBlockComment(text, s, i, b) = if b == 40 && byte(text, i + 1) == 42 { pushed(s, blockCommentMode, 1) }
-        else if b == 42 && byte(text, i + 1) == 41 { popped(s, 1) }
+        else if b == 42 && byte(text, i + 1) == 41 { closedComment(s) }
         else if lineBreak(b) { atBoundary(s) } else { s }
 
     fn step(text, s, i) = {
@@ -180,7 +183,7 @@ module Surface {
         if s.skip > 0 { moved(s, s.mode, s.start, s.frames, s.skip - 1) }
         else if s.mode == commentMode { if lineBreak(b) { atBoundary(popped(s, 0)) } else { s } }
         else if s.mode == blockCommentMode { inBlockComment(text, s, i, b) }
-        else if s.mode == flatCommentMode { if b == star && byte(text, i + 1) == slash { popped(s, 1) } else if lineBreak(b) { atBoundary(s) } else { s } }
+        else if s.mode == flatCommentMode { if b == star && byte(text, i + 1) == slash { closedComment(s) } else if lineBreak(b) { atBoundary(s) } else { s } }
         else if s.mode == codeMode { inCode(text, s, i, b) }
         else { inString(text, s, i, b) }
     }

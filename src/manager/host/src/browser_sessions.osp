@@ -7,6 +7,7 @@ import registry::Digests
 module BrowserSessions {
     let invalidIdentity = "auth.session-identity"
     fn binding(issuer, subject, github) = "b.issuer=${issuer} AND b.auth_subject=${subject} AND b.provider_subject=${github}"
+    fn decodedIdentity(build) = build(Database::decoded(1), Database::decoded(2), Database::decoded(3) + "::uuid", Database::decoded(4))
     let eligibility = "b.provider='github' AND b.state='active' AND p.kind='human' AND p.state='active'"
     let live = "s.revoked_at IS NULL AND s.started_at<=statement_timestamp() AND s.started_at>statement_timestamp()-interval '12 hours' AND s.last_used_at<=clock_timestamp() AND s.last_used_at>statement_timestamp()-interval '30 minutes'"
     let samePrincipal = "p.id=s.principal_id AND p.credential_epoch=s.credential_epoch AND b.principal_id=s.principal_id"
@@ -23,7 +24,7 @@ module BrowserSessions {
         && byteLength(github) > 0 && byteLength(github) <= 32 && !startsWith(github, "0") && Bytes::everyByte(github, Bytes::isDigit)
 
     fn boundInsert(values, envelope) = {
-        let query = insert(Database::decoded(1), Database::decoded(2), Database::decoded(3) + "::uuid", Database::decoded(4), Database::decoded(5))
+        let query = decodedIdentity(fn(cookie, issuer, subject, github) => insert(cookie, issuer, subject, github, Database::decoded(5)))
         Success { value: Database::sessionIssueScript(values, query, listAppend(values, envelope)) }
     }
 
@@ -57,14 +58,14 @@ module BrowserSessions {
         else { Error { message: invalidIdentity } })
 
     fn verifiedScript(scope) = Success { value: Database::sessionRuntimeScript(scope,
-        revalidated(Database::decoded(1), Database::decoded(2), Database::decoded(3) + "::uuid", Database::decoded(4)), scope) }
+        decodedIdentity(revalidated), scope) }
 
     export fn read(cookie) = andThen(readScript(cookie), Database::sessionRuntime)
 
     export fn revalidate(cookie, issuer, subject, github) = andThen(touchScript(cookie, issuer, subject, github), Database::sessionRuntime)
 
-    fn refreshPredicate() = claims(Database::decoded(1))
-        + " AND " + binding(Database::decoded(2), Database::decoded(3) + "::uuid", Database::decoded(4))
+    fn refreshPredicate() = decodedIdentity(fn(cookie, issuer, subject, github) => claims(cookie)
+        + " AND " + binding(issuer, subject, github))
         + " AND 'sha256:' || encode(sha256(convert_to(s.token_envelope,'UTF8')), 'hex')=" + Database::decoded(5)
 
     fn refreshScript(scope, args, update, fence, receipt) = Success { value: Database::sessionRuntimeScript(scope,

@@ -99,6 +99,9 @@ module GraphTests {
 
     fn outcomeText(outcome) = Canonical::serialize(outcomeJson(outcome)) ?: "serialize failed"
 
+    fn resolverOutcome(n) = outcomeText(Resolve::solve(GraphGen::graph(n)))
+    fn permutedResolverOutcome(n) = outcomeText(Resolve::solve(GraphGen::permuted(GraphGen::graph(n))))
+
     /// What the two solvers must agree on: a lock byte for byte, or that the
     /// graph is refuted. A refutation's code and packages differ by design
     /// when a graph has several causes: the resolver reports the cause its
@@ -113,7 +116,7 @@ module GraphTests {
     fn agreesOn(n) = comparable(Resolve::solve(GraphGen::graph(n))) == comparable(GraphOracle::solve(GraphGen::graph(n)))
 
     /// The resolver's outcome does not depend on the order of the catalog or the root edges.
-    fn permutationInvariant(n) = outcomeText(Resolve::solve(GraphGen::graph(n))) == outcomeText(Resolve::solve(GraphGen::permuted(GraphGen::graph(n))))
+    fn permutationInvariant(n) = resolverOutcome(n) == permutedResolverOutcome(n)
 
     fn generatedNumbers() = range(0, generatedGraphs) |> toList
 
@@ -130,14 +133,14 @@ module GraphTests {
     fn generatedDetail() = {
         let n = firstOr(filterList(generatedNumbers(), fn(n) => !agreesOn(n)), -1)
         if n < 0 { check("generated graphs: first disagreement", "none", "none") }
-        else { check("generated graph ${n}: oracle vs resolver", outcomeText(GraphOracle::solve(GraphGen::graph(n))), outcomeText(Resolve::solve(GraphGen::graph(n)))) }
+        else { check("generated graph ${n}: oracle vs resolver", outcomeText(GraphOracle::solve(GraphGen::graph(n))), resolverOutcome(n)) }
     }
 
     /// The first permutation-sensitive graph in full: plain against permuted.
     fn permutationDetail() = {
         let n = firstOr(filterList(generatedNumbers(), fn(n) => !permutationInvariant(n)), -1)
         if n < 0 { check("generated graphs: first permutation change", "none", "none") }
-        else { check("generated graph ${n}: plain vs permuted", outcomeText(Resolve::solve(GraphGen::graph(n))), outcomeText(Resolve::solve(GraphGen::permuted(GraphGen::graph(n))))) }
+        else { check("generated graph ${n}: plain vs permuted", resolverOutcome(n), permutedResolverOutcome(n)) }
     }
 
     /// Every graph case as one oracle test and one resolver test, plus the

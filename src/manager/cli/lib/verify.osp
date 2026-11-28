@@ -110,11 +110,14 @@ module Verify {
     /// The offline check of `osprey.lock` at `project`; `build --release` runs this.
     export fn verifyReleaseAt(project) = Reports::checkedWith(Project::readLockAt(project), noLockCode, fn(value) => checked(project, value))
 
-    /// The offline check of `osprey.local.lock` at `project`; a bare `build` runs this while the overlay is active.
-    export fn verifyLocalAt(project) = match Project::readLocalLockAt(project) {
-        Error { message } => Reports::failure(["${noLocalLockCode} ${message}", remediation])
-        Success { value } => checked(project, value)
+    /// Read the development lock or report its command-specific stable code.
+    export fn withLocalLockAt(project, code, onLock) = match Project::readLocalLockAt(project) {
+        Error { message } => Reports::failure(["${code} ${message}", remediation])
+        Success { value } => onLock(value)
     }
+
+    /// The offline check of `osprey.local.lock` at `project`; a bare `build` runs this while the overlay is active.
+    export fn verifyLocalAt(project) = withLocalLockAt(project, noLocalLockCode, fn(value) => checked(project, value))
 
     /// The offline check of whichever lock the overlay selects.
     export fn verifyOfflineAt(project) = Reports::checked(Overlay::readAt(project), fn(value) => if Overlay::active(value) { verifyLocalAt(project) } else { verifyReleaseAt(project) })

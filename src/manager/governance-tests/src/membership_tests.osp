@@ -96,6 +96,9 @@ module MembershipTests {
     /// every last-custodian scenario below.
     fn erinRevoked(world) = Fixture::orKeep(world, fn(w) => revokeAs(w, "alice", "o-finch", "m-erin"))
 
+    fn formerCustodianCannotRevokeAdmin(erinGone) =
+        revokeCode(erinGone, "erin", "o-finch", "m-alice") == custodianRequired
+
     fn custodianRevocation() = {
         let world = Fixture::world()
         let erinGone = erinRevoked(world)
@@ -104,7 +107,7 @@ module MembershipTests {
             revokeCode(world, "bob", "o-finch", "m-carol") == custodianRequired,
             revokeCode(world, "dave", "o-finch", "m-carol") == custodianRequired,
             Fixture::code(revoke(world, "m-carol", Fixture::verified("p-alice", "m-alice", "other-statement"))) == "governance.proof.statement-mismatch",
-            revokeCode(erinGone, "erin", "o-finch", "m-alice") == custodianRequired,
+            formerCustodianCannotRevokeAdmin(erinGone),
             // [PACKAGE-OWNERSHIP-MODEL] "Organization governance belongs to accepted
             // members marked `custodian`": a custodian of another organization
             // holds no signing authority here, so the refusal is the custodian
@@ -121,7 +124,7 @@ module MembershipTests {
         let world = Fixture::world()
         let erinGone = erinRevoked(world)
         checkAll("the last custodian and administering members are protected", [
-            revokeCode(erinGone, "erin", "o-finch", "m-alice") == custodianRequired,
+            formerCustodianCannotRevokeAdmin(erinGone),
             Fixture::code(revoke(erinGone, "m-alice", Fixture::refused("p-erin", "m-erin", revocationStatement("o-finch", "m-alice")))) == custodianRequired,
             // [PACKAGE-OWNERSHIP-MODEL] "No organization can lose its last
             // accepted custodian": the only remaining custodian signing her own

@@ -70,8 +70,13 @@ module OverlayTests {
 
     fn overlayText() = Overlay::render([mapping()])
 
+    fn overlaidLocalReads() = listPrepend(localReads(localManifest()), Fixture::readRoute(overlayPath, overlayText()))
+
     /// The development lock `use` must write: the checkout for one, the registry's two.
     fn expectedDevLock() = RegistryFixture::devLockText(rootText(), [localPackage(), RegistryFixture::pkg(RegistryFixture::two(), [])], [override()])
+
+    fn overlayWritten(a) = RegistryFixture::writtenTo(a, overlayPath) == overlayText()
+    fn developmentLockWritten(a) = RegistryFixture::writtenTo(a, localLockPath) == expectedDevLock()
 
     fn served() = [RegistryFixture::one(), RegistryFixture::two()]
 
@@ -89,8 +94,8 @@ module OverlayTests {
         let a = runUse(listConcat(registryReads(), localReads(localManifest())))
         checkAll("use writes the mapping and the development lock with the checkout in place", [
             RegistryFixture::accepted(a),
-            RegistryFixture::writtenTo(a, overlayPath) == overlayText(),
-            RegistryFixture::writtenTo(a, localLockPath) == expectedDevLock(),
+            overlayWritten(a),
+            developmentLockWritten(a),
             RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == "",
             structuralEquals(RegistryFixture::linesOf(a), [
                 "use @demo/one ${localPath} e1 baseline ${Identity::display(Fixture::idOf(RegistryFixture::one()))}",
@@ -102,7 +107,7 @@ module OverlayTests {
 
     /// `use --list` prints the mapping with the checkout's current source digest.
     fn listMappings() = {
-        let a = RegistryFixture::runWith(listConcat(registryReads(), listPrepend(localReads(localManifest()), Fixture::readRoute(overlayPath, overlayText()))), [localWalk()], [], ["use", "--list", "--project", project])
+        let a = RegistryFixture::runWith(listConcat(registryReads(), overlaidLocalReads()), [localWalk()], [], ["use", "--list", "--project", project])
         checkAll("use --list shows key, path, epoch, baseline and source digest", [
             RegistryFixture::accepted(a),
             structuralEquals(RegistryFixture::linesOf(a), ["@demo/one ${localPath} e1 baseline ${Identity::display(Fixture::idOf(RegistryFixture::one()))} ${localDigest()}"])
@@ -174,7 +179,7 @@ module OverlayTests {
     fn updateOverOverlay() = {
         let one2 = RegistryFixture::one2()
         let served = [RegistryFixture::one(), one2, RegistryFixture::two()]
-        let reads = listConcat(RegistryFixture::readsWithLock(rootText(), RegistryFixture::previousLock(RegistryFixture::one(), RegistryFixture::two()), served), listPrepend(localReads(localManifest()), Fixture::readRoute(overlayPath, overlayText())))
+        let reads = listConcat(RegistryFixture::readsWithLock(rootText(), RegistryFixture::previousLock(RegistryFixture::one(), RegistryFixture::two()), served), overlaidLocalReads())
         let a = RegistryFixture::runWith(reads, [localWalk()], RegistryFixture::websOf(served), ["update", "--project", project])
         checkAll("update rebases the overlay onto the new published base", [
             RegistryFixture::accepted(a),
@@ -202,8 +207,8 @@ module OverlayTests {
             RegistryFixture::accepted(a),
             RegistryFixture::writtenTo(a, RegistryFixture::manifestPath) == rootText(),
             RegistryFixture::writtenTo(a, RegistryFixture::lockPath) == RegistryFixture::expectedLock(rootText(), RegistryFixture::one(), RegistryFixture::two()),
-            RegistryFixture::writtenTo(a, overlayPath) == overlayText(),
-            RegistryFixture::writtenTo(a, localLockPath) == expectedDevLock(),
+            overlayWritten(a),
+            developmentLockWritten(a),
             RegistryFixture::lineOf(a, 0) == "added @demo/one e1.r1 from ${localPath}"
         ])
     }

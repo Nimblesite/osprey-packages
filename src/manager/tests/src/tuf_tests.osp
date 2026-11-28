@@ -68,19 +68,21 @@ module TufTests {
         TufCheck::statusTransition(JsonRead::field(step, "previous"), JsonRead::field(step, "next"))
             == Fixtures::textOf(step, "expect"))
 
+    fn previousStatus(step) = JsonRead::text(JsonRead::field(JsonRead::field(step, "next"), "previousStatus"))
+
     /// The later steps of the valid chains, whose previousStatus goldens
     /// Osprey must reproduce from its own canonical form.
     fn goldenSteps(chain) = if flagOf(JsonRead::field(chain, "goldenPreviousStatus")) {
         filterList(Fixtures::itemsOf(chain, "steps"), fn(step) =>
             Fixtures::textOf(step, "expect") == ""
-            && JsonRead::text(JsonRead::field(JsonRead::field(step, "next"), "previousStatus")) != "")
+            && previousStatus(step) != "")
     } else {
         []
     }
 
     fn goldenHolds(step) = Digests::hashText(Domains::releaseStatusDomain(),
         Canonical::serialize(JsonRead::field(step, "previous")) ?: "")
-        == JsonRead::text(JsonRead::field(JsonRead::field(step, "next"), "previousStatus"))
+        == previousStatus(step)
 
     fn goldenTable() = {
         let steps = foldList(chains(), [], fn(all, chain) => listConcat(all, goldenSteps(chain)))

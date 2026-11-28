@@ -5,6 +5,7 @@ import registry_api::LoginKms
 import registry_api::OAuth
 import registry_api::Supabase
 import registry::Bytes
+import registry::Kms
 import registry::Digests
 import registry::Policy
 import registry::Bundle
@@ -300,8 +301,7 @@ fn kmsCall(method, base, path, headers, body, key, operation) = method == "POST"
 
 fn kmsFixture() = handler Supabase::Provider {
     request method base path headers body =>
-        if method == "GET" && base == "http://metadata.google.internal"
-            && path == "/computeMetadata/v1/instance/service-accounts/default/token" && headers == "Metadata-Flavor: Google" && body == "" {
+        if Kms::isMetadataRequest(method, base, path, headers) && body == "" {
             Success { value: Supabase::Reply { status: 200, body: "{\"access_token\":\"fixture-access\",\"token_type\":\"Bearer\"}" } }
         } else if kmsCall(method, base, path, headers, body, kmsKey, "encrypt") && contains(body, ",\"plaintext\":\"") {
             Success { value: Supabase::Reply { status: 200, body: "{\"ciphertext\":\"${fixtureCiphertext}\"}" } }
@@ -373,13 +373,15 @@ fn fixtureCredentials(digest, envelope, credentials) = if envelope == sessionCip
 fn browserSession(method, token) = if method == "POST" {
     browserRuntime(revokerRole, BrowserSessions::revokeScript(HostedLogin::sessionDigest(token)))
 } else { readBrowser(token) }
+fn safeResponseHeaders(value) = (httpResponseHeader(value, "referrer-policy") ?: "") == "no-referrer"
+    && (httpResponseHeader(value, cacheControl) ?: "") == "no-store"
+
 fn callbackBody(client, path, headers, status) = match httpGetResponse(client, path, headers) {
     Error => ""
     Success { value } => {
         let body = httpResponseBody(value) ?: ""
         let safe = httpResponseStatus(value) == status && !contains(body, "fixture-provider-")
-            && (httpResponseHeader(value, cacheControl) ?: "") == "no-store"
-            && (httpResponseHeader(value, "referrer-policy") ?: "") == "no-referrer"
+            && safeResponseHeaders(value)
             && (status != 403 || (httpResponseHeader(value, "set-cookie") ?: "") == HostedLogin::expiredCookie)
         let _released = httpResponseFree(value)
         if safe { body } else { "" }
@@ -449,7 +451,7 @@ fn successfulCallback(client, path, browser) = match httpGetResponse(client, pat
         let cookie = httpResponseHeader(value, "set-cookie") ?: ""
         let safe = httpResponseStatus(value) == 303 && (httpResponseBody(value) ?: "") == ""
             && (httpResponseHeader(value, "location") ?: "") == fixtureOAuth.websiteOrigin + "/upload/"
-            && (httpResponseHeader(value, "referrer-policy") ?: "") == "no-referrer" && (httpResponseHeader(value, cacheControl) ?: "") == "no-store"
+            && safeResponseHeaders(value)
         let _released = httpResponseFree(value)
         safe && sessionExists(cookie) && sessionJourney(client, browser, cookie)
     }

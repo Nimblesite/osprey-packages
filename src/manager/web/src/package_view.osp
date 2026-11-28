@@ -13,15 +13,24 @@ module PackageView {
     /// warnings, plus the organization and permission context for members of its
     /// organization; hidden with `web.evidence-unavailable` when the evidence
     /// is unavailable.
-    export fn render(l, access: Model::Access, now) = match Model::gate(l.evidence, Names::display(l.pkg.key)) {
+    export fn render(l, access: Model::Access, now) = withEvidence(l, fn() =>
+        Model::shown(Html::document("${Names::display(l.pkg.key)} - Osprey Package Registry", body(l, access, now))))
+
+    /// Run `render` only when the listing has verified evidence.
+    export fn withEvidence(l, render) = match Model::gate(l.evidence, Names::display(l.pkg.key)) {
         Error { message } => Model::hidden("web.evidence-unavailable: ${message}")
-        Success => Model::shown(Html::document("${Names::display(l.pkg.key)} - Osprey Package Registry", body(l, access, now)))
+        Success => render()
     }
+
+    /// Organization and lifecycle fields shared by package listings.
+    export fn listingFields(l) = join([
+        Html::field("Organization", "@${l.orgHandle}"),
+        Html::field("Status", "${Model::stateName(l.pkg)}, ${Model::careName(l.care)}")
+    ], "")
 
     fn body(l, access, now) = join([
         "<main id=\"package\"><h1>${Html::escape(Names::display(l.pkg.key))}</h1>",
-        Html::field("Organization", "@${l.orgHandle}"),
-        Html::field("Status", "${Model::stateName(l.pkg)}, ${Model::careName(l.care)}"),
+        listingFields(l),
         Html::field("Security review evidence", Model::reviewOf(l.evidence)),
         warningsSection(l),
         accessSection(l, access, now),

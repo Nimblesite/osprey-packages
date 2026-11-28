@@ -38,11 +38,15 @@ module Tree {
     fn withVisited(w: Walk, key) = Walk { printed: w.printed, visited: listAppend(w.visited, key) }
     fn seen(w: Walk, key) = Names::includes(w.visited, key)
 
-    /// One edge: the pinned package's line and, the first time, its subtree.
-    fn edgeLines(lock, depth, w, edge) = match Lockfile::packageFor(Lockfile::packagesOf(lock), ManifestModel::requirementKey(edge)) {
-        Error => withLine(w, unlockedLine(depth, edge))
-        Success { value } => packageLines(lock, depth, w, edge, value)
+    /// Resolve one required key, continuing through the matching lock state.
+    export fn withPackage(lock, key, missing, found) = match Lockfile::packageFor(Lockfile::packagesOf(lock), key) {
+        Error => missing()
+        Success { value } => found(value)
     }
+
+    /// One edge: the pinned package's line and, the first time, its subtree.
+    fn edgeLines(lock, depth, w, edge) = withPackage(lock, ManifestModel::requirementKey(edge),
+        fn() => withLine(w, unlockedLine(depth, edge)), fn(value) => packageLines(lock, depth, w, edge, value))
 
     fn packageLines(lock, depth, w, edge, pkg) -> Walk = {
         let key = Identity::keyOf(Lockfile::releaseOf(pkg))

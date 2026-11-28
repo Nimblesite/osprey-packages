@@ -179,10 +179,12 @@ module HostedService {
         Error => unavailable(cors)
     }
 
-    fn jsonReply(doc, cors) = match Canonical::serialize(doc) {
+    fn serializedReply(result, cors) = match result {
         Success { value } => replyWith(200, jsonType, value, cors)
         Error => unavailable(cors)
     }
+
+    fn jsonReply(doc, cors) = serializedReply(Canonical::serialize(doc), cors)
 
     fn catalogDocument(doc, path, cors, source) = if path == "/v1/packages" { jsonReply(doc, cors) } else if startsWith(path, HostedSource::prefix) {
         releaseResponse(HostedSource::request(doc, path, source), endsWith(path, HostedSource::licenseSuffix), cors)
@@ -209,10 +211,7 @@ module HostedService {
                 Success { value } => replyWith(200, jsonType, value, cors + "Content-Disposition: attachment; filename=\"osprey-source.json\"\r\n")
                 Error => unavailable(cors)
             }
-        } else { match Catalog::releaseJson(value.release) {
-            Success { value } => replyWith(200, jsonType, value, cors)
-            Error => unavailable(cors)
-        } }
+        } else { serializedReply(Catalog::releaseJson(value.release), cors) }
     }
 
     fn credited(item, id) = filterList(JsonRead::items(JsonRead::field(item, "releases")), fn(release) => field(release, "publisherId") == id)

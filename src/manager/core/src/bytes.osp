@@ -60,9 +60,15 @@ module Bytes {
     /// Lowercase hex of a byte sequence.
     export fn hex(bytes) = join(mapList(bytes, hexByte), "")
 
-    fn hexValue(b) = if b >= 48 && b <= 57 { b - 48 } else if b >= 97 && b <= 102 { b - 87 } else { 0 }
+    /// Numeric value of an ASCII hexadecimal digit, or -1 for any other byte.
+    export fn hexValue(b) = if b >= 48 && b <= 57 { b - 48 }
+        else if b >= 97 && b <= 102 { b - 87 }
+        else if b >= 65 && b <= 70 { b - 55 }
+        else { -1 }
 
-    fn hexPair(hex, i) = hexValue(at(hex, 2 * i)) * 16 + hexValue(at(hex, 2 * i + 1))
+    fn lowerHexValue(b) = if lowerHexDigit(b) { hexValue(b) } else { 0 }
+
+    fn hexPair(hex, i) = lowerHexValue(at(hex, 2 * i)) * 16 + lowerHexValue(at(hex, 2 * i + 1))
 
     /// The bytes of lowercase hex text; a non-hex digit reads as zero, so
     /// callers validate untrusted hex first (`Digests::parse`).

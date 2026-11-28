@@ -37,7 +37,7 @@ module GovernanceTransitions {
         use m <- andThen(Governance::activeMembershipOf(registry, target))
         use _ <- andThen(Governance::sameOrgMember(m, org))
         use _ <- andThen(distinctProofs(proofA, proofB))
-        use _ <- andThen(Governance::humanMemberOf(registry, m))
+        use _ <- andThen(humanMember(registry, m))
         use _ <- andThen(custodianQuorum(registry, org, target, proofA, proofB))
         Success { value: Governance::replaceMembership(registry,
             m { role: Governance::Custodian, authorityEpoch: m.authorityEpoch + 1 }) }
@@ -96,7 +96,7 @@ module GovernanceTransitions {
         use o <- andThen(Governance::organizationOf(registry, org))
         use _ <- andThen(keyChecks(registry, o, key, id))
         use m <- andThen(activeMemberOfOrg(registry, org, admin))
-        use _ <- andThen(Governance::humanMemberOf(registry, m))
+        use _ <- andThen(humanMember(registry, m))
         use _ <- andThen(custodianProof(registry, org, Governance::creationStatement(id, key, admin), custodianEvidence))
         use _ <- andThen(Governance::requireProof(adminAcceptance, m.principal, admin,
             Governance::creationStatement(id, key, admin)))
@@ -176,13 +176,16 @@ module GovernanceTransitions {
     /// expired row still marked active is retired by this same transition.
     /// Permission holders cannot renew their own grant: only the
     /// administrator's proof is accepted.
+    export fn renewalStatementFor(pkg, old, expiresAt) =
+        Governance::renewalStatement(pkg.key, pkg.authorityEpoch, old.membership, old.permission, expiresAt)
+
     export fn renewGrant(registry, grantId, newGrantId, proof, expiresAt, now) = {
         use old <- andThen(Governance::grantOf(registry, grantId))
         use pkg <- andThen(Governance::writablePackage(registry, old.package))
         use _ <- andThen(soleActive(registry, old))
         use _ <- andThen(freshExpiry(expiresAt, now))
         use _ <- andThen(Governance::requireAdmin(registry, pkg, proof,
-            Governance::renewalStatement(pkg.key, pkg.authorityEpoch, old.membership, old.permission, expiresAt)))
+            renewalStatementFor(pkg, old, expiresAt)))
         use _ <- andThen(unusedGrantId(registry, newGrantId))
         Success { value: renewed(registry, pkg, old, newGrantId, expiresAt) }
     }
@@ -214,6 +217,8 @@ module GovernanceTransitions {
         use _ <- andThen(Governance::livePrincipal(p))
         Governance::humanPrincipal(p)
     }
+
+    fn humanMember(registry, m) = Governance::humanMemberOf(registry, m)
 
     /// The membership `member` of `org` when it is active, else its missing, inactive or other-org refusal.
     fn activeMemberOfOrg(registry, org, member) = {

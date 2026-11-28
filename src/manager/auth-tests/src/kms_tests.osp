@@ -4,6 +4,7 @@ import registry_api::OAuth
 import registry_api::HostedLogin
 import registry_api::Supabase
 import registry::Bytes
+import registry::Kms
 
 /// The Cloud KMS wire contract fails before exposing a verifier on transport or identity errors.
 module KmsTests {
@@ -18,8 +19,7 @@ module KmsTests {
 
     fn kms(metadata, operation, payload, code, reply) = handler Supabase::Provider {
             request method base path headers body =>
-                if method == "GET" && base == "http://metadata.google.internal"
-                    && path == "/computeMetadata/v1/instance/service-accounts/default/token" && headers == "Metadata-Flavor: Google" {
+                if Kms::isMetadataRequest(method, base, path, headers) {
                     Success { value: Supabase::Reply { status: 200, body: metadata } }
                 } else if method == "POST" && base == "https://cloudkms.googleapis.com" && path == "/v1/${key}:${operation}"
                     && headers == tokenHeader && body == payload {

@@ -13,6 +13,7 @@ module Merkle {
     let nodePrefix = 1
 
     type Span = { start: int, width: int, shared: bool, hash: List<int> }
+    type Halves = { left: List<List<int>>, right: List<List<int>> }
 
     /// SHA256(0x00 || leaf), the RFC 9162 section 2.1.1 leaf hash.
     export fn leafHash(leaf) = Sha256::digest(listConcat([leafPrefix], leaf))
@@ -25,6 +26,8 @@ module Merkle {
     fn splitOf(n) = splitAt(1, n)
 
     fn sub(leaves, from, to) = range(from, to) |> map(fn(i) => listGet(leaves, i) ?: []) |> toList
+
+    fn halves(leaves, k) = Halves { left: sub(leaves, 0, k), right: sub(leaves, k, length(leaves)) }
 
     /// MTH(D) of RFC 9162 section 2.1.1 over raw leaves. Implements
     /// [PACKAGE-TRUST].
@@ -45,10 +48,9 @@ module Merkle {
     }
 
     fn inclusionStep(index, leaves, k) = {
-        let left = sub(leaves, 0, k)
-        let right = sub(leaves, k, length(leaves))
-        if index < k { listConcat(inclusionProof(index, left), [root(right)]) }
-        else { listConcat(inclusionProof(wrapSub(index, k), right), [root(left)]) }
+        let parts = halves(leaves, k)
+        if index < k { listConcat(inclusionProof(index, parts.left), [root(parts.right)]) }
+        else { listConcat(inclusionProof(wrapSub(index, k), parts.right), [root(parts.left)]) }
     }
 
     /// PROOF(m, D) of RFC 9162 section 2.1.4.1 for prefix size `first`.
@@ -60,10 +62,9 @@ module Merkle {
     }
 
     fn proofStep(m, leaves, exact, k) = {
-        let left = sub(leaves, 0, k)
-        let right = sub(leaves, k, length(leaves))
-        if m <= k { listConcat(subProof(m, left, exact), [root(right)]) }
-        else { listConcat(subProof(wrapSub(m, k), right, false), [root(left)]) }
+        let parts = halves(leaves, k)
+        if m <= k { listConcat(subProof(m, parts.left, exact), [root(parts.right)]) }
+        else { listConcat(subProof(wrapSub(m, k), parts.right, false), [root(parts.left)]) }
     }
 
     fn span(start, width, hash) = Span { start: start, width: width, shared: false, hash: hash }

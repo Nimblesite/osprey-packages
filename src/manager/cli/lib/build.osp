@@ -23,7 +23,6 @@ module Build {
     let manifestCode = "build.manifest"
     let overridesCode = "build.overrides-active"
     let noLocalLockCode = "build.no-local-lock"
-    let remediation = "run `lock --local` to write osprey.local.lock"
     let defaultCompiler = "osprey"
     let runFlag = "--run"
     let releaseFlag = "--release"
@@ -155,10 +154,8 @@ module Build {
     } else { releaseVerified(cmd) }
 
     /// The development build: `osprey.local.lock`, verified, locals from their checkouts.
-    fn localBuild(cmd) = match Project::readLocalLockAt(cmd.project) {
-        Error { message } => Reports::failure(["${noLocalLockCode} ${message}", remediation])
-        Success { value } => afterVerify(Verify::verifyLocalAt(cmd.project), cmd, Success { value: value })
-    }
+    fn localBuild(cmd) = Verify::withLocalLockAt(cmd.project, noLocalLockCode, fn(value) =>
+        afterVerify(Verify::verifyLocalAt(cmd.project), cmd, Success { value: value }))
 
     fn withOverlay(cmd, mappings) = if cmd.release { releaseBuild(cmd, mappings) }
         else if Overlay::active(mappings) { localBuild(cmd) }

@@ -152,6 +152,8 @@ module PythonTests {
 
     fn verifyReads(uvLock) = planeReads(expectedPyproject(), uvLock)
 
+    fn verifyOffline(reads, walks) = RegistryFixture::runWith(reads, walks, [], ["verify", "--offline", "--project", project])
+
     fn tamperedInput(command, projectText, uvLock, code) = {
         let a = RegistryFixture::runWith(planeReads(projectText, uvLock), [installedWalk(), venvWalk()], [], [command, "--project", project])
         checkAll("${command} rejects ${code} before running uv: ${observed(a)}", [
@@ -168,7 +170,7 @@ module PythonTests {
 
     /// `verify --offline` regenerates, compares, checks the environment and runs the offline check.
     fn verifyClean() = {
-        let a = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk(), venvWalk()], [], ["verify", "--offline", "--project", project])
+        let a = verifyOffline(verifyReads(uvLockText()), [installedWalk(), venvWalk()])
         checkAll("a pinned plane verifies with one offline uv check: ${observed(a)}", [
             RegistryFixture::reported(a, 0, "verified 1 packages"),
             ranUv(a, "lock --check --offline")
@@ -177,8 +179,8 @@ module PythonTests {
 
     /// A changed `uv.lock` and a missing environment are their codes.
     fn verifyFindings() = {
-        let stale = RegistryFixture::runWith(verifyReads("# edited\n"), [installedWalk(), venvWalk()], [], ["verify", "--offline", "--project", project])
-        let noEnv = RegistryFixture::runWith(verifyReads(uvLockText()), [installedWalk()], [], ["verify", "--offline", "--project", project])
+        let stale = verifyOffline(verifyReads("# edited\n"), [installedWalk(), venvWalk()])
+        let noEnv = verifyOffline(verifyReads(uvLockText()), [installedWalk()])
         checkAll("python.uv-lock-stale and python.environment-missing: stale ${observed(stale)} noEnv ${observed(noEnv)}", [
             RegistryFixture::reported(stale, 1, "python.uv-lock-stale"),
             isEmpty(RegistryFixture::ranOf(stale)),
