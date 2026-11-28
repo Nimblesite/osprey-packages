@@ -14,17 +14,14 @@ module Shell {
 
     export fn licenseBadge(expression) = "<span class=\"prose-license\" aria-label=\"License\">${escape(expression)}</span>"
 
-    fn documentName(item) = escape(jsonText(jsonField(item, "path") ?: JsonNull) ?: "")
+    /// The escaped text of the string member `key` of a notice `item`.
+    fn noticeText(item, key) = escape(jsonText(jsonField(item, key) ?: JsonNull) ?: "")
+
+    fn documentName(item) = noticeText(item, "path")
 
     fn documentText(item) = {
-        let text = escape(jsonText(jsonField(item, "text") ?: JsonNull) ?: "")
+        let text = noticeText(item, "text")
         replace(text, "\n", "&#10;") ?: text
-    }
-
-    fn licenseDocument(item) = "<h4>${documentName(item)}</h4><pre>${documentText(item)}</pre>"
-
-    export fn releaseLicense(expression, items) = if isEmpty(items) { licenseBadge(expression) } else {
-        "<details class=\"prose-notice prose-notices\"><summary>${licenseBadge(expression)} Read license</summary>${join(mapList(items, licenseDocument), "")}</details>"
     }
 
     export fn licenseLink(expression, href) = "<a class=\"prose-license\" href=\"${href}\" aria-label=\"Read license\">${escape(expression)}</a>"

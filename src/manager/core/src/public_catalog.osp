@@ -10,6 +10,7 @@ module PublicCatalog {
     export fn text(doc, key) = jsonText(field(doc, key)) ?: ""
     fn validWarning(item) = trim(jsonText(item) ?: "") != ""
     export fn number(doc, key) = jsonInt(field(doc, key)) ?: 0
+    fn allOf(items, ok) = foldList(items, true, fn(valid, item) => valid && ok(item))
     export fn notices(release) = match field(release, "notices") {
         JsonArray(items) => items
         _ => []
@@ -21,7 +22,7 @@ module PublicCatalog {
     }
 
     fn noticesOk(release) = match field(release, "notices") {
-        JsonArray(items) => length(items) <= 9 && foldList(items, true, fn(ok, item) => ok && noticeOk(item))
+        JsonArray(items) => length(items) <= 9 && allOf(items, noticeOk)
         _ => false
     }
 
@@ -36,7 +37,7 @@ module PublicCatalog {
         Error => false
     }
     fn validReleases(item) = match field(item, "releases") {
-        JsonArray(items) => !isEmpty(items) && foldList(items, true, fn(ok, r) => ok && validRelease(r))
+        JsonArray(items) => !isEmpty(items) && allOf(items, validRelease)
         _ => false
     }
     export fn keywords(item) = match field(item, "keywords") {
@@ -44,19 +45,19 @@ module PublicCatalog {
         _ => []
     }
     fn validKeywords(item) = match field(item, "keywords") {
-        JsonArray(items) => length(items) <= Names::keywordMax && foldList(keywords(item), true, fn(ok, k) => ok && Names::keywordOk(k))
+        JsonArray(items) => length(items) <= Names::keywordMax && allOf(keywords(item), Names::keywordOk)
             && Order::strictlyAscending(keywords(item))
         _ => false
     }
     export fn validEntry(item) = exact(item, 5) && validKeywords(item) && validReleases(item) && match Names::parse(text(item, "key")) {
         Error => false
         Success => trim(text(item, "summary")) != "" && match field(item, "warnings") {
-            JsonArray(values) => foldList(values, true, fn(ok, value) => ok && validWarning(value))
+            JsonArray(values) => allOf(values, validWarning)
             _ => false
         }
     }
     fn entries(doc) = match field(doc, "packages") {
-        JsonArray(items) => if exact(doc, 1) && foldList(items, true, fn(ok, item) => ok && validEntry(item)) {
+        JsonArray(items) => if exact(doc, 1) && allOf(items, validEntry) {
             Success { value: items }
         } else { Error { message: "catalog.invalid-projection" } }
         _ => Error { message: "catalog.invalid-projection" }

@@ -205,7 +205,7 @@ module Lockfile {
 
     fn readRequirement(object) = keyedEpoch(object, readReqFloor)
 
-    fn readReqFloor(object, key, epoch) = intField(object, "minimumOrdinal", fn(value) => Success { value: ManifestModel::Requirement { package: key, epoch: epoch, minimumOrdinal: value } })
+    fn readReqFloor(object, key, epoch) = intField(object, "minimumOrdinal", fn(value) => Success { value: ManifestModel::requirement(key, epoch, value) })
 
     // The variant is chosen by the union member key; any other name is `lock.shape`.
     fn readEdgeNamed(kind, requirement) = match kind {
@@ -216,8 +216,8 @@ module Lockfile {
     }
 
     fn firstMember(object) = match object {
-        Json::Obj { members } => listGet(members, 0) ?: Json::Member { key: "", value: Json::Null }
-        _ => Json::Member { key: "", value: Json::Null }
+        Json::Obj { members } => Json::firstMember(members)
+        _ => Json::blankMember()
     }
 
     // `Json::Member` shares `key`/`value` with other records; the member is

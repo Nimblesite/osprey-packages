@@ -107,7 +107,10 @@ module TomlTree {
         false => Error { message: Toml::failSpan(seg.span, tomlNotATable) }
     }
 
-    fn dropSeg(segs) = range(1, length(segs)) |> map(fn(i) => listGet(segs, i) ?: TomlValues::missingKeySeg) |> toList
+    /// Segments `from` (inclusive) to `to` (exclusive); a hole reads as the missing segment.
+    fn segsBetween(segs, from, to) = range(from, to) |> map(fn(i) => listGet(segs, i) ?: TomlValues::missingKeySeg) |> toList
+
+    fn dropSeg(segs) = segsBetween(segs, 1, length(segs))
 
     fn knownArray(arrays, path) = foldList(arrays, false, fn(found, candidate) => found || structuralEquals(candidate, path))
     fn keyPath(parent, seg) = listAppend(parent.path, Key { name: seg.name })
@@ -137,7 +140,7 @@ module TomlTree {
         andThen(descendParent(parent, arrays, listGet(segs, 0) ?: TomlValues::missingKeySeg), fn(value) => headerParent(value, arrays, dropSeg(segs)))
     }
 
-    fn parentSegs(segs) = range(0, length(segs) - 1) |> map(fn(i) => listGet(segs, i) ?: TomlValues::missingKeySeg) |> toList
+    fn parentSegs(segs) = segsBetween(segs, 0, length(segs) - 1)
     fn withTable(parent, table, focus, arrays) = Doc { root: setTableAt(parent.root, parent.path, table), focus: focus, arrays: arrays }
 
     fn tableHeader(doc, parent, seg) = andThen(defineLeaf(tableAt(parent.root, parent.path), seg), fn(value) => Success { value: withTable(parent, value, keyPath(parent, seg), doc.arrays) })

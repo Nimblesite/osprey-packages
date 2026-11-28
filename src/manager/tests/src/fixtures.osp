@@ -35,6 +35,12 @@ module Fixtures {
     /// The texts of member `key` of the fixture at `name`.
     export fn loadTexts(name, key) = textsOf(load(name), key)
 
+    /// Compare `run(input)` with its expected output for every table row.
+    export fn mapsTo(inputs, expected, run) = structuralEquals(mapList(inputs, run), expected)
+
+    /// Decimal byte lists for compact binary goldens.
+    export fn ints(xs) = join(mapList(xs, fn(b) => "${b}"), ",")
+
     /// The cases for which `run` is false.
     export fn failures(cases, run) = foldList(cases, [], fn(bad, case) => if run(case) { bad } else { listAppend(bad, case) })
 

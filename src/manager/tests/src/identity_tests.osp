@@ -15,10 +15,8 @@ module IdentityTests {
     let hex = "7c4a8d09ca3762af61e59520943dc26494f8941b7c4a8d09ca3762af61e59520"
     let digest = "sha256:7c4a8d09ca3762af61e59520943dc26494f8941b7c4a8d09ca3762af61e59520"
 
-    fn ints(xs) = join(mapList(xs, fn(b) => "${b}"), ",")
-
-    fn code(result) = match result {
-        Success => ""
+    fn digestShown(text) = match Digests::parse(text) {
+        Success { value } => value
         Error { message } => message
     }
 
@@ -28,35 +26,32 @@ module IdentityTests {
     }
 
     fn digests() = checkAll("digest envelopes carry one algorithm and 64 lowercase hex digits", [
-        (Digests::parse(digest) ?: "") == digest,
-        code(Digests::parse("sha512:${hex}")) == badDigest,
-        code(Digests::parse(hex)) == badDigest,
-        code(Digests::parse("sha256:${take(hex, 63)}")) == "digest.length",
-        code(Digests::parse("sha256:${toUpperCase(hex)}")) == "digest.hex",
-        code(Digests::parse("sha256:${take(hex, 63)}g")) == "digest.hex",
+        Fixtures::mapsTo([
+            digest, "sha512:${hex}", hex, "sha256:${take(hex, 63)}",
+            "sha256:${toUpperCase(hex)}", "sha256:${take(hex, 63)}g"
+        ], [digest, badDigest, badDigest, "digest.length", "digest.hex", "digest.hex"], digestShown),
         structuralEquals([Digests::format([0, 255]), Digests::algorithmName()], ["sha256:00ff", "sha256"]),
-        ints(Digests::preimage("d", [9])) == "100,0,0,0,0,0,0,0,0,1,9",
-        ints(Digests::preimage("", [])) == "0,0,0,0,0,0,0,0,0",
+        Fixtures::ints(Digests::preimage("d", [9])) == "100,0,0,0,0,0,0,0,0,1,9",
+        Fixtures::ints(Digests::preimage("", [])) == "0,0,0,0,0,0,0,0,0",
         Digests::hexOf(digest) == hex
     ])
 
     fn displayForms() = checkAll("release ids round-trip and reject every malformed part", [
-        shown("@finch/ledger@e3.r42#${digest}") == "@finch/ledger@e3.r42#${digest}",
-        shown("@finch/ledger@e1.r1#${digest}") == "@finch/ledger@e1.r1#${digest}",
-        shown("@finch/ledger@e3.r42") == "release.missing-digest",
-        shown("@finch/ledger@e3.r42#${digest}#x") == "release.missing-digest",
-        shown("@finch/ledger@e3.r42#sha1:${hex}") == badDigest,
-        shown("@finch/ledger#${digest}") == "release.missing-version",
-        shown("@finch/ledger@3.r42#${digest}") == "release.version",
-        shown("@finch/ledger@e3r42#${digest}") == "release.version",
-        shown("@finch/ledger@e3.r42.x#${digest}") == badOrdinal,
-        shown("@finch/ledger@e0.r42#${digest}") == "release.epoch",
-        shown("@finch/ledger@e03.r42#${digest}") == "release.epoch",
-        shown("@finch/ledger@e3.r0#${digest}") == badOrdinal,
-        shown("@finch/ledger@e3.r+4#${digest}") == badOrdinal,
-        shown("@finch/ledger@e3.rx#${digest}") == badOrdinal,
-        shown("@Finch/ledger@e3.r42#${digest}") == "name.scope.chars",
-        shown("finch/ledger@e3.r42#${digest}") == "name.missing-at"
+        Fixtures::mapsTo([
+            "@finch/ledger@e3.r42#${digest}", "@finch/ledger@e1.r1#${digest}",
+            "@finch/ledger@e3.r42", "@finch/ledger@e3.r42#${digest}#x",
+            "@finch/ledger@e3.r42#sha1:${hex}", "@finch/ledger#${digest}",
+            "@finch/ledger@3.r42#${digest}", "@finch/ledger@e3r42#${digest}",
+            "@finch/ledger@e3.r42.x#${digest}", "@finch/ledger@e0.r42#${digest}",
+            "@finch/ledger@e03.r42#${digest}", "@finch/ledger@e3.r0#${digest}",
+            "@finch/ledger@e3.r+4#${digest}", "@finch/ledger@e3.rx#${digest}",
+            "@Finch/ledger@e3.r42#${digest}", "finch/ledger@e3.r42#${digest}"
+        ], [
+            "@finch/ledger@e3.r42#${digest}", "@finch/ledger@e1.r1#${digest}",
+            "release.missing-digest", "release.missing-digest", badDigest, "release.missing-version",
+            "release.version", "release.version", badOrdinal, "release.epoch", "release.epoch",
+            badOrdinal, badOrdinal, badOrdinal, "name.scope.chars", "name.missing-at"
+        ], shown)
     ])
 
     fn id(scope, name, epoch, ordinal, d) = Identity::ReleaseId { key: Names::Key { scope: scope, name: name }, epoch: epoch, ordinal: ordinal, digest: d }
@@ -83,17 +78,16 @@ module IdentityTests {
         checkAll("every H(d, x) domain is spelled as spec 0031 writes it, once", [
             structuralEquals([length(all), length(Order::canonicalSet(all) ?: [])], [26, 26]),
             foldList(all, true, fn(ok, d) => ok && startsWith(d, "osprey.") && endsWith(d, ".v1")),
-            Domains::manifestDomain() == "osprey.manifest.v1",
-            Domains::buildPlanDomain() == "osprey.build-plan.v1",
-            Domains::releaseDomain() == "osprey.release.v1",
-            Domains::releaseLockDomain() == "osprey.release-lock.v1",
-            Domains::developmentLockDomain() == "osprey.development-lock.v1",
-            Domains::logCheckpointRecordDomain() == "osprey.log-checkpoint-record.v1",
-            Domains::developmentBuildReceiptDomain() == "osprey.development-build-receipt.v1",
-            Domains::releaseStatusDomain() == "osprey.release-status.v1",
-            Domains::envelopeDomain() == "osprey.envelope.v1",
-            Domains::webAuthnDomain() == "osprey.webauthn.v1",
-            Domains::sourceTreeDomain() == "osprey.source.v1"
+            Fixtures::mapsTo([
+                Domains::manifestDomain, Domains::buildPlanDomain, Domains::releaseDomain,
+                Domains::releaseLockDomain, Domains::developmentLockDomain, Domains::logCheckpointRecordDomain,
+                Domains::developmentBuildReceiptDomain, Domains::releaseStatusDomain, Domains::envelopeDomain,
+                Domains::webAuthnDomain, Domains::sourceTreeDomain
+            ], [
+                "osprey.manifest.v1", "osprey.build-plan.v1", "osprey.release.v1", "osprey.release-lock.v1",
+                "osprey.development-lock.v1", "osprey.log-checkpoint-record.v1", "osprey.development-build-receipt.v1",
+                "osprey.release-status.v1", "osprey.envelope.v1", "osprey.webauthn.v1", "osprey.source.v1"
+            ], fn(domain) => domain())
         ])
     }
 

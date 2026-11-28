@@ -58,16 +58,10 @@ module SchemaCheck {
     /// `T`, `:` and `.`, closed by `Z`.
     let dateTimeRuns = [4, 2, 2, 2, 2, 2, 3]
     let dateTimeSeparators = [45, 45, 84, 58, 58, 46, 90]
-    /// `8-4-4-4-12` hex runs joined by `-`.
-    let uuidRuns = [8, 4, 4, 4, 12]
-    let uuidSeparators = [45, 45, 45, 45]
+    fn dateTimeShape(text) = runsFrom(text, digitsOk, dateTimeRuns, dateTimeSeparators, 0, 0)
 
-    fn dateTimeShape(text) = runsOk(text, digitsOk, dateTimeRuns, dateTimeSeparators)
-
-    /// True when `text` is exactly one `check`ed run per `runs` entry, each
-    /// followed by its `separators` byte, and nothing more.
-    fn runsOk(text, check, runs, separators) = runsFrom(text, check, runs, separators, 0, 0)
-
+    /// True when `text` from `from` is exactly one `check`ed run per remaining
+    /// `runs` entry, each followed by its `separators` byte, and nothing more.
     fn runsFrom(text, check, runs, separators, from, i) = match listGet(runs, i) {
         Error => from == byteLength(text)
         Success { value } => check(text, from, from + value) && afterRun(text, check, runs, separators, from + value, i)
@@ -97,9 +91,7 @@ module SchemaCheck {
     /// `schema.datetime`. Implements [PACKAGE-TYPE-INVARIANTS].
     export fn dateTimeCode(text) = if dateTimeShape(text) { dateTimeRange(text) } else { dateTimeFailure }
 
-    fn hexOk(text, from, to) = Bytes::lowerHexBetween(text, from, to)
-
-    fn uuidCode(text) = if runsOk(text, hexOk, uuidRuns, uuidSeparators) { "" } else { uuidFailure }
+    fn uuidCode(text) = if Bytes::canonicalUuid(text) { "" } else { uuidFailure }
 
     /// `code` for a string value through `check`; another kind is `notString`.
     fn textCodeOk(value, check) = match value {
@@ -210,7 +202,7 @@ module SchemaCheck {
     })
 
     fn validateVariantMember(model, variants, members, pointer) = {
-        let member = listGet(members, 0) ?: Json::Member { key: "", value: Json::Null }
+        let member = Json::firstMember(members)
         match variantNamed(variants, member.key) {
             Error => err(unknownVariant, child(pointer, member.key))
             Success { value } => validateStruct(model, value.payload, member.value, child(pointer, member.key))

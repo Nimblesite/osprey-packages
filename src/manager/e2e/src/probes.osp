@@ -26,6 +26,8 @@ module Probes {
     /// One observation; the run passes when `actual` equals `expected`.
     export type Probe = { label: string, expected: string, actual: string }
 
+    fn observation(label, expected, actual) = Probe { label: label, expected: expected, actual: actual }
+
     let port = 18797
     let base = "http://127.0.0.1:18797"
     let work = ".osprey/e2e"
@@ -38,6 +40,9 @@ module Probes {
 
     /// The client against the served registry for the project at `dir`, with `words` before the flags.
     fn against(dir, words) = Dispatch::run(listConcat(words, ["--registry", base, "--project", dir]))
+
+    /// `verify --offline` of the project at `dir`, against the installed trees only.
+    fn verifyOffline(dir) = Dispatch::run(["verify", "--offline", "--project", dir])
 
     fn configured(key, fallback) = {
         let value = trim(sh("printenv ${Host::shellWord(key)}").stdout)
@@ -94,31 +99,27 @@ module Probes {
 
     fn replied(r: Host::Reply) = "${r.status} ${r.etag} ${r.body}"
 
-    fn exchange(catalog, path) = Probe {
-        label: "GET ${path} equals the router byte for byte",
-        expected: rendered(Router::respond(catalog, "GET", path)),
-        actual: match perform Host::Web.get(base, path) {
+    fn exchange(catalog, path) = observation("GET ${path} equals the router byte for byte",
+        rendered(Router::respond(catalog, "GET", path)),
+        match perform Host::Web.get(base, path) {
             Success { value } => replied(value)
             Error { message } => message
-        }
-    }
+        })
 
     fn paths(catalog) = listConcat(
         ["/v1/health", "/v1/packages", "/v1/packages/demo/maths", "/v1/packages/@demo/report", "/v1/packages/demo/missing", "/v1/nowhere",
          "/v1/releases/sha256:0000000000000000000000000000000000000000000000000000000000000000"],
         foldList(Release::servedOf(catalog), [], fn(out, s) => listConcat(out, ["/v1/releases/${Release::digestOf(s)}", "/v1/releases/${Release::digestOf(s)}/source"])))
 
-    fn fetched(target) = Probe { label: "fetch ${target}", expected: "0", actual: "${Fetch::run([target, "--registry", base]).status}" }
+    fn fetched(target) = observation("fetch ${target}", "0", "${Fetch::run([target, "--registry", base]).status}")
 
     fn installedDir(s: Release::Served) = ".osprey/packages/${Names::display(s.id.key)}/${Digests::hexOf(s.id.digest)}"
 
     fn fileTexts(s: Release::Served, read) = join(mapList(s.files, fn(f) => read(f)), "\n--\n")
 
-    fn installed(s) = Probe {
-        label: "installed ${installedDir(s)} is byte-identical to the served release",
-        expected: fileTexts(s, fn(f) => f.content),
-        actual: fileTexts(s, fn(f) => readFile("${installedDir(s)}/${f.relPath}") ?: "<missing ${f.relPath}>")
-    }
+    fn installed(s) = observation("installed ${installedDir(s)} is byte-identical to the served release",
+        fileTexts(s, fn(f) => f.content),
+        fileTexts(s, fn(f) => readFile("${installedDir(s)}/${f.relPath}") ?: "<missing ${f.relPath}>"))
 
     fn consumerDir(cwd) = "${cwd}/${work}/consumer"
 
@@ -161,10 +162,10 @@ module Probes {
         let relative = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", "${work}/consumer"])
         let absolute = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", consumerDir(cwd)])
         [
-            Probe { label: "bare build compiles the consumer", expected: "0", actual: "${bare.status}" },
-            Probe { label: "bare build --run executes the consumer", expected: consumerLine, actual: firstLine(run) },
-            Probe { label: "relative --project executes the consumer", expected: consumerLine, actual: firstLine(relative) },
-            Probe { label: "absolute --project executes the consumer", expected: consumerLine, actual: firstLine(absolute) }
+            observation("bare build compiles the consumer", "0", "${bare.status}"),
+            observation("bare build --run executes the consumer", consumerLine, firstLine(run)),
+            observation("relative --project executes the consumer", consumerLine, firstLine(relative)),
+            observation("absolute --project executes the consumer", consumerLine, firstLine(absolute))
         ]
     }
 
@@ -212,12 +213,12 @@ module Probes {
         let absolute = runBuild(cwd, ["--compiler", compiler(cwd), "--run", "--project", outside])
         let cleaned = sh("rm -rf ${Host::shellWord(outside)}")
         [
-            Probe { label: "Python project setup", expected: "0 0", actual: "${setupResult(prepared)} ${setupResult(external)}" },
-            Probe { label: "bare Python build", expected: "0", actual: "${bare.status}" },
-            Probe { label: "bare Python build --run", expected: pythonBuildLine, actual: firstLine(run) },
-            Probe { label: "relative Python --project", expected: pythonBuildLine, actual: firstLine(relative) },
-            Probe { label: "absolute Python project outside cwd", expected: pythonBuildLine, actual: firstLine(absolute) },
-            Probe { label: "temporary Python project cleanup", expected: "0", actual: "${cleaned.status}" }
+            observation("Python project setup", "0 0", "${setupResult(prepared)} ${setupResult(external)}"),
+            observation("bare Python build", "0", "${bare.status}"),
+            observation("bare Python build --run", pythonBuildLine, firstLine(run)),
+            observation("relative Python --project", pythonBuildLine, firstLine(relative)),
+            observation("absolute Python project outside cwd", pythonBuildLine, firstLine(absolute)),
+            observation("temporary Python project cleanup", "0", "${cleaned.status}")
         ]
     }
 
@@ -226,7 +227,7 @@ module Probes {
         let created = sh("mktemp -d")
         if created.status == 0 && startsWith(trim(created.stdout), "/") && trim(created.stdout) != "/" {
             pythonBuildRuns(cwd, trim(created.stdout))
-        } else { [Probe { label: "temporary Python project", expected: "0", actual: "${created.status}: ${created.stderr}" }] }
+        } else { [observation("temporary Python project", "0", "${created.status}: ${created.stderr}")] }
     }
 
     /// The consumer flow of [PACKAGE-FOLDER-REGISTRY]: `lock` writes the
@@ -238,13 +239,13 @@ module Probes {
         let _main = perform Host::Files.write("${dir}/src/main.osp", readFile("${managerDir}/e2e/consumer/src/main.osp") ?: "")
         let locked = against(dir, ["lock"])
         let _fetched = against(dir, ["fetch"])
-        let verified = Dispatch::run(["verify", "--offline", "--project", dir])
+        let verified = verifyOffline(dir)
         let built = buildProcess(cwd)(fn() => Dispatch::run(["build", "--compiler", compiler(cwd), "--run", "--project", dir]))
         [
-            Probe { label: "consumer lock bytes match the fixture", expected: fixtureLockText(), actual: readFile("${dir}/osprey.lock") ?: "" },
-            Probe { label: "consumer lock prints + lines", expected: expectedPlus(newest(catalog)), actual: joinedPlus(locked) },
-            Probe { label: "consumer verify reports the package count", expected: "verified 3 packages", actual: firstLine(verified) },
-            Probe { label: "consumer project builds and runs", expected: consumerLine, actual: firstLine(built) }
+            observation("consumer lock bytes match the fixture", fixtureLockText(), readFile("${dir}/osprey.lock") ?: ""),
+            observation("consumer lock prints + lines", expectedPlus(newest(catalog)), joinedPlus(locked)),
+            observation("consumer verify reports the package count", "verified 3 packages", firstLine(verified)),
+            observation("consumer project builds and runs", consumerLine, firstLine(built))
         ]
     }
 
@@ -306,7 +307,7 @@ module Probes {
         let made = sh("ln -s ${Host::shellWord(dir + "/osprey_consumer_probe.py")} ${Host::shellWord(link)}")
         let rejected = against(dir, ["fetch"])
         let removed = sh("rm -f ${Host::shellWord(link)}")
-        Probe { label: "Python mirror rejects symbolic links", expected: "0 1 0", actual: "${made.status} ${rejected.status} ${removed.status}" }
+        observation("Python mirror rejects symbolic links", "0 1 0", "${made.status} ${rejected.status} ${removed.status}")
     }
 
     /// With uv on the host: sync preserves every installed source byte and verifies offline.
@@ -314,24 +315,24 @@ module Probes {
         let before = pythonFiles(dir)
         let fetched = against(dir, ["fetch"])
         let unchanged = samePythonFiles(before, pythonFiles(dir))
-        let verified = Dispatch::run(["verify", "--offline", "--project", dir])
+        let verified = verifyOffline(dir)
         let imported = sh("${Host::shellWord(dir + "/.osprey/python/.venv/bin/python")} -c ${Host::shellWord("import osprey_consumer_probe; print(osprey_consumer_probe.answer())")}")
         [
-            Probe { label: "python consumer lock pins the uv plane", expected: "python: locked ${dir}/.osprey/python", actual: lastLine(locked) },
-            Probe { label: "python consumer lock carries root.python", expected: "true", actual: "${pythonPinned(dir)}" },
-            Probe { label: "python consumer fetch succeeds", expected: "0", actual: "${fetched.status}" },
-            Probe { label: "python build preserves canonical source files", expected: "true", actual: "${unchanged}" },
-            Probe { label: "python build preserves root source files", expected: "true", actual: "${samePythonFiles(original, rootPythonFiles(dir))}" },
-            Probe { label: "Python import survives mirror cleanup", expected: "0 42", actual: "${imported.status} ${trim(imported.stdout)}" },
-            Probe { label: "python consumer verifies offline", expected: "verified 1 packages", actual: firstLine(verified) },
+            observation("python consumer lock pins the uv plane", "python: locked ${dir}/.osprey/python", lastLine(locked)),
+            observation("python consumer lock carries root.python", "true", "${pythonPinned(dir)}"),
+            observation("python consumer fetch succeeds", "0", "${fetched.status}"),
+            observation("python build preserves canonical source files", "true", "${unchanged}"),
+            observation("python build preserves root source files", "true", "${samePythonFiles(original, rootPythonFiles(dir))}"),
+            observation("Python import survives mirror cleanup", "0 42", "${imported.status} ${trim(imported.stdout)}"),
+            observation("python consumer verifies offline", "verified 1 packages", firstLine(verified)),
             rejectedPythonLink(dir)
         ]
     }
 
     /// Without uv: `lock` refuses with the shell's status for a missing command and writes no lock.
     fn withoutUv(dir, locked) = [
-        Probe { label: "python consumer lock without uv is python.uv-lock-failed", expected: "python.uv-lock-failed status 127", actual: firstLine(locked) },
-        Probe { label: "python consumer lock without uv writes no lock", expected: "<none>", actual: readFile("${dir}/osprey.lock") ?: "<none>" }
+        observation("python consumer lock without uv is python.uv-lock-failed", "python.uv-lock-failed status 127", firstLine(locked)),
+        observation("python consumer lock without uv writes no lock", "<none>", readFile("${dir}/osprey.lock") ?: "<none>")
     ]
 
     /// A consumer of `@demo/pyadd`, which declares `python/interop`: the outcome
@@ -349,7 +350,7 @@ module Probes {
     /// `doctor` names uv's path, or says it is missing and who needs it.
     fn doctorUv() = {
         let found = uvFound()
-        Probe { label: "doctor reports uv as a path or as guidance", expected: if found.status == 0 { "uv: ${trim(found.stdout)}" } else { uvGuidance }, actual: listGet(Dispatch::run(["doctor"]).lines, 3) ?: "" }
+        observation("doctor reports uv as a path or as guidance", if found.status == 0 { "uv: ${trim(found.stdout)}" } else { uvGuidance }, listGet(Dispatch::run(["doctor"]).lines, 3) ?: "")
     }
 
     /// The newest release of each package: the ones `fetch @scope/name` installs.
@@ -359,7 +360,7 @@ module Probes {
     fn stop() = {
         let _killed = sh("kill $(cat ${work}/server.pid)")
         let _slept = sh("sleep 0.5")
-        Probe { label: "server stops", expected: "false", actual: "${healthy()}" }
+        observation("server stops", "false", "${healthy()}")
     }
 
     fn projects(cwd, catalog) = listConcat(consumer(cwd, catalog), listConcat(buildPaths(cwd), listConcat(pythonBuildPaths(cwd), listConcat(pythonConsumer(cwd), [doctorUv(), stop()]))))
@@ -382,7 +383,7 @@ module Probes {
         let catalog = catalogOf(cwd)
         let built = start(cwd)
         let up = awaitServer(0)
-        let header = [Probe { label: "server binary builds", expected: "0", actual: "${built}" }, Probe { label: "server answers on loopback", expected: "true", actual: "${up}" }]
+        let header = [observation("server binary builds", "0", "${built}"), observation("server answers on loopback", "true", "${up}")]
         if up { listConcat(header, running(cwd, catalog)) } else { listConcat(header, [stop()]) }
     }
 }

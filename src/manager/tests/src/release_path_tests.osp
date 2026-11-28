@@ -37,33 +37,34 @@ module ReleasePathTests {
     }
 
     fn accepts() = checkAll("release paths parse and round-trip", [
-        shown(ledgerRelease) == ledgerRelease,
-        structuralEquals([shown("@finch/ledger/1.1"), shown("@a1/b-2/1.1")], ["@finch/ledger/1.1", "@a1/b-2/1.1"]),
-        shown("@osprey/http/99.9223372036854775807") == "@osprey/http/99.9223372036854775807",
+        Fixtures::mapsTo([
+            ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
+        ], [
+            ledgerRelease, "@finch/ledger/1.1", "@a1/b-2/1.1", "@osprey/http/99.9223372036854775807"
+        ], shown),
         digestOf(ledgerRelease) == ""
     ])
 
     fn rejectsSegmentsAndNames() = checkAll("path and name rejections", [
-        structuralEquals([code(""), code("@finch/ledger")], [segmentsCode, segmentsCode]),
-        code("@finch/ledger/3.42/extra") == segmentsCode,
-        structuralEquals([code("/ledger/3.42"), code("finch/ledger/3.42")], ["name.missing-at", "name.missing-at"]),
-        code("@Finch/ledger/3.42") == "name.scope.chars",
-        structuralEquals([code("@finch/Ledger/3.42"), code("@/ledger/3.42")], ["name.name.chars", "name.scope.length"]),
-        code("@finch//3.42") == "name.name.length"
+        Fixtures::mapsTo([
+            "", "@finch/ledger", "@finch/ledger/3.42/extra", "/ledger/3.42", "finch/ledger/3.42",
+            "@Finch/ledger/3.42", "@finch/Ledger/3.42", "@/ledger/3.42", "@finch//3.42"
+        ], [
+            segmentsCode, segmentsCode, segmentsCode, "name.missing-at", "name.missing-at",
+            "name.scope.chars", "name.name.chars", "name.scope.length", "name.name.length"
+        ], code)
     ])
 
     fn rejectsVersions() = checkAll("version segment rejections", [
-        code("@finch/ledger/3") == versionCode,
-        code("@finch/ledger/3.42.1") == versionCode,
-        code("@finch/ledger/03.42") == epochCode,
-        code("@finch/ledger/3.042") == ordinalCode,
-        structuralEquals([code("@finch/ledger/.42"), code("@finch/ledger/3.")], [epochCode, ordinalCode]),
-        code("@finch/ledger/") == versionCode,
-        code("@finch/ledger/-3.42") == epochCode,
-        code("@finch/ledger/+3.42") == epochCode,
-        structuralEquals([code("@finch/ledger/3.4a"), code("@finch/ledger/0.1")], [ordinalCode, epochCode]),
-        code("@finch/ledger/1.0") == ordinalCode,
-        code("@finch/ledger/9223372036854775808") == versionCode
+        Fixtures::mapsTo([
+            "@finch/ledger/3", "@finch/ledger/3.42.1", "@finch/ledger/03.42",
+            "@finch/ledger/3.042", "@finch/ledger/.42", "@finch/ledger/3.", "@finch/ledger/",
+            "@finch/ledger/-3.42", "@finch/ledger/+3.42", "@finch/ledger/3.4a",
+            "@finch/ledger/0.1", "@finch/ledger/1.0", "@finch/ledger/9223372036854775808"
+        ], [
+            versionCode, versionCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode,
+            epochCode, epochCode, ordinalCode, epochCode, ordinalCode, versionCode
+        ], code)
     ])
 
     fn formatsWithDigest() = {

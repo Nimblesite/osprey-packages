@@ -26,6 +26,9 @@ module PublishTests {
 
     fn existingWalk() = Fixture::walkRoute("${folder}/@demo/one", ["1.1/osprey.toml", "1.1/src/main.osp", "1.2/osprey.toml", "1.2/src/main.osp"])
 
+    /// `publish --folder` over `reads` with no existing releases: a new package lands at 1.1.
+    fn publish(reads) = RegistryFixture::runWith(reads, [projectWalk()], [], ["publish", "--folder", folder, "--project", project])
+
     fn expectedDigest(dir) = Fixture::digestOf(Fixture::served(dir, files()))
 
     fn publishedAt(a, dir) = RegistryFixture::writtenTo(a, "${folder}/${dir}/osprey.toml") == manifestText()
@@ -51,7 +54,7 @@ module PublishTests {
     /// `--breaking` opens the next epoch; a new package starts at 1.1.
     fn epochs() = {
         let breaking = RegistryFixture::runWith(projectReads(), [projectWalk(), existingWalk()], [], ["publish", "--folder", folder, "--breaking", "--project", project])
-        let first = RegistryFixture::runWith(projectReads(), [projectWalk()], [], ["publish", "--folder", folder, "--project", project])
+        let first = publish(projectReads())
         checkAll("--breaking opens epoch 2; a new package is 1.1", [
             structuralEquals([RegistryFixture::statusOf(breaking), RegistryFixture::statusOf(first)], [0, 0]),
             publishedAt(breaking, "@demo/one/2.1"),
@@ -62,7 +65,7 @@ module PublishTests {
 
     /// No `[package]`, no `--folder`, and a tree the source rules refuse.
     fn refusals() = {
-        let plain = RegistryFixture::runWith([Fixture::readRoute("${project}/osprey.toml", RegistryFixture::manifestText("app"))], [projectWalk()], [], ["publish", "--folder", folder, "--project", project])
+        let plain = publish([Fixture::readRoute("${project}/osprey.toml", RegistryFixture::manifestText("app"))])
         let noFolder = RegistryFixture::runWith(projectReads(), [projectWalk()], [], ["publish", "--project", project])
         let badPython = RegistryFixture::runWith(listAppend(projectReads(), Fixture::readRoute("${project}/src/model.py", "print(1)\n")), [Fixture::walkRoute(project, ["osprey.toml", mainPath, "src/model.py"])], [], ["publish", "--folder", folder, "--project", project])
         checkAll("publish.no-package, publish.usage and the source rules refuse before writing", [
@@ -80,7 +83,7 @@ module PublishTests {
     fn rejectsRawExtern() = {
         let source = "extern fn puts(text: string) -> int\nfn hello() = puts(\"harmless FFI probe\")\n"
         let reads = [Fixture::readRoute("${project}/osprey.toml", manifestText()), Fixture::readRoute("${project}/src/main.osp", source)]
-        let a = RegistryFixture::runWith(reads, [projectWalk()], [], ["publish", "--folder", folder, "--project", project])
+        let a = publish(reads)
         checkAll("unclassified native externs are refused before registry writes", [
             RegistryFixture::statusOf(a) == 1,
             RegistryFixture::writesTo(a, "${folder}/@demo/one/1.1/osprey.toml") == 0,

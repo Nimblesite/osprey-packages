@@ -17,19 +17,23 @@ module NamesTests {
     fn longest(n) = repeat("a", n) ?: ""
 
     fn acceptsCanonicalKeys() = checkAll("canonical keys parse and round-trip", [
-        structuralEquals([shown("@finch/ledger"), shown("@osprey/http")], ["@finch/ledger", "@osprey/http"]),
-        structuralEquals([shown("@a1/b-2"), shown("@a/a--b")], ["@a1/b-2", "@a/a--b"]),
-        shown("@${longest(39)}/${longest(63)}") == "@${longest(39)}/${longest(63)}"
+        Fixtures::mapsTo([
+            "@finch/ledger", "@osprey/http", "@a1/b-2", "@a/a--b", "@${longest(39)}/${longest(63)}"
+        ], [
+            "@finch/ledger", "@osprey/http", "@a1/b-2", "@a/a--b", "@${longest(39)}/${longest(63)}"
+        ], shown)
     ])
 
     fn rejectsWithReasonCodes() = checkAll("every rejection names one stable reason code", [
-        structuralEquals([code("finch/ledger"), code("@finch")], ["name.missing-at", "name.unscoped-or-missing-slash"]),
-        structuralEquals([code("@finch/ledger/extra"), code("@/ledger")], ["name.extra-slash", "name.scope.length"]),
-        structuralEquals([code("@finch/"), code("@${longest(40)}/x")], ["name.name.length", "name.scope.length"]),
-        structuralEquals([code("@x/${longest(64)}"), code("@Finch/ledger")], ["name.name.length", "name.scope.chars"]),
-        structuralEquals([code("@finch/Ledger"), code("@finch/-ledger")], [badChars, badChars]),
-        structuralEquals([code("@finch-/ledger"), code("@finch/led_ger")], ["name.scope.chars", badChars]),
-        structuralEquals([code("@finch/lédger"), code("@finch/led ger")], [badChars, badChars])
+        Fixtures::mapsTo([
+            "finch/ledger", "@finch", "@finch/ledger/extra", "@/ledger", "@finch/",
+            "@${longest(40)}/x", "@x/${longest(64)}", "@Finch/ledger", "@finch/Ledger",
+            "@finch/-ledger", "@finch-/ledger", "@finch/led_ger", "@finch/lédger", "@finch/led ger"
+        ], [
+            "name.missing-at", "name.unscoped-or-missing-slash", "name.extra-slash", "name.scope.length",
+            "name.name.length", "name.scope.length", "name.name.length", "name.scope.chars",
+            badChars, badChars, "name.scope.chars", badChars, badChars, badChars
+        ], code)
     ])
 
     fn key(scope, name) = Names::Key { scope: scope, name: name }

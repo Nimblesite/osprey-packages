@@ -49,7 +49,7 @@ module Clauses {
     fn matches(entry: Resolution::Entry, req: ManifestModel::Requirement) = Names::same(entry.release.key, req.package) && entry.release.epoch == req.epoch && entry.release.ordinal >= req.minimumOrdinal
 
     /// Candidate variables whose release satisfies `req`.
-    fn matchingVars(entries, req) = foldList(indexes(entries), [], fn(acc, i) => if matches(Resolution::entryAt(entries, i), req) { listAppend(acc, i + 1) } else { acc })
+    fn matchingVars(entries, req) = Candidates::varsOf(entries, fn(e) => matches(e, req))
 
     /// Root edge clauses: OR of matching candidates per root edge, about the required key.
     fn rootClauses(graph, entries) = mapList(graph.rootDeps, fn(e) => tagged(matchingVars(entries, ManifestModel::requirementOf(e)), [ManifestModel::requirementKey(e)]))
@@ -73,8 +73,7 @@ module Clauses {
 
     /// Candidates of a key that carry a Runtime/Build edge to it; a selected
     /// release must be supported by a root edge or one of these.
-    fn supportersOf(entries, key) = foldList(indexes(entries), [], fn(acc, i) =>
-        if requires(Resolution::entryAt(entries, i), key) { listAppend(acc, i + 1) } else { acc })
+    fn supportersOf(entries, key) = Candidates::varsOf(entries, fn(e) => requires(e, key))
 
     fn rootSupports(graph, key) = Names::includes(ManifestModel::targets(graph.rootDeps), key)
 

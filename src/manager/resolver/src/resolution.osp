@@ -49,12 +49,17 @@ module Resolution {
 
     fn blankEdge() = ManifestModel::Runtime { requirement: ManifestModel::Requirement { package: Names::blank(), epoch: 0, minimumOrdinal: 0 } }
 
-    fn sortedEdges(edges) = {
-        let at = fn(i) => listGet(edges, i) ?: blankEdge()
-        mapList(Order::permutation(length(edges), fn(i, j) => compareEdges(at(i), at(j))), fn(i) => at(i))
+    /// `items` in `compare` order; a hole in the permutation reads as `fallback`.
+    export fn sortedBy(items, compare, fallback) = {
+        let at = fn(i) => listGet(items, i) ?: fallback
+        mapList(Order::permutation(length(items), fn(i, j) => compare(at(i), at(j))), at)
     }
 
-    fn sortedEntries(entries) = mapList(Order::permutation(length(entries), fn(i, j) => Identity::compare(releaseOf(entryAt(entries, i)), releaseOf(entryAt(entries, j)))), fn(i) => entryAt(entries, i))
+    fn sortedEdges(edges) = sortedBy(edges, compareEdges, blankEdge())
+
+    fn compareEntries(a, b) = Identity::compare(releaseOf(a), releaseOf(b))
+
+    fn sortedEntries(entries) = sortedBy(entries, compareEntries, blankEntry())
 
     fn canonicalEntry(e: Entry) = Entry { release: e.release, activation: e.activation, targets: e.targets, capabilities: e.capabilities, dependencies: sortedEdges(e.dependencies) }
 

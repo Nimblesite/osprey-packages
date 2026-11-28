@@ -30,29 +30,19 @@ module JsonRead {
     /// The texts of an array of strings.
     export fn texts(value) = mapList(items(value), text)
 
+    fn required(result, code) = Checked::mapError(result, fn(_reason) => code)
+
     /// The text of member `key`, or `code` when it is missing or another kind.
-    export fn requiredText(object, key, code) = match field(object, key) {
-        Json::Str { text } => Success { value: text }
-        _ => Error { message: code }
-    }
+    export fn requiredText(object, key, code) = required(Json::textAt(object, key), code)
 
     /// The integer of member `key`, or `code` when it is missing or another kind.
-    export fn requiredInt(object, key, code) = match field(object, key) {
-        Json::Num { value } => Success { value: value }
-        _ => Error { message: code }
-    }
+    export fn requiredInt(object, key, code) = required(Json::intAt(object, key), code)
 
     /// The object of member `key`, or `code` when it is missing or another kind.
-    export fn requiredObject(object, key, code) = match field(object, key) {
-        Json::Obj { members } => Success { value: Json::Obj { members: members } }
-        _ => Error { message: code }
-    }
+    export fn requiredObject(object, key, code) = required(Json::objectAt(object, key), code)
 
     /// The items of member `key`, or `code` when it is missing or another kind.
-    export fn requiredItems(object, key, code) = match field(object, key) {
-        Json::Arr { items } => Success { value: items }
-        _ => Error { message: code }
-    }
+    export fn requiredItems(object, key, code) = required(Json::itemsAt(object, key), code)
 
     /// The non-empty `/`-separated tokens of a path.
     export fn tokens(path) = filterList(split(path, "/") ?: [path], fn(t) => t != "")

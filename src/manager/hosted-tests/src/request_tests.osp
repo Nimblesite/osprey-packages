@@ -31,49 +31,70 @@ module RequestTests {
 
     fn verdict(method, uri, extra, body) = raw(method, uri, "X-Edge-Secret: s3cr3t-edge\r\nHost: api.example.test" + (if extra == "" { "" } else { "\r\n" + extra }), body)
 
-    fn admitted() = checkAll("request: clean requests admitted", [
-        match HostedRequest::admit(incoming("POST", "/v1/publish", "Host: api.example.test\r\nX-Edge-Secret: s3cr3t-edge", "release"), policy()) {
-            HostedHeaders::Ok { value } => value.method == "POST" && value.uri == "/v1/publish" && value.body == "release"
-            _ => false
-        },
-        verdict("GET", v1Packages, "", "") == "admitted",
-        verdict("GET", v1Packages, "Cookie: theme=1", "") == "admitted",
-        verdict("POST", "/v1/auth/logout", "Origin: https://packages.example.test\r\nCookie: session=abc\r\nX-Csrf-Token: csrf-tok", "") == "admitted"
-    ])
+    fn rawCase(c) = raw(c.method, c.uri, c.headers, c.body) == c.expected
+    fn verdictCase(c) = verdict(c.method, c.uri, c.extra, c.body) == c.expected
+    fn checkVerdicts(cases) = foldList(cases, true, fn(valid, c) => verdictCase(c) && valid)
 
-    fn edgeAndHost() = checkAll("request: edge secret and host gates", [
-        raw("GET", "/v1/health", "Host: api.example.test", "") == "403:req.edge-secret",
-        raw("GET", "/v1/health", "X-Edge-Secret: wrong\r\nHost: api.example.test", "") == "403:req.edge-secret",
-        raw("GET", "/v1/health", "X-Edge-Secret: s3cr3t-edge\r\nHost: run.app", "") == "421:req.host",
-        raw("GET", "/v1/health", "X-Edge-Secret: s3cr3t-edge", "") == "421:req.host"
-    ])
+    fn admitted() = {
+        let cases = [
+            { method: "GET", uri: v1Packages, extra: "", body: "", expected: "admitted" },
+            { method: "GET", uri: v1Packages, extra: "Cookie: theme=1", body: "", expected: "admitted" },
+            { method: "POST", uri: "/v1/auth/logout", extra: "Origin: https://packages.example.test\r\nCookie: session=abc\r\nX-Csrf-Token: csrf-tok", body: "", expected: "admitted" }
+        ]
+        checkAll("request: clean requests admitted", [
+            match HostedRequest::admit(incoming("POST", "/v1/publish", "Host: api.example.test\r\nX-Edge-Secret: s3cr3t-edge", "release"), policy()) {
+                HostedHeaders::Ok { value } => value.method == "POST" && value.uri == "/v1/publish" && value.body == "release"
+                _ => false
+            },
+            checkVerdicts(cases)
+        ])
+    }
 
-    fn shape() = checkAll("request: method, URI and body bounds", [
-        verdict("TRACE", "/v1/health", "", "") == "405:req.method",
-        verdict("post", v1Packages, "", "") == "405:req.method",
-        verdict("GET", "v1/health", "", "") == "400:req.uri",
-        verdict("GET", "/v1/a b", "", "") == "400:req.uri",
-        verdict("GET", "/${repeat("a", 2100) ?: ""}", "", "") == "414:req.uri",
-        verdict("POST", "/v1/publish", "Origin: https://packages.example.test\r\nContent-Length: 12", repeat("a", 2000) ?: "") == "413:req.body-size",
-        verdict("POST", "/v1/publish", "Origin: https://packages.example.test\r\nContent-Length: 1a", "") == contentLengthRefusal,
-        verdict("POST", v1Packages, "Content-Length: 003", "猫") == "admitted",
-        verdict("POST", v1Packages, "Content-Length: 1", "猫") == contentLengthRefusal,
-        verdict("POST", v1Packages, "Content-Length: 4", "abc") == contentLengthRefusal,
-        verdict("POST", v1Packages, "Content-Length: 999999999999999999999999", "") == contentLengthRefusal
-    ])
+    fn edgeAndHost() = {
+        let cases = [
+            { method: "GET", uri: "/v1/health", headers: "Host: api.example.test", body: "", expected: "403:req.edge-secret" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: wrong\r\nHost: api.example.test", body: "", expected: "403:req.edge-secret" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge\r\nHost: run.app", body: "", expected: "421:req.host" },
+            { method: "GET", uri: "/v1/health", headers: "X-Edge-Secret: s3cr3t-edge", body: "", expected: "421:req.host" }
+        ]
+        checkAll("request: edge secret and host gates", [foldList(cases, true, fn(valid, c) => rawCase(c) && valid)])
+    }
 
-    fn credentialed() = checkAll("request: credentialed origin and CSRF chain", [
-        verdict("POST", "/v1/publish", "Cookie: session=abc", "") == "403:req.origin-required",
-        verdict("POST", "/v1/publish", "Origin: https://evil.test\r\nCookie: session=abc", "") == "403:req.origin-mismatch",
-        verdict("POST", "/v1/publish", "Origin: https://packages.example.test\r\nCookie: session=abc\r\nX-Csrf-Token: nope", "") == "403:req.csrf-mismatch",
-        verdict("GET", "/v1/private", "Origin: https://packages.example.test\r\nCookie: session=abc", "") == "admitted",
-        verdict("POST", "/v1/publish", "Authorization: Bearer cli\r\nOrigin: https://evil.test", "") == "403:req.origin-mismatch"
-    ])
+    fn shape() = {
+        let cases = [
+            { method: "TRACE", uri: "/v1/health", extra: "", body: "", expected: "405:req.method" },
+            { method: "post", uri: v1Packages, extra: "", body: "", expected: "405:req.method" },
+            { method: "GET", uri: "v1/health", extra: "", body: "", expected: "400:req.uri" },
+            { method: "GET", uri: "/v1/a b", extra: "", body: "", expected: "400:req.uri" },
+            { method: "GET", uri: "/${repeat("a", 2100) ?: ""}", extra: "", body: "", expected: "414:req.uri" },
+            { method: "POST", uri: "/v1/publish", extra: "Origin: https://packages.example.test\r\nContent-Length: 12", body: repeat("a", 2000) ?: "", expected: "413:req.body-size" },
+            { method: "POST", uri: "/v1/publish", extra: "Origin: https://packages.example.test\r\nContent-Length: 1a", body: "", expected: contentLengthRefusal },
+            { method: "POST", uri: v1Packages, extra: "Content-Length: 003", body: "猫", expected: "admitted" },
+            { method: "POST", uri: v1Packages, extra: "Content-Length: 1", body: "猫", expected: contentLengthRefusal },
+            { method: "POST", uri: v1Packages, extra: "Content-Length: 4", body: "abc", expected: contentLengthRefusal },
+            { method: "POST", uri: v1Packages, extra: "Content-Length: 999999999999999999999999", body: "", expected: contentLengthRefusal }
+        ]
+        checkAll("request: method, URI and body bounds", [checkVerdicts(cases)])
+    }
 
-    fn cliBearer() = checkAll("request: CLI bearer requests need no browser challenge", [
-        verdict("POST", "/v1/publish", "Authorization: Bearer cli", "") == "admitted",
-        verdict("POST", "/v1/publish", "Authorization: Bearer cli", "x") == "admitted"
-    ])
+    fn credentialed() = {
+        let cases = [
+            { method: "POST", uri: "/v1/publish", extra: "Cookie: session=abc", body: "", expected: "403:req.origin-required" },
+            { method: "POST", uri: "/v1/publish", extra: "Origin: https://evil.test\r\nCookie: session=abc", body: "", expected: "403:req.origin-mismatch" },
+            { method: "POST", uri: "/v1/publish", extra: "Origin: https://packages.example.test\r\nCookie: session=abc\r\nX-Csrf-Token: nope", body: "", expected: "403:req.csrf-mismatch" },
+            { method: "GET", uri: "/v1/private", extra: "Origin: https://packages.example.test\r\nCookie: session=abc", body: "", expected: "admitted" },
+            { method: "POST", uri: "/v1/publish", extra: "Authorization: Bearer cli\r\nOrigin: https://evil.test", body: "", expected: "403:req.origin-mismatch" }
+        ]
+        checkAll("request: credentialed origin and CSRF chain", [checkVerdicts(cases)])
+    }
+
+    fn cliBearer() = {
+        let cases = [
+            { method: "POST", uri: "/v1/publish", extra: "Authorization: Bearer cli", body: "", expected: "admitted" },
+            { method: "POST", uri: "/v1/publish", extra: "Authorization: Bearer cli", body: "x", expected: "admitted" }
+        ]
+        checkAll("request: CLI bearer requests need no browser challenge", [checkVerdicts(cases)])
+    }
 
     /// The request gate in order: admission, edge secret and host, method,
     /// URI and body bounds, the credentialed origin/CSRF chain and CLI bearer requests.

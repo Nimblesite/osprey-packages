@@ -14,6 +14,10 @@ module Sat {
     /// by absolute value.
     export type Outcome = Satisfiable { model: List<int> } | Unsatisfiable { core: List<int>, learned: List<List<int>> }
 
+    export let sat = "sat"
+    export let unsat = "unsat"
+    let unknown = "unknown"
+
     fn solveOn(vars, clauses, assumptions) = match SatClauses::wellFormed(vars, listConcat(clauses, [assumptions])) {
         false => Error { message: "sat.bad-literal" }
         true => match SatSearch::search(vars, clauses, assumptions) {
@@ -33,6 +37,16 @@ module Sat {
     /// index `-(i+1)` alongside input clause indexes; replaying the core
     /// means taking those input clauses and the referenced assumptions.
     export fn assume(variableCount, clauses, assumptions) = solveOn(variableCount, clauses, assumptions)
+
+    /// `sat` or `unsat` for a completed search, `unknown` when it did not
+    /// finish: only a completed verdict is a proof.
+    export fn verdictOf(result) = match result {
+        Success { value } => match value {
+            Satisfiable { _ } => sat
+            Unsatisfiable { _ } => unsat
+        }
+        Error => unknown
+    }
 
     /// Oracle: every clause has a true literal under the model, the check a
     /// resolver or test applies to a returned model.

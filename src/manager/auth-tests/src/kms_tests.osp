@@ -34,22 +34,35 @@ module KmsTests {
 
     let sealedReply = "{\"ciphertext\":\"YQ==\"}"
 
-    fn expectedResponses() = checkAll("KMS sends padded base64 and accepts only ciphertext from a successful response", [
-        (seal(token, 200, sealedReply) ?: "") == "YQ==",
-        (seal(token, 302, sealedReply) ?: "denied") == "denied",
-        (seal(token, 200, "{\"ciphertext\":\"<bad>\"}") ?: "denied") == "denied",
-        (seal("{\"access_token\":\"fixture-token\"}", 200, sealedReply) ?: "denied") == "denied",
-        !LoginKms::validKey(key + "/cryptoKeyVersions/1"),
-        !LoginKms::validKey("projects/fixture/locations/global/keyRings/registry/cryptoKeys/../key")
-    ])
+    fn sealCase(c) = (seal(c.metadata, c.status, c.reply) ?: "denied") == c.expected
+    fn unsealCase(c) = (unseal(c.status, c.encoded) ?: "denied") == c.expected
 
-    fn expectedPlaintext() = checkAll("KMS accepts only a successful canonical encoded verifier", [
-        (unseal(200, clear) ?: "denied") == verifier,
-        (unseal(403, clear) ?: "denied") == "denied",
-        (unseal(200, replace(clear, "aw==", "ax==") ?: "") ?: "denied") == "denied",
-        (unseal(200, replace(clear, "ZEJq", "////") ?: "") ?: "denied") == "denied",
-        (unseal(200, replace(clear, "==", "") ?: "") ?: "denied") == "denied"
-    ])
+    fn expectedResponses() = {
+        let cases = [
+            { metadata: token, status: 200, reply: sealedReply, expected: "YQ==" },
+            { metadata: token, status: 302, reply: sealedReply, expected: "denied" },
+            { metadata: token, status: 200, reply: "{\"ciphertext\":\"<bad>\"}", expected: "denied" },
+            { metadata: "{\"access_token\":\"fixture-token\"}", status: 200, reply: sealedReply, expected: "denied" }
+        ]
+        checkAll("KMS sends padded base64 and accepts only ciphertext from a successful response", [
+            foldList(cases, true, fn(valid, c) => sealCase(c) && valid),
+            !LoginKms::validKey(key + "/cryptoKeyVersions/1"),
+            !LoginKms::validKey("projects/fixture/locations/global/keyRings/registry/cryptoKeys/../key")
+        ])
+    }
+
+    fn expectedPlaintext() = {
+        let cases = [
+            { status: 200, encoded: clear, expected: verifier },
+            { status: 403, encoded: clear, expected: "denied" },
+            { status: 200, encoded: replace(clear, "aw==", "ax==") ?: "", expected: "denied" },
+            { status: 200, encoded: replace(clear, "ZEJq", "////") ?: "", expected: "denied" },
+            { status: 200, encoded: replace(clear, "==", "") ?: "", expected: "denied" }
+        ]
+        checkAll("KMS accepts only a successful canonical encoded verifier", [
+            foldList(cases, true, fn(valid, c) => unsealCase(c) && valid)
+        ])
+    }
 
     fn failStore(_flow: string, _browser: string, _sealed: string) -> Result<string, string> = Error { message: "fixture.storage-failed" }
 
@@ -93,19 +106,15 @@ module KmsTests {
         }
     }
 
+    fn issueError(seal, save) = match HostedLogin::issue(oauth, verified, seal, save) {
+        Error { message } => message
+        Success => ""
+    }
+
     fn issuanceFailures() = checkAll("token sealing and a committed approved session are required before setting a cookie", [
-        match HostedLogin::issue(oauth, verified, sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "" }) {
-            Error { message } => message == HostedLogin::unapproved
-            Success => false
-        },
-        match HostedLogin::issue(oauth, verified, sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "invalid-receipt" }) {
-            Error { message } => message == HostedLogin::sessionUnavailable
-            Success => false
-        },
-        match HostedLogin::issue(oauth, verified, fn(_context, _session) => Error { message: "fixture.kms-offline" }, sessionStore) {
-            Error { message } => message == "fixture.kms-offline"
-            Success => false
-        }
+        issueError(sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "" }) == HostedLogin::unapproved,
+        issueError(sessionSeal, fn(_digest, _issuer, _subject, _github, _envelope) => Success { value: "invalid-receipt" }) == HostedLogin::sessionUnavailable,
+        issueError(fn(_context, _session) => Error { message: "fixture.kms-offline" }, sessionStore) == "fixture.kms-offline"
     ])
 
     export fn run() = {

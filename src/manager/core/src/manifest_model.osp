@@ -85,6 +85,10 @@ module ManifestModel {
     /// The minimum ordinal a requirement accepts.
     export fn requirementFloor(r: Requirement) = r.minimumOrdinal
 
+    /// The requirement of `package` in `epoch` from `minimumOrdinal` up: the
+    /// one constructor the manifest tables and the lock both read through.
+    export fn requirement(package, epoch, minimumOrdinal) = Requirement { package: package, epoch: epoch, minimumOrdinal: minimumOrdinal }
+
     // `Manifest` shares `projectName` and `dependencies` with other records;
     // issue #273 needs the receiver's record spelled out.
     /// The project name the manifest declares.

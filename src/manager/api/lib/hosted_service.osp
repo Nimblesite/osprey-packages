@@ -78,7 +78,10 @@ module HostedService {
 
     fn reply(status, mime, body) = replyWith(status, mime, body, "")
 
-    fn problem(status, code) = reply(status, problemType, "{\"code\":\"${code}\",\"status\":${status}}")
+    fn problemWith(status, code, headers) = replyWith(status, problemType,
+        "{\"code\":\"${code}\",\"status\":${status}}", headers)
+
+    fn problem(status, code) = problemWith(status, code, "")
 
     fn probe(method, path, _headers, _body) = if method == "GET" && path == "/v1/ready" {
         reply(200, "text/plain", "")
@@ -123,7 +126,7 @@ module HostedService {
         else { sessionReply(token, session, cors) }
     }
 
-    fn signedOut(cors) = replyWith(401, problemType, "{\"code\":\"auth.session-required\",\"status\":401}", cors)
+    fn signedOut(cors) = problemWith(401, "auth.session-required", cors)
 
     fn sessionReply(token, session, cors) = if token == "" { signedOut(cors) } else { match session("GET", token) {
         Success { value } => jsonReply(Json::obj([
@@ -161,11 +164,11 @@ module HostedService {
     }
 
     fn callbackDenied(message, headers) = if message == HostedLogin::refused {
-        replyWith(401, problemType, "{\"code\":\"auth.callback-invalid\",\"status\":401}", headers)
+        problemWith(401, "auth.callback-invalid", headers)
     } else if message == HostedLogin::unapproved {
-        replyWith(403, problemType, "{\"code\":\"auth.session-unapproved\",\"status\":403}", headers + expiredFlow)
+        problemWith(403, "auth.session-unapproved", headers + expiredFlow)
     } else if message == HostedLogin::sessionUnavailable {
-        replyWith(503, problemType, "{\"code\":\"auth.session-unavailable\",\"status\":503}", headers + expiredFlow)
+        problemWith(503, "auth.session-unavailable", headers + expiredFlow)
     } else { unavailable(headers) }
 
     fn catalogResponse(result: Result<string, string>, path, cors, source) = match result {
@@ -193,7 +196,7 @@ module HostedService {
     } else {
         match listGet(filterList(JsonRead::items(JsonRead::field(doc, "packages")), fn(item) => "/v1/packages/" + field(item, "key") == path), 0) {
             Success { value } => jsonReply(value, cors)
-            Error => replyWith(404, problemType, "{\"code\":\"catalog.unknown-package\",\"status\":404}", cors)
+            Error => problemWith(404, "catalog.unknown-package", cors)
         }
     }
 
@@ -204,7 +207,7 @@ module HostedService {
     }
 
     fn releaseResponse(resolution, license, cors) = match resolution {
-        Error { message } => if message == HostedSource::unknownRelease { replyWith(404, problemType, "{\"code\":\"catalog.unknown-release\",\"status\":404}", cors)
+        Error { message } => if message == HostedSource::unknownRelease { problemWith(404, "catalog.unknown-release", cors)
         } else { unavailable(cors) }
         Success { value } => if license { releaseLicense(value.release, cors) } else if value.download {
             match Bundle::encode(value.release) {
@@ -244,9 +247,9 @@ module HostedService {
         }
     }
 
-    fn unknownPublisher(cors) = replyWith(404, problemType, "{\"code\":\"catalog.unknown-publisher\",\"status\":404}", cors)
+    fn unknownPublisher(cors) = problemWith(404, "catalog.unknown-publisher", cors)
 
-    fn unavailable(cors) = replyWith(503, problemType, "{\"code\":\"registry.not-ready\",\"status\":503}", cors)
+    fn unavailable(cors) = problemWith(503, "registry.not-ready", cors)
 
     fn contentRequest(headers, host, method, path) = host != "" && (HostedHeaders::find(headers, "host") ?: "") == host
         && method == "GET" && startsWith(path, HostedSource::prefix) && (endsWith(path, HostedSource::attachmentSuffix) || endsWith(path, HostedSource::licenseSuffix))

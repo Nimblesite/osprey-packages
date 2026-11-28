@@ -38,17 +38,24 @@ module ProviderTests {
         ])
     }
 
-    fn rejectedIdentity(config) = checkAll("failed, ambiguous or non-GitHub provider identities are rejected", [
-            code(fixture(config, fixtureToken, 200, account(subject, link("158661ef-f68d-47cf-a9e3-d1c89896601f", "github")))) == githubIdentity,
-            code(fixture(config, fixtureToken, 200, account("invalid", link("invalid", "github")))) == githubIdentity,
-            code(fixture(config, fixtureToken, 200, account(subject, link(subject, "github") + "," + link(subject, "email")))) == githubIdentity,
-            code(fixture(config, fixtureToken, 200, account(subject, link(subject, "email")))) == githubIdentity,
-            code(fixture(config, fixtureToken, 401, "{}")) == "auth.provider-rejected",
-            code(fixture(config, fixtureToken, 200, account(subject, ""))) == githubIdentity,
-            code(fixture(config, fixtureToken, 200, "{\"id\":\"x\",\"user_metadata\":{\"provider_id\":\"123\"}}")) == githubIdentity,
-            code(fixture(config, fixtureToken, 200, account(subject, link(subject, "github") + "," + link(subject, "github")))) == githubIdentity,
-            code(fixture(config, fixtureToken, 200, "not-json")) == "auth.provider-json"
-    ])
+    fn providerDenial(config, c) = code(fixture(config, fixtureToken, c.status, c.body)) == c.expected
+
+    fn rejectedIdentity(config) = {
+        let cases = [
+            { status: 200, body: account(subject, link("158661ef-f68d-47cf-a9e3-d1c89896601f", "github")), expected: githubIdentity },
+            { status: 200, body: account("invalid", link("invalid", "github")), expected: githubIdentity },
+            { status: 200, body: account(subject, link(subject, "github") + "," + link(subject, "email")), expected: githubIdentity },
+            { status: 200, body: account(subject, link(subject, "email")), expected: githubIdentity },
+            { status: 401, body: "{}", expected: "auth.provider-rejected" },
+            { status: 200, body: account(subject, ""), expected: githubIdentity },
+            { status: 200, body: "{\"id\":\"x\",\"user_metadata\":{\"provider_id\":\"123\"}}", expected: githubIdentity },
+            { status: 200, body: account(subject, link(subject, "github") + "," + link(subject, "github")), expected: githubIdentity },
+            { status: 200, body: "not-json", expected: "auth.provider-json" }
+        ]
+        checkAll("failed, ambiguous or non-GitHub provider identities are rejected", [
+            foldList(cases, true, fn(valid, c) => providerDenial(config, c) && valid)
+        ])
+    }
 
     fn exchange(config, identities) = {
         let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
@@ -106,28 +113,36 @@ module ProviderTests {
     fn validJwt(config) = {
         let keys = "{\"keys\":[${es256Key},${rs256Key}]}"
         checkAll("pinned Supabase keys verify signed RS256 and ES256 access tokens", [
-            (jwtFixture(config, keys, fixtureTime, es256Token) ?: "denied") == subject,
-            (jwtFixture(config, keys, fixtureTime, rs256Token) ?: "denied") == subject
+            foldList([es256Token, rs256Token], true, fn(valid, token) =>
+                ((jwtFixture(config, keys, fixtureTime, token) ?: "denied") == subject) && valid)
         ])
     }
 
     fn unsignedHeader(token, header) = Dsse::base64Url(Bytes::ofString(header)) + drop(token, byteLength(Bytes::before(token, ".")))
 
+    fn jwtDenial(config, keys, c) = {
+        let actual = code(jwtFixture(config, keys, c.now, c.token))
+        if c.expected == "*" { actual != "" } else { actual == c.expected }
+    }
+
+    fn standardJwtDenials(tampered, outsideKey, oldAlgorithm) = [
+        { now: fixtureTime, token: tampered, expected: "*" },
+        { now: fixtureTime + 551, token: es256Token, expected: "auth.jwt-expired" },
+        { now: fixtureTime + 551, token: tampered, expected: "auth.jwt-signature" },
+        { now: fixtureTime - 111, token: es256Token, expected: "*" },
+        { now: fixtureTime, token: wrongAudience, expected: "*" },
+        { now: fixtureTime, token: rs256Token, expected: "*" },
+        { now: fixtureTime, token: unsignedHeader(es256Token, oldAlgorithm), expected: "auth.jwt-invalid" },
+        { now: fixtureTime, token: unsignedHeader(es256Token, outsideKey), expected: "auth.jwt-invalid" },
+        { now: fixtureTime, token: es256Token + "=", expected: "base64url.invalid" }
+    ]
+
     fn deniedJwt(config) = {
         let keys = "{\"keys\":[${es256Key}]}"
         let tampered = take(es256Token, byteLength(es256Token) - 5) + "AAAAA"
-        let outsideKey = "{\"alg\":\"ES256\",\"kid\":\"es256-fixture\",\"jku\":\"https://example.test/keys\"}"
-        let oldAlgorithm = "{\"alg\":\"HS256\",\"kid\":\"es256-fixture\"}"
+        let cases = standardJwtDenials(tampered, "{\"alg\":\"ES256\",\"kid\":\"es256-fixture\",\"jku\":\"https://example.test/keys\"}", "{\"alg\":\"HS256\",\"kid\":\"es256-fixture\"}")
         checkAll("access token failures never return a subject", [
-            code(jwtFixture(config, keys, fixtureTime, tampered)) != "",
-            code(jwtFixture(config, keys, fixtureTime + 551, es256Token)) == "auth.jwt-expired",
-            code(jwtFixture(config, keys, fixtureTime + 551, tampered)) == "auth.jwt-signature",
-            code(jwtFixture(config, keys, fixtureTime - 111, es256Token)) != "",
-            code(jwtFixture(config, keys, fixtureTime, wrongAudience)) != "",
-            code(jwtFixture(config, keys, fixtureTime, rs256Token)) != "",
-            code(jwtFixture(config, keys, fixtureTime, unsignedHeader(es256Token, oldAlgorithm))) == "auth.jwt-invalid",
-            code(jwtFixture(config, keys, fixtureTime, unsignedHeader(es256Token, outsideKey))) == "auth.jwt-invalid",
-            code(jwtFixture(config, keys, fixtureTime, es256Token + "=")) == "base64url.invalid",
+            foldList(cases, true, fn(valid, c) => jwtDenial(config, keys, c) && valid),
             code(jwtFixture(config { supabaseOrigin: "https://wrong.supabase.co" }, keys, fixtureTime, es256Token)) != "",
             code(jwtFixture(config, "{\"keys\":[${es256Key},${es256Key}]}", fixtureTime, es256Token)) != ""
         ])

@@ -17,13 +17,8 @@ module Resolve {
 
     fn omit(keep, i) = filterList(keep, fn(j) => j != i)
 
-    fn refuted(vars, clauses) = match Sat::solve(vars, clauses) {
-        Success { value } => match value {
-            Sat::Unsatisfiable { _ } => true
-            _ => false
-        }
-        Error => false
-    }
+    /// True only for a completed refutation; an unknown result is not a proof.
+    fn refuted(vars, clauses) = Sat::verdictOf(Sat::solve(vars, clauses)) == Sat::unsat
 
     /// Deletion-based minimisation: a core clause whose removal keeps the
     /// formula refuted was not needed, so the result is a minimal core (no

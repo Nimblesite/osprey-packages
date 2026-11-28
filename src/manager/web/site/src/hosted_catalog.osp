@@ -21,10 +21,12 @@ module HostedCatalog {
 
     fn version(item) = "e${PublicCatalog::number(item, "epoch")}.r${PublicCatalog::number(item, "ordinal")}"
     fn licenseBadge(item) = Shell::licenseBadge(PublicCatalog::text(item, "licenseExpression"))
+    /// The escaped text of the string member `key` of `item`.
+    fn escaped(item, key) = Shell::escape(PublicCatalog::text(item, key))
 
     fn card(item) = {
         let key = PublicCatalog::text(item, "key")
-        let summary = Shell::escape(PublicCatalog::text(item, "summary"))
+        let summary = escaped(item, "summary")
         "<article class=\"prose-package\"><h3><a href=\"/packages/${key}/\">${key}</a></h3><p>${summary}</p>" + licenseBadge(latestRelease(item)) + warningList(item) + "</article>"
     }
     fn matches(item, terms) = {
@@ -38,7 +40,7 @@ module HostedCatalog {
     }
     fn publisherLink(release) = {
         let id = PublicCatalog::text(release, "publisherId")
-        let name = Shell::escape(PublicCatalog::text(release, "publisherName"))
+        let name = escaped(release, "publisherName")
         "<a href=\"/publishers/${id}/\">${name}</a>"
     }
     fn download(content, digest, label) = if content == "" { "" } else {
@@ -56,7 +58,7 @@ module HostedCatalog {
     }
     fn detail(item, content, popularTags) = {
         let key = PublicCatalog::text(item, "key")
-        let summary = Shell::escape(PublicCatalog::text(item, "summary"))
+        let summary = escaped(item, "summary")
         let releases = join(mapList(releaseItems(item), fn(item) => release(item, content)), "")
         let tags = filterList(PublicCatalog::keywords(item), fn(tag) => listContains(popularTags, tag))
         "<header class=\"prose-cover\"><a href=\"/\">← Packages</a><h1>${key}</h1><p>${summary}</p></header><div class=\"prose-columns\"><section class=\"prose-releases\"><h2>Releases</h2>${releases}</section><aside class=\"prose-facts\"><h2>Package details</h2>" + metadata(latestRelease(item)) + "<h2>Security warnings</h2>" + warningList(item) + "<h2>Tags</h2>" + Shell::keywordChips(tags) + "</aside></div>"

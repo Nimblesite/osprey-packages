@@ -74,7 +74,10 @@ module ArithmeticTests {
         structuralEquals([Objective::lag(42, 40), Objective::lag(42, 42)], [2, 0])
     ])
 
-    fn ordering() = checkAll("lexicographic tuple and canonical tie-breaks", [
+    fn ordering() = {
+        // Seven distinct fields: `add` sums each one on its own.
+        let spread = cost(1, 2, 3, 4, 5, 6, 7)
+        checkAll("lexicographic tuple and canonical tie-breaks", [
         Objective::compare(cost(0, 0, 0, 0, 0, 0, 0), cost(0, 0, 0, 0, 0, 0, 0)) == 0,
         Objective::compare(cost(0, 9, 9, 9, 9, 9, 9), cost(1, 0, 0, 0, 0, 0, 0)) < 0,
         Objective::compare(cost(1, 0, 9, 9, 9, 9, 9), cost(1, 1, 0, 0, 0, 0, 0)) < 0,
@@ -84,15 +87,16 @@ module ArithmeticTests {
         Objective::compare(cost(1, 1, 1, 1, 1, 0, 9), cost(1, 1, 1, 1, 1, 1, 0)) < 0,
         Objective::compare(cost(1, 1, 1, 1, 1, 1, 0), cost(1, 1, 1, 1, 1, 1, 1)) < 0,
         Objective::compare(cost(2, 0, 0, 0, 0, 0, 0), cost(1, 9, 9, 9, 9, 9, 9)) > 0,
-        Objective::add(cost(1, 2, 3, 4, 5, 6, 7), cost(1, 1, 1, 1, 1, 1, 1)).lag == 8,
-        Objective::add(Objective::zero(), cost(1, 2, 3, 4, 5, 6, 7)).vulnerability == 1,
+        Objective::add(spread, cost(1, 1, 1, 1, 1, 1, 1)).lag == 8,
+        Objective::add(Objective::zero(), spread).vulnerability == 1,
         Objective::comparePackageTie(id("a", 9, "sha256:aa"), id("a", 3, "sha256:aa")) < 0,
         Objective::comparePackageTie(id("a", 3, "sha256:aa"), id("a", 3, "sha256:ab")) < 0,
         Objective::comparePackageTie(id("a", 1, "sha256:zz"), id("b", 9, "sha256:aa")) < 0,
         Objective::compareSystemTie(sys(sqliteCapability, "homebrew", 1, "sha256:a"), sys(sqliteCapability, "homebrew", 2, "sha256:a")) < 0,
         Objective::compareSystemTie(sys(sqliteCapability, "apt", 9, "sha256:a"), sys(sqliteCapability, "homebrew", 1, "sha256:a")) < 0,
         Objective::compareSystemTie(sys("a", "x", 1, "sha256:b"), sys("a", "x", 1, "sha256:a")) > 0
-    ])
+        ])
+    }
 
     fn sys(capability, provider, revision, digest) = Objective::SystemTuple { capability: capability, provider: provider, revision: revision, digest: digest }
 

@@ -25,6 +25,10 @@ module Json {
     export fn obj(members) = Obj { members: members }
     /// An array value from its items.
     export fn arr(items) = Arr { items: items }
+    /// The member no object has: the `?:` fallback of a first-member lookup.
+    export fn blankMember() = Member { key: "", value: Null }
+    /// The first member of `members`, or `blankMember()` when there is none.
+    export fn firstMember(members) = listGet(members, 0) ?: blankMember()
 
     type Step = { value: Value, next: int }
     type Seen = { member: Member, keyAt: int }
@@ -152,6 +156,12 @@ module Json {
     fn membersOf(seen) = mapList(seen, fn(s) => s.member)
     fn hasKey(seen, key) = foldList(seen, false, fn(found, s) => found || s.member.key == key)
 
+    /// The step that closes an object at `j` after `seen` members.
+    fn closedObject(j, seen) = Success { value: Step { value: Obj { members: membersOf(seen) }, next: j + 1 } }
+
+    /// The step that closes an array at `j` after `items`.
+    fn closedArray(j, items) = Success { value: Step { value: Arr { items: items }, next: j + 1 } }
+
     /// `inside` one level deeper, or `json.depth` when nesting is exhausted.
     fn nested(depth, i, inside) = match depth + 1 > depthMax {
         true => err(depthCode, i)
@@ -166,7 +176,7 @@ module Json {
         if j >= byteLength(text) {
             endErr(text)
         } else if b == closeObject && isEmpty(seen) {
-            Success { value: Step { value: Obj { members: membersOf(seen) }, next: j + 1 } }
+            closedObject(j, seen)
         } else if b != quote {
             err(unexpectedToken, j)
         } else {
@@ -206,7 +216,7 @@ module Json {
         } else if b == commaByte {
             parseMembers(text, skipWs(text, j + 1), depth, seen)
         } else if b == closeObject {
-            Success { value: Step { value: Obj { members: membersOf(seen) }, next: j + 1 } }
+            closedObject(j, seen)
         } else {
             err(unexpectedToken, j)
         }
@@ -219,7 +229,7 @@ module Json {
         if j >= byteLength(text) {
             endErr(text)
         } else if b == closeArray && isEmpty(items) {
-            Success { value: Step { value: Arr { items: items }, next: j + 1 } }
+            closedArray(j, items)
         } else {
             parseItem(text, j, depth, items)
         }
@@ -234,7 +244,7 @@ module Json {
         } else if b == commaByte {
             parseItems(text, skipWs(text, j + 1), depth, items)
         } else if b == closeArray {
-            Success { value: Step { value: Arr { items: items }, next: j + 1 } }
+            closedArray(j, items)
         } else {
             err(unexpectedToken, j)
         }
@@ -289,14 +299,24 @@ module Json {
         _ => Error { message: wrongType }
     }
 
+    fn objectOf(value) = match value {
+        Obj { members } => Success { value: Obj { members: members } }
+        _ => Error { message: wrongType }
+    }
+
+    fn at(object, key, read) = andThen(get(object, key), read)
+
     /// The string at `key`, or `json.missing-key` / `json.not-an-object` / `json.wrong-type`.
-    export fn textAt(object, key) = andThen(get(object, key), fn(value) => textOf(value))
+    export fn textAt(object, key) = at(object, key, textOf)
 
     /// The integer at `key`, with the same failure codes as `textAt`.
-    export fn intAt(object, key) = andThen(get(object, key), fn(value) => intOf(value))
+    export fn intAt(object, key) = at(object, key, intOf)
 
     /// The array items at `key`, with the same failure codes as `textAt`.
-    export fn itemsAt(object, key) = andThen(get(object, key), fn(value) => itemsOf(value))
+    export fn itemsAt(object, key) = at(object, key, itemsOf)
+
+    /// The object at `key`, with the same failure codes as `textAt`.
+    export fn objectAt(object, key) = at(object, key, objectOf)
 
     /// `"${code} at byte ${offset}"` — the one human-facing rendering of a
     /// parse problem. Implements [PACKAGE-PUBLISH].

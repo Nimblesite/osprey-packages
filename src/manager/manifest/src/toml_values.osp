@@ -213,27 +213,28 @@ module TomlValues {
 
     /// The next array element at `c`: close, or parse one value. After a comma
     /// both an element and the closing bracket are allowed.
-    fn parseArrayItems(c, items, start) = nextArrayItem(TomlLexer::skipTrivia(c), items, start)
+    fn parseArrayItems(c, items, start) = arrayStep(arrayElement, TomlLexer::skipTrivia(c), items, start)
 
-    fn nextArrayItem(c, items, start) = match TomlLexer::eof(c) {
+    /// One array position: the end of input leaves the array unterminated, `]`
+    /// closes it, and anything else is `next(c, items, start)`.
+    fn arrayStep(next, c, items, start) = match TomlLexer::eof(c) {
         true => arrayUnterminated(start)
         false => match TomlLexer::cur(c) == byteRBracket {
             true => closedArr(c, items)
-            false => andThen(parseValue(c), fn(value) => parseArrayNext(value.at, listAppend(items, value.value), start))
+            false => next(c, items, start)
         }
     }
 
-    fn parseArrayNext(c, items, start) = nextArrayTail(TomlLexer::skipTrivia(c), items, start)
+    /// The element at `c`, then the position after it.
+    fn arrayElement(c, items, start) = andThen(parseValue(c), fn(value) => parseArrayNext(value.at, listAppend(items, value.value), start))
 
-    fn nextArrayTail(c, items, start) = match TomlLexer::eof(c) {
-        true => arrayUnterminated(start)
-        false => match TomlLexer::cur(c) == byteComma {
-            true => parseArrayItems(TomlLexer::advance(c), items, start)
-            false => match TomlLexer::cur(c) == byteRBracket {
-                true => closedArr(c, items)
-                false => Error { message: Toml::fail(c, tomlUnexpectedToken) }
-            }
-        }
+    fn parseArrayNext(c, items, start) = arrayStep(afterArrayElement, TomlLexer::skipTrivia(c), items, start)
+
+    /// The position after an element: a comma continues the array, anything
+    /// but `]` is an unexpected token.
+    fn afterArrayElement(c, items, start) = match TomlLexer::cur(c) == byteComma {
+        true => parseArrayItems(TomlLexer::advance(c), items, start)
+        false => Error { message: Toml::fail(c, tomlUnexpectedToken) }
     }
 
     fn arrayUnterminated(start) = Error { message: Toml::fail(start, "toml.unterminated-array") }
@@ -261,15 +262,17 @@ module TomlValues {
         }
     }
 
-    fn parseInlineEntries(c, pairs, start) = inlineEntryAt(skipInlineSpaces(c), pairs, start)
-
-    fn inlineEntryAt(c, pairs, start) = match TomlLexer::cur(c) == byteRBrace {
+    /// One inline-table position: `}` closes the table, a newline or the end
+    /// of input is `inlineStop`, and anything else is `next(c, pairs, start)`.
+    fn inlineStep(next, c, pairs, start) = match TomlLexer::cur(c) == byteRBrace {
         true => closedTable(c, pairs)
         false => match TomlLexer::eof(c) || TomlLexer::cur(c) == byteNewline || TomlLexer::cur(c) == byteCr {
             true => inlineStop(c, start)
-            false => parseInlineEntry(c, pairs, start)
+            false => next(c, pairs, start)
         }
     }
+
+    fn parseInlineEntries(c, pairs, start) = inlineStep(parseInlineEntry, skipInlineSpaces(c), pairs, start)
 
     fn parseInlineEntry(c, pairs, start) = andThen(parseKeySeg(c), fn(value) => inlineValue(value.seg, value.at, pairs, start))
 
@@ -284,14 +287,13 @@ module TomlValues {
         false => Success { value: listAppend(pairs, Toml::Pair { key: seg.name, value: val, span: seg.span }) }
     }
 
-    fn inlineAfterComma(c, pairs, start) = inlineTailAt(skipInlineSpaces(c), pairs, start)
+    fn inlineAfterComma(c, pairs, start) = inlineStep(afterInlineEntry, skipInlineSpaces(c), pairs, start)
 
-    fn inlineTailAt(c, pairs, start) = match TomlLexer::cur(c) == byteComma {
+    /// The position after an entry's value: a comma precedes the next entry
+    /// or, illegally, the closing brace.
+    fn afterInlineEntry(c, pairs, start) = match TomlLexer::cur(c) == byteComma {
         true => inlineComma(TomlLexer::advance(c), pairs, start)
-        false => match TomlLexer::cur(c) == byteRBrace {
-            true => closedTable(c, pairs)
-            false => inlineStop(c, start)
-        }
+        false => inlineStop(c, start)
     }
 
     fn inlineComma(c, pairs, start) = inlineCommaAt(skipInlineSpaces(c), pairs, start)

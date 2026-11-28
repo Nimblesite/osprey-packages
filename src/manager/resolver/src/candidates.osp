@@ -52,6 +52,10 @@ module Candidates {
     /// The dependency edges of one entry.
     export fn edgesOf(e: Resolution::Entry) = e.dependencies
 
+    /// The candidate variables (1-based, in catalog order) of the entries
+    /// that satisfy `holds`.
+    export fn varsOf(entries, holds) = foldList(range(0, length(entries)) |> toList, [], fn(acc, i) => if holds(Resolution::entryAt(entries, i)) { listAppend(acc, i + 1) } else { acc })
+
     /// The capability surface of one entry.
     export fn capabilitiesOf(e: Resolution::Entry) = e.capabilities
 

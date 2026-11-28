@@ -14,24 +14,14 @@ module Optimize {
     type Enc = { clauses: List<List<int>>, used: int }
     type Changed = { lits: List<int>, acc: Acc }
 
-    // Field accessors with the receiver spelled out (issue #273).
-    fn releaseAt(xs, i) -> Identity::ReleaseId = listGet(xs, i) ?: Identity::blank()
     fn litAt(xs, i) = listGet(xs, i) ?: 0
 
     // ---- SAT verdicts ----
 
-    fn satisfiable(vars, clauses) = satisfied(Sat::solve(vars, clauses))
-
-    fn satisfiableWith(vars, clauses, assumptions) = satisfied(Sat::assume(vars, clauses, assumptions))
-
     /// True only for a completed satisfiable search; an unknown result is not a proof.
-    fn satisfied(result) = match result {
-        Success { value } => match value {
-            Sat::Satisfiable { _ } => true
-            _ => false
-        }
-        Error => false
-    }
+    fn satisfiable(vars, clauses) = Sat::verdictOf(Sat::solve(vars, clauses)) == Sat::sat
+
+    fn satisfiableWith(vars, clauses, assumptions) = Sat::verdictOf(Sat::assume(vars, clauses, assumptions)) == Sat::sat
 
     // ---- sequential-counter cardinality ----
 
@@ -70,25 +60,24 @@ module Optimize {
 
     fn candidateVars(entries) = range(0, length(entries)) |> map(fn(i) => i + 1) |> toList
 
-    fn candVarsOf(entries, key) = foldList(range(0, length(entries)) |> toList, [], fn(acc, i) =>
-        if Names::same(Candidates::releaseOf(Resolution::entryAt(entries, i)).key, key) { listAppend(acc, i + 1) } else { acc })
+    fn keyVars(entries, key) = Candidates::varsOf(entries, fn(e) => Names::same(Candidates::releaseOf(e).key, key))
 
     fn currentRelease(graph, key) = foldList(graph.current, Error { message: "none" }, fn(acc, r: Identity::ReleaseId) => match acc {
         Success => acc
         Error => if Names::same(r.key, key) { Success { value: r } } else { acc }
     })
 
-    fn entryIndexOf(entries, r) = foldList(range(0, length(entries)) |> toList, -1, fn(acc, i) =>
-        if acc >= 0 { acc } else if Identity::same(Candidates::releaseOf(Resolution::entryAt(entries, i)), r) { i } else { acc })
+    /// The variable of the candidate releasing `r`, or 0 when it is none.
+    fn varOf(entries, r) = listGet(Candidates::varsOf(entries, fn(e) => Identity::same(Candidates::releaseOf(e), r)), 0) ?: 0
 
     fn changedStep(graph, entries, st, key) = {
-        let candVars = candVarsOf(entries, key)
+        let candVars = keyVars(entries, key)
         match candVars {
             [] => st
             _ => match currentRelease(graph, key) {
                 Success { value } => {
-                    let idx = entryIndexOf(entries, value)
-                    if idx >= 0 { Changed { lits: listAppend(st.lits, SatClauses::neg(idx + 1)), acc: st.acc } } else { st }
+                    let v = varOf(entries, value)
+                    if v > 0 { Changed { lits: listAppend(st.lits, SatClauses::neg(v)), acc: st.acc } } else { st }
                 }
                 Error => {
                     let ch = st.acc.next
@@ -136,12 +125,7 @@ module Optimize {
 
     fn selected(entries, forced) = foldList(forced, [], fn(acc, v) => listAppend(acc, Candidates::releaseOf(Resolution::entryAt(entries, v - 1))))
 
-    fn sortedReleases(entries, forced) = {
-        let rs = selected(entries, forced)
-        let at = fn(i) => releaseAt(rs, i)
-        let perm = Order::permutation(length(rs), fn(i, j) => Identity::compare(at(i), at(j)))
-        mapList(perm, fn(i) => releaseAt(rs, i))
-    }
+    fn sortedReleases(entries, forced) = Resolution::sortedBy(selected(entries, forced), fn(a, b) => Identity::compare(a, b), Identity::blank())
 
     /// Solve the optimisation: freeze each cost component, then the tie-break.
     export fn select(graph, problem) = {

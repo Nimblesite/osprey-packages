@@ -62,14 +62,10 @@ module TypeDiagram {
         RefStep { ref: wrap(inner.ref), next: inner.next + 1 }
     }
 
-    fn listStep(tokens, i) = wrapStep(tokens, i, fn(element) => ListOf { element: element })
-
-    fn optionStep(tokens, i) = wrapStep(tokens, i, fn(element) => OptionOf { element: element })
-
     fn parseTypeRef(tokens, i) = {
         let name = peek(tokens, i)
-        if name == "List" { listStep(tokens, i) }
-        else if name == "Option" { optionStep(tokens, i) }
+        if name == "List" { wrapStep(tokens, i, fn(element) => ListOf { element: element }) }
+        else if name == "Option" { wrapStep(tokens, i, fn(element) => OptionOf { element: element }) }
         else { RefStep { ref: Named { name: name }, next: i + 1 } }
     }
 
@@ -98,15 +94,16 @@ module TypeDiagram {
         parseDecls(tokens, t.next, listAppend(out, Alias { name: peek(tokens, i + 1), target: t.ref }))
     }
 
-    fn structStep(tokens, i, out) = {
-        let fs = parseFields(tokens, i + 3, [])
-        parseDecls(tokens, fs.next, listAppend(out, Struct { name: peek(tokens, i + 1), fields: fs.parsed }))
+    fn declStep(tokens, i, out, parse, make) = {
+        let parsed = parse(tokens, i + 3, [])
+        parseDecls(tokens, parsed.next, listAppend(out, make(peek(tokens, i + 1), parsed)))
     }
 
-    fn unionStep(tokens, i, out) = {
-        let vs = parseVariants(tokens, i + 3, [])
-        parseDecls(tokens, vs.next, listAppend(out, Union { name: peek(tokens, i + 1), variants: vs.variants }))
-    }
+    fn structStep(tokens, i, out) = declStep(tokens, i, out, parseFields,
+        fn(name, parsed) => Struct { name: name, fields: parsed.parsed })
+
+    fn unionStep(tokens, i, out) = declStep(tokens, i, out, parseVariants,
+        fn(name, parsed) => Union { name: name, variants: parsed.variants })
 
     fn parseDecls(tokens, i, out) = {
         let tok = peek(tokens, i)

@@ -11,8 +11,6 @@ module JsonScan {
     let backslash = 92
     let slash = 47
     let letterU = 117
-    let digitZero = 48
-    let digitNine = 57
     let highSurrogateLo = 55296
     let highSurrogateHi = 56319
     let lowSurrogateLo = 56320
@@ -150,14 +148,7 @@ module JsonScan {
         }
     }
 
-    fn hexVal(b) = {
-        if inRange(b, digitZero, digitNine) { b - digitZero }
-        else if inRange(b, 97, 102) { b - 87 }
-        else if inRange(b, 65, 70) { b - 55 }
-        else { -1 }
-    }
-
-    fn hexAt(text, k) = hexVal(byteAt(text, k) ?: -1)
+    fn hexAt(text, k) = Bytes::hexValue(byteAt(text, k) ?: -1)
 
     /// Four hex digits at `i` as one value in 0..65535, or -1.
     fn unit4(text, i) = {
