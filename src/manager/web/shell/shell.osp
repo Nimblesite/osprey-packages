@@ -46,7 +46,7 @@ module Shell {
     fn link(pair) = "<a href=\"${listGet(pair, 1) ?: ""}\">${listGet(pair, 0) ?: ""}</a>"
     fn column(heading, links) = "<nav aria-label=\"${heading}\"><h2>${heading}</h2>${join(mapList(links, link), "")}</nav>"
 
-    /// Four link columns, then the mark and copyright [PACKAGE-REGISTRY-WEBSITE].
+    /// Four link columns, then the mark and copyright [PACKAGE-HOSTED-ROUTES].
     fn footer() = join([
             "<footer class=\"prose-footer\"><div class=\"prose-footer-columns\">",
             column("Packages", [["Browse packages", "/"], ["By publisher", "/publishers/"], ["By tag", "/tags/"], ["Release a package", "/release/"]]),

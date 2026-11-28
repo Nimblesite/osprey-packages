@@ -239,7 +239,7 @@ const footerColumns = {
   Community: [['Discord', 'https://discord.gg/EGk3XhcGyy'], ['GitHub', 'https://github.com/Nimblesite/osprey-packages'], ['Issues', 'https://github.com/Nimblesite/osprey-packages/issues']],
 };
 
-// The footer [PACKAGE-REGISTRY-WEBSITE]: four labelled link columns side by side on a desktop, stacked on a phone, then the copyright line.
+// The footer [PACKAGE-HOSTED-ROUTES]: four labelled link columns side by side on a desktop, stacked on a phone, then the copyright line.
 async function checkFooter(page) {
   const footer = page.locator('footer.prose-footer');
   const headings = await footer.locator('nav h2').allTextContents();
