@@ -64,3 +64,7 @@ Migrations are explicit: `make deploy STEP=database`, never at build or startup.
 - `make _registry-website-check` / `make _registry-integration-check`: the packaged site in Chromium, against a fixture API and against the real API on PostgreSQL.
 
 Public writes stay disabled until the Registry Deployment and Ownership spec's conformance table passes against production.
+
+## Publication scan worker
+
+The image includes the one-shot command `/usr/local/bin/registry-scan-once` for a separately provisioned worker identity [PACKAGE-SECURITY-SCAN-VERDICT]. The API listener starts by default. The worker claims one pending submission or accepts its UUID as an argument. Mount the scanner’s PostgreSQL service file at `/run/registry-scan/pg_service.conf`, its PostgreSQL root CA at `/run/catalog-ca/ca.pem`, its pinned NAP configuration (`configId`, `agentRevision`, `apiKey`) at `/run/registry-scan/agent.json`, and immutable canonical bundles read-only at `/run/registry-quarantine/<sha256 hex>.json`. A missing mount, invalid digest or agent failure leaves the submission pending. A successful empty-queue run performs no remote scan. Hosted activation depends on provisioning the tool-free agent and the signed-intent collector.
