@@ -203,7 +203,7 @@ _registry-migration-verify:
 	  migrate() { "$(abspath $(REGISTRY_MIGRATOR))" migrate --provider postgres --schema src/manager/supabase/migrations/schema.yaml --output "Host=$$PGHOST;Port=$$PGPORT;Username=$$PGUSER;Database=$$PGDATABASE"; }; \
 	  migrate; migrate >"$$db/replay.log" || { cat "$$db/replay.log"; exit 1; }; cat "$$db/replay.log"; \
 	  grep -Fq 'No operations to apply' "$$db/replay.log"; \
-	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 18 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
+	  test "$$("$$pg/psql" -XAtc "SELECT count(*) = 20 AND bool_and(relrowsecurity AND relforcerowsecurity) FROM pg_class WHERE relnamespace = 'registry'::regnamespace AND relkind = 'r'")" = t; \
 	  "$$pg/psql" -Xq -f src/manager/api/tests/live/review.sql; \
 	  $(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE);) $(OSPREY) test src/manager/api/tests/live --memory=$(API_MEMORY) $(call registry_coverage,api-tests-live)
 
@@ -243,6 +243,15 @@ _registry-hosted-api: $(REGISTRY_HOSTED_BINARY)
 $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	@mkdir -p $(dir $@)
 	$(OSPREY) build src/manager/api/hosted --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
+
+# Process one quarantined job. An empty queue succeeds without contacting the agent.
+.PHONY: registry-scan-once
+registry-scan-once: target/osprey-registry-scan
+	@result=$$(printf '\n' | $<) && test "$$result" = 'status: 0'
+
+target/osprey-registry-scan: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
+	@mkdir -p $(dir $@)
+	$(OSPREY) build src/manager/api/scan --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
