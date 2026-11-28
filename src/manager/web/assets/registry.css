@@ -83,6 +83,9 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 .prose-release code { color: var(--muted); font-size: .85rem }
 .prose-download { padding: .5rem .85rem; border-radius: .4rem; background: #cbf67c; color: #213b22; font-weight: 700; text-decoration: none }
 .prose-download:hover { background: #b4e15f }
+.prose-passkey { display: block; width: 100%; padding: .85rem 1rem; font-size: 1.15rem; border: 0; cursor: pointer }
+.prose-secondary { display: inline-block; margin-top: .6rem; font-size: .9rem }
+.prose-passkey[hidden], .prose-secondary[hidden] { display: none }
 #results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr)); gap: .8rem }
 .prose-package { padding: 1.1rem; background: #fffdf7; border: 1px solid var(--line); border-top: .25rem solid #91b878; border-radius: .6rem }
 .prose-package:nth-child(3n + 2) { border-top-color: #a88cc4 }

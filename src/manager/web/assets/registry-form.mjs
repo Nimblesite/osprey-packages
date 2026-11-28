@@ -10,52 +10,104 @@ function accountRequest(url, options) {
   });
 }
 
-function bindLogout(panel, status, login, csrfToken) {
-  const logout = panel.querySelector('button');
-  logout.hidden = false;
-  logout.addEventListener('click', async () => {
-    logout.disabled = true;
+// [PACKAGE-HOSTED-AUTH] sign-in hierarchy: passkey first when the browser has WebAuthn, GitHub second.
+const passkeySupported = () => typeof PublicKeyCredential === 'function'
+  && typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function';
+
+function signedOut(parts) {
+  parts.signOut.hidden = true;
+  parts.passkey.hidden = !passkeySupported();
+  parts.login.hidden = false;
+}
+
+function signedIn(parts, csrfToken) {
+  parts.status.textContent = parts.panel.dataset.active;
+  parts.passkey.hidden = true;
+  parts.login.hidden = true;
+  parts.signOut.hidden = false;
+  parts.csrfToken = csrfToken;
+}
+
+async function postJson(url, body) {
+  return accountRequest(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+}
+
+// Every failure (options, ceremony, verify) fails closed to GitHub: no session, GitHub focused.
+async function passkeySignIn(parts) {
+  const options = await postJson(parts.panel.dataset.passkeyOptions, {});
+  if (options.status !== 200) throw Error(await options.text());
+  const {publicKey} = await options.json();
+  const credential = await navigator.credentials.get({publicKey: PublicKeyCredential.parseRequestOptionsFromJSON(publicKey)});
+  const verified = await postJson(parts.panel.dataset.passkeyVerify, credential.toJSON());
+  if (verified.status !== 204) throw Error(await verified.text());
+  await showSession(parts);
+}
+
+function bindPasskey(parts) {
+  parts.passkey.addEventListener('click', async () => {
+    parts.passkey.disabled = true;
     try {
-      const response = await accountRequest(panel.dataset.logoutUrl, {
-        method: 'POST', headers: {'X-CSRF-Token': csrfToken},
+      await passkeySignIn(parts);
+    } catch {
+      parts.status.textContent = parts.panel.dataset.passkeyError;
+      parts.login.focus();
+    } finally {
+      parts.passkey.disabled = false;
+    }
+  });
+}
+
+function bindLogout(parts) {
+  parts.signOut.addEventListener('click', async () => {
+    parts.signOut.disabled = true;
+    try {
+      const response = await accountRequest(parts.panel.dataset.logoutUrl, {
+        method: 'POST', headers: {'X-CSRF-Token': parts.csrfToken},
       });
       if (response.status !== 204) {
         await response.text();
         throw Error('Logout unavailable');
       }
-      logout.hidden = true;
-      status.textContent = panel.dataset.signedOut;
-      login.hidden = false;
-      login.focus();
+      parts.status.textContent = parts.panel.dataset.signedOut;
+      signedOut(parts);
+      parts.signOut.remove();
+      (parts.passkey.hidden ? parts.login : parts.passkey).focus();
     } catch {
-      status.textContent = panel.dataset.logoutError;
+      parts.status.textContent = parts.panel.dataset.logoutError;
     } finally {
-      logout.disabled = false;
+      parts.signOut.disabled = false;
     }
   });
 }
 
-async function showSession(panel) {
-  const status = panel.querySelector('[role=status]');
-  const login = panel.querySelector('a');
+async function showSession(parts) {
   try {
-    const response = await accountRequest(panel.dataset.sessionUrl);
+    const response = await accountRequest(parts.panel.dataset.sessionUrl);
     if (response.status === 401) {
-      status.textContent = '';
-      login.hidden = false;
+      parts.status.textContent = '';
+      signedOut(parts);
       return;
     }
     if (response.status !== 200) throw Error('Session unavailable');
     const session = await response.json();
     if (session.authenticated !== true || !/^sha256:[0-9a-f]{64}$/.test(session.csrfToken)) throw Error('Invalid session');
-    status.textContent = panel.dataset.active;
-    bindLogout(panel, status, login, session.csrfToken);
+    signedIn(parts, session.csrfToken);
   } catch {
-    status.textContent = panel.dataset.error;
+    parts.status.textContent = parts.panel.dataset.error;
   }
 }
+
+function accountParts(panel) {
+  return {panel, status: panel.querySelector('[role=status]'), login: panel.querySelector('a'),
+    passkey: panel.querySelector('[data-passkey]'), signOut: panel.querySelector('[data-sign-out]'), csrfToken: ''};
+}
 const account = document.querySelector('[data-session-url]');
-if (account) void showSession(account);
+if (account) {
+  const parts = accountParts(account);
+  bindPasskey(parts);
+  bindLogout(parts);
+  void showSession(parts);
+}
 try {
   const response = await fetch(form.dataset.collection, {credentials: 'omit', signal: AbortSignal.timeout(10000)});
   if (!response.ok) throw Error('Collection unavailable');

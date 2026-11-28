@@ -45,7 +45,7 @@ module Shell {
 
     /// Shell for an already escaped title or a trusted text literal.
     export fn withEscapedTitle(title, body) = join([
-        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
-        title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.e5b3f1a50ee3.css\"></head><body>",
-        "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer, "</body></html>"], "")
+            "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>",
+            title, "</title><link rel=\"icon\" type=\"image/svg+xml\" href=\"/registry-mark.svg?v=b3839fb6decc\"><link rel=\"stylesheet\" href=\"/registry.f3c439e00338.css\"></head><body>",
+            "<header class=\"prose-bar\"><a class=\"prose-brand\" href=\"/\"><img src=\"/registry-mark.svg?v=b3839fb6decc\" width=\"36\" height=\"36\" alt=\"\">Osprey Packages</a>", navigation(), "</header>", body, footer, "</body></html>"], "")
 }

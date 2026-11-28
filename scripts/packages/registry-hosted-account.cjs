@@ -1,7 +1,11 @@
 // Browser acceptance for the packaged hosted account page [PACKAGE-HOSTED-ROUTES-CATALOG].
 const assert = require('node:assert/strict');
 const { withHostedPage } = require('./registry-browser-fixture.cjs');
-const checkHostedAccount = (browser, livePort) => withHostedPage(browser, fixture => checkPackagedAccount(fixture, livePort));
+const { checkHostedPasskey } = require('./registry-hosted-passkey.cjs');
+const checkHostedAccount = async (browser, livePort) => {
+  await withHostedPage(browser, fixture => checkPackagedAccount(fixture, livePort));
+  if (!livePort) await checkHostedPasskey(browser);
+};
 async function checkPackagedAccount({page, website, api, failures}, livePort) {
   const headers = {'access-control-allow-origin':website,'access-control-allow-credentials':'true'};
   async function waitForFirstRelease() {

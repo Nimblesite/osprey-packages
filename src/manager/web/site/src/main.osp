@@ -31,9 +31,9 @@ fn hostedPackage() = {
 fn publisherAccount(origin) = if origin == "" {
     "<p role=\"status\">Public uploads are unavailable.</p><a href=\"/publishing/\">Publish to a folder registry</a>"
 } else { join([
-    "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\">",
-    "<p role=\"status\">Checking your registry session…</p><a hidden class=\"prose-download\" href=\"${origin}/v1/auth/github/start\">Sign in with GitHub</a>",
-    "<button hidden type=\"button\" class=\"prose-download\">Sign out</button></div>"
+    "<div data-session-url=\"${origin}/v1/auth/session\" data-logout-url=\"${origin}/v1/auth/logout\" data-error=\"The registry could not verify your session. Reload to retry.\" data-active=\"Signed in. Publication requires a package grant and signature.\" data-logout-error=\"Could not sign out. Try again.\" data-signed-out=\"Signed out.\" data-passkey-options=\"${origin}/v1/auth/passkey/options\" data-passkey-verify=\"${origin}/v1/auth/passkey/verify\" data-passkey-error=\"Passkey sign-in did not complete. Sign in with GitHub instead.\">",
+    "<p role=\"status\">Checking your registry session…</p><button hidden type=\"button\" class=\"prose-download prose-passkey\" data-passkey>Sign in with a passkey</button><a hidden class=\"prose-secondary\" href=\"${origin}/v1/auth/github/start\">Sign in with GitHub</a>",
+    "<button hidden type=\"button\" class=\"prose-download\" data-sign-out>Sign out</button></div>"
 ], "") }
 
 fn upload() = {
