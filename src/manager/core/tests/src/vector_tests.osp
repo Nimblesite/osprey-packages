@@ -59,21 +59,23 @@ module VectorTests {
     fn paeMatches(c, typeKey, payloadKey, decode) = Bytes::hex(Dsse::pae(Fixtures::textOf(c, typeKey), decode(Fixtures::textOf(c, payloadKey)))) == Fixtures::textOf(c, "paeHex")
     fn paeOk(c) = paeMatches(c, "type", "payloadHex", Bytes::fromHex)
 
-    fn intentPae(intent) = paeMatches(intent, "payloadType", "payloadCanonical", Bytes::ofString)
-
-    fn intentCanonical(intent) = canonicalMatches(intent, "payloadInput", "payloadCanonical")
-
-    fn intentChallenge(intent) = Dsse::webAuthnChallenge(Bytes::fromHex(Fixtures::textOf(intent, "paeHex"))) == Fixtures::textOf(intent, "challenge")
-
-    fn intentEnvelope(intent) = Dsse::envelopeDigest(Bytes::ofString(Fixtures::textOf(intent, "envelopeCanonical"))) == Fixtures::textOf(intent, "envelopeDigest")
+    fn typedCanonical(name) = {
+        let fixture = Fixtures::load("canonical/${name}.json")
+        let canonical = Canonical::serialize(JsonRead::field(fixture, "value")) ?: ""
+        checkAll("canonical signing bytes for ${name}", [canonical != "", canonical == Fixtures::textOf(fixture, "canonical")])
+        Bytes::ofString(canonical)
+    }
 
     fn dsseCases() = {
         let fx = Fixtures::load("vectors/dsse.json")
         let intent = JsonRead::field(fx, "releaseIntent")
+        let pae = Dsse::pae(Fixtures::textOf(intent, "payloadType"), typedCanonical("release-intent"))
+        let envelope = typedCanonical("signed-release-intent")
         Fixtures::report("dsse PAE bytes", Fixtures::itemsOf(fx, "pae"), paeOk)
         checkAll("dsse release intent detached forms", [
-                structuralEquals([intentPae(intent), intentCanonical(intent), intentChallenge(intent)], [true, true, true]),
-                intentEnvelope(intent)
+                Bytes::hex(pae) == Fixtures::textOf(intent, "paeHex"),
+                Dsse::webAuthnChallenge(pae) == Fixtures::textOf(intent, "challenge"),
+                Dsse::envelopeDigest(envelope) == Fixtures::textOf(intent, "envelopeDigest")
         ])
     }
 

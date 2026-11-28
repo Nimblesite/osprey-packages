@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=build /out/osprey-registry-hosted /usr/local/bin/osprey-registry-hosted
 COPY --from=build /workspace/target/osprey-registry-scan /usr/local/bin/osprey-registry-scan
-COPY --from=build /workspace/src/manager/api/scan/run-once.sh /usr/local/bin/registry-scan-once
+COPY --from=build /workspace/scripts/packages/registry-scan-once.sh /usr/local/bin/registry-scan-once
 WORKDIR /tmp
 USER 65532:65532
 EXPOSE 8080 8081

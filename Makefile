@@ -250,7 +250,7 @@ $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 # Process one quarantined job. An empty queue succeeds without contacting the agent.
 .PHONY: registry-scan-once
 registry-scan-once: target/osprey-registry-scan
-	@REGISTRY_SCAN_BINARY="$(abspath $<)" src/manager/api/scan/run-once.sh
+	@REGISTRY_SCAN_BINARY="$(abspath $<)" scripts/packages/registry-scan-once.sh
 
 target/osprey-registry-scan: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	@mkdir -p $(dir $@)
@@ -258,7 +258,7 @@ target/osprey-registry-scan: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
-REGISTRY_HOSTED_CONTEXT = Makefile scripts/osprey-toolchain.sh src/manager/api src/manager/core $(REGISTRY_HOSTED_DOCKERFILE)
+REGISTRY_HOSTED_CONTEXT = Makefile scripts/osprey-toolchain.sh scripts/packages/registry-scan-once.sh src/manager/api src/manager/core $(REGISTRY_HOSTED_DOCKERFILE)
 
 .PHONY: _registry-hosted-image _registry-hosted-image-check _registry-hosted-context
 # _registry-hosted-context: Print the paths the API image is built from (deploy.sh's Cloud Build archive).

@@ -44,7 +44,7 @@ module SchemaCheckTests {
         "RepositoryBinding", "CredentialProof", "EnvelopeProof", "AuthorizationProof",
         "SignedRepositoryBinding", "ReleaseId", "CompatibilityClaim", "ReleaseIntent",
         "SignedReleaseIntent", "ReleaseChallenge", "SignedReleaseChallenge",
-        "PublicationAuthorization", "SignedPublicationAuthorization", "ReleaseState",
+        "PublicationReceipt", "PublicationAuthorization", "SignedPublicationAuthorization", "ReleaseState",
         "ActivationState", "ReleaseStatus", "DependencyRequirement", "DependencyGrant", "SystemRequirement",
         "PackageAssetKind", "PackageAssetRole", "PackageAsset", "DependencyEdge",
         "PackageDiscoveryMetadata", "SourceFlavor", "PublishedPackageMetadata",
@@ -79,8 +79,8 @@ module SchemaCheckTests {
     }
 
     fn modelLoads() = withModel(fn(value) => checkAll("schema model declares every type exactly once", [
-                structuralEquals([length(value.decls), length(filterList(value.decls, isAlias))], [118, 10]),
-                length(filterList(value.decls, isStruct)) == 81,
+                structuralEquals([length(value.decls), length(filterList(value.decls, isAlias))], [119, 10]),
+                length(filterList(value.decls, isStruct)) == 82,
                 length(filterList(value.decls, isUnion)) == 27,
                 everyNameResolves(value)
     ]))
