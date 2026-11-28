@@ -112,8 +112,8 @@ appoint() (
   step_reviewer
 )
 REVIEWER_GITHUB_ID=421 APPOINTED=11111111-1111-4111-8111-111111111111 appoint
-for refused in "REVIEWER_GITHUB_ID=421 APPOINTED=" "REVIEWER_GITHUB_ID= APPOINTED=x" "REVIEWER_GITHUB_ID=octocat APPOINTED=x" "REVIEWER_GITHUB_ID=042 APPOINTED=x"; do
-  if (export $refused; appoint) 2>/dev/null; then echo "reviewer step accepted: $refused" >&2; exit 1; fi
+for refused in "421|" "|x" "octocat|x" "042|x"; do
+  if (REVIEWER_GITHUB_ID="${refused%%|*}" APPOINTED="${refused#*|}" appoint) 2>/dev/null; then echo "reviewer step accepted: $refused" >&2; exit 1; fi
 done
 
 # Assert provider requests carry credentials to the destination without placing them in argv.
