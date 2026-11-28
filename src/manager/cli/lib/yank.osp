@@ -1,0 +1,60 @@
+namespace registry_cli;
+import registry_host::Host
+import registry::Folder
+import registry::ReleasePath
+
+/// `osprey-pkg yank --folder <registry-root> @scope/name/<epoch>.<ordinal>`:
+/// mark one release of a folder registry yanked by writing
+/// `@scope/name/<epoch>.<ordinal>.yanked` beside its directory. The release
+/// bytes are untouched: the server keeps serving it by digest, lists it with
+/// `"status":"Yanked"`, and the resolver never chooses it afresh while a lock
+/// that already holds it still reproduces ([PACKAGE-RESOLUTION],
+/// [PACKAGE-FOLDER-REGISTRY]). Yanking twice is a no-op; a release the folder
+/// does not hold is `yank.unknown-release`. The server reads a folder at
+/// startup, so the yank is served after `registry-serve` restarts.
+module Yank {
+    let usageCode = "yank.usage"
+    let unknownCode = "yank.unknown-release"
+    let folderFlag = "--folder"
+    let usageText = ["usage: osprey-pkg yank --folder <registry-root> @scope/name/<epoch>.<ordinal>"]
+
+    fn restartLine() = "restart registry-serve to serve it"
+
+    fn markerPath(folder, dir) = "${folder}/${Folder::yankMarkerOf(dir)}"
+
+    fn versionOf(dir) = drop(dir, byteLength(dir) - byteLength(lastSegment(dir)))
+
+    fn lastSegment(dir) = listGet(listReverse(split(dir, "/") ?: [dir]), 0) ?: dir
+
+    fn packageOf(dir) = take(dir, byteLength(dir) - byteLength(lastSegment(dir)) - 1)
+
+    fn walked(folder, dir) = match perform Host::Tree.walk("${folder}/${packageOf(dir)}") {
+        Success { value } => value.regular
+        Error => []
+    }
+
+    fn holds(files, dir) = Folds::any(files, fn(p) => startsWith(p, "${versionOf(dir)}/"))
+
+    fn alreadyYanked(files, dir) = listContains(files, "${versionOf(dir)}.yanked")
+
+    fn written(folder, dir) = Reports::checked(perform Host::Files.write(markerPath(folder, dir), "yanked\n"), fn(_done) =>
+        Reports::success(["yanked ${dir}", Reports::field("marker", markerPath(folder, dir)), restartLine()]))
+
+    fn withRelease(folder, dir) = {
+        let files = walked(folder, dir)
+        if !holds(files, dir) { Reports::failure(["${unknownCode} ${dir}"]) }
+        else if alreadyYanked(files, dir) { Reports::success(["already yanked ${dir}"]) }
+        else { written(folder, dir) }
+    }
+
+    fn withWord(word, parsed) = {
+        let folder = Flags::given(parsed, folderFlag, "")
+        match ReleasePath::parse(word) {
+            Error => Reports::usageFor(usageCode, usageText)
+            Success { value } => if folder == "" { Reports::usageFor(usageCode, usageText) } else { withRelease(folder, ReleasePath::format(value)) }
+        }
+    }
+
+    /// The whole command: the release word, then `--folder`.
+    export fn run(args) = Flags::dispatchPositional(args, [folderFlag], [], usageCode, usageText, withWord)
+}

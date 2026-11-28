@@ -107,7 +107,7 @@ module CatalogTests {
     /// A yanked release stays served by digest, is listed with its status,
     /// and its immutable release document does not change; an orphan marker is refused.
     fn yanked() = checkAll("catalog: yanked releases", [
-            structuralEquals(Release::yankedOf(yankedFixture()), [digestB()]),
+            structuralEquals(Release::yankedOf(yankedFixture()), [ledgerLateDir]),
             length(Release::servedOf(yankedFixture())) == 3,
             Checked::succeeded(Catalog::byDigest(yankedFixture(), digestB())),
             (Catalog::packageJson(yankedFixture(), "finch", "ledger") ?: "?") == "{\"key\":\"@finch/ledger\",\"releases\":[{\"digest\":\"${digestA()}\",\"epoch\":1,\"ordinal\":1},{\"digest\":\"${digestB()}\",\"epoch\":2,\"ordinal\":5,\"status\":\"Yanked\"}]}",

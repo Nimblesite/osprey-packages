@@ -9,6 +9,7 @@ import registry::ManifestJson
 import registry::ManifestModel
 import registry::Maybe
 import registry::Names
+import registry::ReleasePath
 
 /// A small folder registry (`@demo/one` depends on `@demo/two`; `@demo/three`
 /// depends on nothing) served through fixture Web/Files handlers, and one
@@ -226,6 +227,8 @@ module RegistryFixture {
     /// `@demo/one` e1.r1: the release the root depends on, itself depending on
     /// `@demo/two` e1.r1.
     export fn one() = releaseAt("@demo/one/1.1", oneManifest())
+    /// `@demo/one` e1.r3 with its own source, so its digest differs from e1.r1's.
+    export fn one3() = Fixture::served("@demo/one/1.3", [Fixture::file("osprey.toml", oneManifest()), Fixture::file("src/main.osp", "fn main() = 3\n")])
     /// `@demo/one` at ordinal 2 of epoch 1: the release an in-epoch `update`
     /// moves to.
     export fn one2() = releaseAt("@demo/one/1.2", oneManifest())
@@ -253,15 +256,19 @@ module RegistryFixture {
     /// The root manifest depending on `@demo/<name>` e1.r1 with a capability grant.
     export fn rootManifestGranting(name, capabilities) = manifestText("app") + "\n[dependencies]\n\"@demo/${name}\" = { epoch = 1, min_release = 1, capabilities = [${quotedList(capabilities)}] }\n"
 
-    fn rowText(s) = "{\"digest\":\"${Fixture::digestOf(s)}\",\"epoch\":${Fixture::idOf(s).epoch},\"ordinal\":${Fixture::idOf(s).ordinal}}"
+    fn statusText(yanked, s) = if listContains(yanked, ReleasePath::format(Fixture::idOf(s))) { ",\"status\":\"Yanked\"" } else { "" }
+
+    /// One listing row of `s`, with `"status":"Yanked"` when its release directory is in `yanked`.
+    export fn rowText(yanked, s) = "{\"digest\":\"${Fixture::digestOf(s)}\",\"epoch\":${Fixture::idOf(s).epoch},\"ordinal\":${Fixture::idOf(s).ordinal}${statusText(yanked, s)}}"
 
     fn releasesOf(served, k) = filterList(served, fn(s) => Fixture::keyText(s) == k)
 
     fn distinctKeys(served) = foldList(served, [], fn(acc, s) => if listContains(acc, Fixture::keyText(s)) { acc } else { listAppend(acc, Fixture::keyText(s)) })
 
-    fn packageListing(served, k) = "{\"key\":\"${k}\",\"releases\":[${join(mapList(releasesOf(served, k), rowText), ",")}]}"
+    /// The `{"key","releases"}` document of key `k` over `served`, marking the `yanked` release directories.
+    export fn packageListing(yanked, served, k) = "{\"key\":\"${k}\",\"releases\":[${join(mapList(releasesOf(served, k), fn(s) => rowText(yanked, s)), ",")}]}"
 
-    fn fullListing(served) = "{\"packages\":[${join(mapList(distinctKeys(served), fn(k) => packageListing(served, k)), ",")}]}"
+    fn fullListing(yanked, served) = "{\"packages\":[${join(mapList(distinctKeys(served), fn(k) => packageListing(yanked, served, k)), ",")}]}"
 
     fn sourceWeb(s) = sourceRoute(base, s)
 
@@ -278,7 +285,10 @@ module RegistryFixture {
     export fn sourceRoute(b, s) = bundleRouteAt(b, sourcePath(s), s)
 
     /// The one listing request plus every release's source bundle.
-    export fn websOf(served) = listPrepend(mapList(served, sourceWeb), webRoute(Fetch::packagesListingPath, fullListing(served)))
+    export fn websOf(served) = websYanking(served, [])
+
+    /// `websOf`, with the listing marking the releases whose directories are in `yanked`.
+    export fn websYanking(served, yanked) = listPrepend(mapList(served, sourceWeb), webRoute(Fetch::packagesListingPath, fullListing(yanked, served)))
 
     fn manifestRead(s) = {
         let first = listGet(Fixture::filesOf(s), 0) ?: Fixture::file("osprey.toml", "")

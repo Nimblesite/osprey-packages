@@ -101,16 +101,12 @@ module FetchTests {
     // fields with `Source::Entry`/`Json::Member`; issue #273 needs the
     // receivers spelled out.
     fn digestOf(s: Release::Served) = s.id.digest
-    fn epochOf(s: Release::Served) = s.id.epoch
-    fn ordinalOf(s: Release::Served) = s.id.ordinal
-
-    fn rowText(s) = "{\"digest\":\"${digestOf(s)}\",\"epoch\":${epochOf(s)},\"ordinal\":${ordinalOf(s)}}"
 
     /// The package listing of `@finch/ledger` holding exactly `rows`.
     fn listingOf(rows) = "{\"key\":\"@finch/ledger\",\"releases\":[${rows}]}"
 
     /// The package listing of the `served` releases of `@finch/ledger`.
-    fn listing(served) = listingOf(join(mapList(served, rowText), ","))
+    fn listing(served) = listingOf(join(mapList(served, fn(s) => RegistryFixture::rowText([], s)), ","))
 
     /// The endpoints a folder registry serves for these releases.
     fn catalogRoutes(base, served) = listConcat([RegistryFixture::webRouteAt(base, packagesPath, 200, listing(served))], mapList(served, fn(s) => RegistryFixture::sourceRoute(base, s)))

@@ -16,14 +16,15 @@ module Release {
     export type Refused = { dir: string, code: string }
 
     /// Every valid release, ordered by key, epoch, ordinal, every refusal and
-    /// the digests of the yanked releases.
+    /// the release directories (`@scope/name/<epoch>.<ordinal>`) of the yanked
+    /// releases: a yank names one slot, never every slot sharing its digest.
     export type Catalog = { served: List<Served>, refused: List<Refused>, yanked: List<string> }
 
     // `Catalog` shares `served`/`refused` and `Served` shares `id`/`files`
     // with other records; issue #273 needs the receiver's record spelled out.
     /// The valid releases of a catalog.
     export fn servedOf(catalog: Catalog) = catalog.served
-    /// The digests of the releases a catalog marks yanked.
+    /// The release directories a catalog marks yanked.
     export fn yankedOf(catalog: Catalog) = catalog.yanked
     /// The releases a catalog refused.
     export fn refusedOf(catalog: Catalog) = catalog.refused

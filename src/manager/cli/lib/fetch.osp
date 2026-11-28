@@ -196,7 +196,7 @@ module Fetch {
     fn bestRow(all) = {
         let rows = eligibleRows(all)
         match isEmpty(rows) {
-        true => Error { message: noReleaseCode }
+            true => Error { message: noReleaseCode }
             false => Success { value: foldList(rows, listGet(rows, 0) ?: missingRow(), keepBest) }
         }
     }

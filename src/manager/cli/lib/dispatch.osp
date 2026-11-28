@@ -6,11 +6,11 @@ namespace registry_cli;
 /// which is different from a command the specification does not know.
 module Dispatch {
     let notImplementedStatus = 3
-    let planned = ["login", "audit", "yank"]
+    let planned = ["login", "audit"]
     let usage = [
         "usage: osprey-pkg [--json] <command>",
-        "commands: help, doctor, package init, add, remove, update, use, lock, fetch, verify, build, run, test, docs, tree, why, publish --folder",
-        "specified, not yet implemented: login, audit, yank"
+        "commands: help, doctor, package init, add, remove, update, use, lock, fetch, verify, build, run, test, docs, tree, why, publish --folder, yank --folder",
+        "specified, not yet implemented: login, audit"
     ]
 
     fn unknown(command) = Reports::usage(listPrepend(usage, "unknown command: ${command}"))
@@ -53,6 +53,7 @@ module Dispatch {
         "update" => Update::run
         "use" => Use::run
         "publish" => Publish::run
+        "yank" => Yank::run
         "fetch" => fetchOrInstall
         "lock" => Lock::run
         "verify" => Verify::run

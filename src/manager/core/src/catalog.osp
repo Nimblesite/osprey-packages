@@ -29,7 +29,7 @@ module Catalog {
 
     /// A listed release: its summary, plus `"status":"Yanked"` when yanked.
     fn releaseValue(yanked, s) = Json::obj(listConcat(releaseMembers(Release::idOf(s)),
-            if listContains(yanked, servedDigest(s)) { [Json::member("status", Json::str(yankedStatus))] } else { [] }))
+            if listContains(yanked, ReleasePath::format(Release::idOf(s))) { [Json::member("status", Json::str(yankedStatus))] } else { [] }))
 
     fn ordered(served) = {
         let idAt = fn(i) => Release::idOf(servedAt(served, i))
@@ -44,7 +44,7 @@ module Catalog {
     fn servedAtDir(catalog, dir) = Checked::firstMatch(Release::servedOf(catalog), fn(s) => ReleasePath::format(Release::idOf(s)) == dir, orphanYank)
 
     fn yankOne(catalog, dir) = match servedAtDir(catalog, dir) {
-        Success { value } => Release::Catalog { served: catalog.served, refused: catalog.refused, yanked: listAppend(catalog.yanked, servedDigest(value)) }
+        Success => Release::Catalog { served: catalog.served, refused: catalog.refused, yanked: listAppend(catalog.yanked, dir) }
         Error { message } => Release::Catalog { served: catalog.served, refused: listAppend(catalog.refused, Release::Refused { dir: Folder::yankMarkerOf(dir), code: message }), yanked: catalog.yanked }
     }
 
