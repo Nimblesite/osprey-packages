@@ -16,9 +16,8 @@ module ScanJob {
 
     fn query(statement, values) = perform Inputs.query(Database::scanScript(statement, values))
     fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
-    fn byId(routine, id) = query("SELECT registry." + routine + "(" + Database::decoded(1) + "::uuid)", [id])
-    fn receipt(id, ticket, revision, result) = andThen(query("SELECT registry.record_scan(" +
-            Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid," + Database::decoded(3) + "," + Database::decoded(4) + ")",
+    fn byId(routine, id) = query(Database::routine(routine, ["uuid"]), [id])
+    fn receipt(id, ticket, revision, result) = andThen(query(Database::routine("record_scan", ["uuid", "uuid", "", ""]),
             [id, ticket, revision, result]), fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.scan-lease" } })
 
     fn review(id, ticket, doc, config) = {
@@ -56,8 +55,7 @@ module ScanJob {
                     else { Error { message: "publication.scan-pending" } }) }) }
 
     fn listedArgs(id, found: PublicationScan::Listing) = [id, found.license, found.summary, found.keywords, found.notices]
-    fn published(id, found) = andThen(query("SELECT registry.publish_approved_release(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + ","
-            + Database::decoded(3) + "," + Database::decoded(4) + "," + Database::decoded(5) + ")", listedArgs(id, found)),
+    fn published(id, found) = andThen(query(Database::routine("publish_approved_release", ["uuid", "", "", "", ""]), listedArgs(id, found)),
         fn(row) => if row == id { Success { value: id } } else { Error { message: "publication.release-refused" } })
 
     fn release(doc) = {

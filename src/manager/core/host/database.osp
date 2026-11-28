@@ -30,6 +30,14 @@ module Database {
 
     export fn decoded(index) = "convert_from(decode($${index}, 'hex'), 'UTF8')"
 
+    fn arguments(casts, index) = match listGet(casts, index) {
+        Error => ""
+        Success { value } => (if index > 0 { "," } else { "" }) + decoded(index + 1) + (if value == "" { "" } else { "::" + value }) + arguments(casts, index + 1)
+    }
+
+    /// `SELECT registry.<name>(...)` over one hex-decoded parameter per cast; an empty cast keeps text.
+    export fn routine(name, casts) = "SELECT registry." + name + "(" + arguments(casts, 0) + ")"
+
     fn settingsSql(keys) = "SELECT " + join(mapList(range(0, length(keys)) |> toList, fn(i) =>
             "set_config('registry.${listGet(keys, i) ?: ""}', ${decoded(i + 1)}, true)"), ", ")
 

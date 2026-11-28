@@ -21,8 +21,7 @@ module CollectJob {
     fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
     fn refused() = Error { message: "publication.collect-intent" }
 
-    fn submitted(id, doc, digest) = andThen(query("SELECT registry.submit_frozen_version(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid,"
-            + Database::decoded(3) + "::bigint," + Database::decoded(4) + "::bigint," + Database::decoded(5) + "," + Database::decoded(6) + "::uuid)",
+    fn submitted(id, doc, digest) = andThen(query(Database::routine("submit_frozen_version", ["uuid", "uuid", "bigint", "bigint", "", "uuid"]),
             [id, field(doc, "packageId"), field(doc, "epoch"), field(doc, "ordinal"), digest, field(doc, "publisherId")]), fn(_) => Success { value: id })
 
     fn frozen(id, doc, release) = {
