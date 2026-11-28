@@ -221,7 +221,7 @@ fn sessionIssuerConnection() = {
     let good = issueWithRole(issuerClient(), sessionSubject, issuerDigest(), envelope)
     let repeated = issueWithRole(issuerClient(), sessionSubject, issuerDigest(), envelope)
     let stored = fixtureRun("SELECT token_envelope FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}")
-    let cleanup = fixtureRun("DELETE FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}; DELETE FROM registry.auth_bindings WHERE id = md5('binding')::uuid; DELETE FROM registry.principals WHERE id = md5('person1')::uuid; DROP OWNED BY ${issuerRole}; DROP ROLE ${issuerRole};")
+    let cleanup = fixtureRun("DELETE FROM registry.browser_sessions WHERE cookie_digest = ${sessionCookie}; DELETE FROM registry.auth_bindings WHERE id = md5('binding')::uuid; DELETE FROM registry.principals WHERE id = md5('person1')::uuid;")
     checkAll("restricted libpq issuer transaction pins its role and does not duplicate sessions", [
             created.status == 0, succeeded(wrong, ""), refusedRole.status != 0,
             good.status == 0 && Bytes::canonicalUuid(trim(good.stdout)), repeated.status != 0,
