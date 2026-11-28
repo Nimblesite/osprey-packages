@@ -434,7 +434,7 @@ level threshold. A model below any gate is automatically advisory. The UI says
 
 ## Publication security scan `[PACKAGE-SECURITY-SCAN]`
 
-Every package upload undergoes an AI security scan before it can be published.
+Every submitted release undergoes an AI security scan before it can be published.
 The scanner is an agent hosted on NAP ([Nimblesite agents](https://www.nimblesite.ai/docs/)).
 It reviews the frozen canonical source of the submission. The scan is a
 mandatory gate: no path publishes a release whose submission was not scanned.

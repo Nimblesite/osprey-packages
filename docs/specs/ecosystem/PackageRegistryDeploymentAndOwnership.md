@@ -114,7 +114,7 @@ The registry owns its navigation, search results, package descriptions, release 
 | Page or action | Required visitor experience |
 | --- | --- |
 | Browse at `/` | Open directly on a browsable catalog of published packages with a prominent search field. Each result links to the package and shows its scoped name, short description, latest release’s SPDX license badge and known security warnings. Visitors can browse further results without entering a query. Documentation is secondary navigation. |
-| Upload at `/upload/` | Expose **Upload a package** in the catalog header. Start the authenticated publication flow here, preserve the destination through sign-in, show the selected package and bound commit, and return the status of the signed publication intent. |
+| Release at `/release/` | Expose **Release a package** in the catalog header, to a signed-in visitor only. Nothing is uploaded: the publisher names a commit in the package's bound GitHub repository. Start the authenticated publication flow here, preserve the destination through sign-in, show the selected package and bound commit, and return the status of the signed publication intent. |
 | Search | Search by package name, organization or descriptive terms under the discovery rules. Give results a shareable URL, retain the query when returning from a package, and distinguish no matches from an unavailable catalog. |
 | Read a package | Give every package a permanent page with its description, owning organization, available releases, dependencies, warnings and a link to the public profile of the publisher credited on each release. Show the latest release’s license and link directly to its notice documents when present. Make each release’s supplied license text readable from its badge. Serve hosted license text as plain text from the verified release bundle on the content origin. Each release retains its own license and attribution metadata under [PACKAGE-LICENSE-DISTRIBUTION]. Render notice text as plain text. |
 | Read API documentation | Link each release to its own compiler-generated API reference beside its download action. Generate from that release’s source with its verified dependencies. Serve production documentation on the isolated documentation origin. |
@@ -202,7 +202,45 @@ RLS protects a trusted API's verified identity context, not a fully compromised 
 
 ## Source publication and storage `[PACKAGE-HOSTED-PUBLISH]`
 
-There is no public package-file upload, presigned upload URL or caller-writable source bucket. “Upload a package” means submit a signed intent for a bound repository/commit. Reject tar/multipart/arbitrary-byte publication at both HTTP and storage interfaces. The registry fetches the exact revision using its scoped GitHub App, validates source and declared data, and freezes the canonical source digest before any build. Keep all source limits, forbidden payloads, credential thresholds and final-authorization rules from `[PACKAGE-PUBLISH]` unchanged.
+**There is no uploading a package.** No interface, name, route or control offers one: no package-file upload, presigned upload URL or caller-writable source bucket, and no “upload” wording in the website, CLI or API. A publisher releases from GitHub: they submit a signed intent for a commit in the package's bound repository. Reject tar/multipart/arbitrary-byte publication at both HTTP and storage interfaces. The registry fetches the exact revision using its scoped GitHub App, validates source and declared data, and freezes the canonical source digest before any build. Keep all source limits, forbidden payloads, credential thresholds and final-authorization rules from `[PACKAGE-PUBLISH]` unchanged.
+
+### Releasing from a GitHub repository `[PACKAGE-HOSTED-PUBLISH-FLOW]`
+
+This is the only way a release enters the registry. Every step fails closed: a failure publishes nothing.
+
+1. **Bind the repository, once.** An organization admin installs the registry's GitHub App on the one selected repository and enrolls it for the package. Enrollment records GitHub's stable numeric repository ID, the subdirectory and the branch, and proves registry publication authority and GitHub admin authority over the same expiring nonce `[PACKAGE-HOSTED-AUTH]`.
+2. **Sign in.** Passkey or GitHub. Signing in grants no publication authority.
+3. **Name the commit.** On `/release/` or in the CLI the publisher picks the package and gives the full 40-character commit hash. No file, archive or URL is accepted. The API requires an active `publish-release` grant for that package and a commit reachable from the bound branch of the bound repository.
+4. **Sign the intent.** The publisher authorizes exactly that package, repository ID, commit and version with their enrolled WebAuthn credential over a one-use challenge. A session cookie or stored access token never signs a release `[PACKAGE-PUBLISH]`.
+5. **The registry fetches.** The collector reads that exact commit from the stable repository ID through the GitHub App's read-only access. Nothing comes from the publisher's machine, and no publisher-supplied location is followed.
+6. **Freeze.** The registry validates and canonicalizes the source, rejects every forbidden payload, computes the canonical source digest and stores the snapshot in the private content-addressed store. The digest never changes afterwards `[PACKAGE-SOURCE-CANONICAL]`.
+7. **Scan.** The frozen source goes to the security-scan agent. A rejection ends the job and records the findings `[PACKAGE-SECURITY-SCAN]`.
+8. **Approve.** A release reviewer approves that exact version and digest `[PACKAGE-SECURITY-SCAN-APPROVAL]`.
+9. **Publish.** Only the eligibility writer projects the proved release into the public catalog. Installers verify the same digest.
+
+The registry rechecks the App installation, the repository's stable owner and ID, branch reachability and the publisher's grant before the fetch and again before publishing. Uninstalling the App, transferring or deleting the repository, or revoking the grant stops the release.
+
+```mermaid
+sequenceDiagram
+    actor Publisher
+    participant Site as Website or CLI
+    participant API as Registry API
+    participant GitHub
+    participant Scan as Scan agent
+    actor Reviewer
+    Publisher->>Site: package + commit hash
+    Site->>API: release intent
+    API->>API: grant active? commit on bound branch?
+    API-->>Publisher: one-use challenge
+    Publisher->>API: WebAuthn-signed intent
+    API->>GitHub: fetch exact commit (GitHub App, read-only, repository ID)
+    GitHub-->>API: source
+    API->>API: validate, canonicalize, freeze digest in private store
+    API->>Scan: frozen source only
+    Scan-->>API: accepted or findings
+    Reviewer->>API: approve version + digest
+    API->>API: recheck binding and grant, publish to catalog
+```
 
 The Osprey collector accepts only configured forge API endpoints and stable repository IDs; no arbitrary clone URLs or client-controlled redirect destinations. Bound redirects, downloads, decompression, paths and Git objects; reject symlinks/submodules/LFS substitution per the existing source contract and deny internal/metadata-network access. Builders receive no Supabase credentials, GitHub tokens, edge secrets or signing keys; network-denied disposable execution reads only assigned CAS inputs. No publisher code runs in the API.
 
@@ -227,7 +265,7 @@ The release dispatch must bind the workflow to the same main commit used for mig
 
 Both Pages release paths must install the publisher and its transitive dependencies from the reviewed integrity lockfile with install scripts disabled. The operator must build with a freshly verified release compiler.
 
-Both operator and workflow Pages uploads must verify the singular hostname preserves the upload path and query in its permanent redirect. Fetch the canonical homepage, upload page, JavaScript, CSS and WASM over HTTPS and compare their bytes with the uploaded archive before reporting success.
+Both operator and workflow Pages uploads must verify the singular hostname preserves the release path and query in its permanent redirect. Fetch the canonical homepage, upload page, JavaScript, CSS and WASM over HTTPS and compare their bytes with the uploaded archive before reporting success.
 
 Standalone production smoke checks use read-only requests and existing service metadata. They must fail when the public catalog returns an error. They must never provision resources, change IAM, link billing or run migrations.
 
