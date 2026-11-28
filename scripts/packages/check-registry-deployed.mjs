@@ -1,13 +1,13 @@
 // Live acceptance of a deployed registry environment [PACKAGE-HOSTED-TOPOLOGY] [PACKAGE-HOSTED-EDGE].
-// Usage: node scripts/packages/check-registry-deployed.mjs <staging|production> <domain>
+// Usage: node scripts/packages/check-registry-deployed.mjs <domain>   (production is the only environment)
 // Read-only: every request is a GET, HEAD or OPTIONS a visitor could send; nothing is written.
 import assert from 'node:assert/strict';
 import tls from 'node:tls';
 import { chromium } from 'playwright';
 
-const [env, domain] = process.argv.slice(2);
-assert.ok(['staging', 'production'].includes(env) && domain, 'usage: check-registry-deployed.mjs <staging|production> <domain>');
-const host = name => `${name}${env === 'staging' ? '-staging' : ''}.${domain}`;
+const [domain] = process.argv.slice(2);
+assert.ok(domain, 'usage: check-registry-deployed.mjs <domain>');
+const host = name => `${name}.${domain}`;
 const website = `https://${host('packages')}`;
 const api = `https://${host('packages-api')}`;
 const content = `https://${host('packages-content')}`;
@@ -101,20 +101,25 @@ await check('api: logout without the website origin is refused', async () => {
   assert.equal(await problemCode(response), 'req.origin-required');
 });
 
-await check('api: GitHub sign-in redirects to GitHub with a Secure, HttpOnly flow cookie', async () => {
+await check('api: GitHub sign-in redirects to Supabase Auth PKCE with a Secure, HttpOnly flow cookie', async () => {
   const response = await get(`${api}/v1/auth/github/start`);
-  assert.equal(response.status, 303, `status ${response.status}: GitHub OAuth app configured?`);
+  assert.equal(response.status, 303, `status ${response.status}`);
   const location = new URL(response.headers.get('location'));
-  assert.equal(location.origin + location.pathname, 'https://github.com/login/oauth/authorize');
-  assert.ok(location.searchParams.get('client_id'), 'client_id');
-  assert.equal(location.searchParams.get('redirect_uri'), `${api}/v1/auth/github/callback`);
-  assert.ok(location.searchParams.get('state'), 'state');
+  assert.equal(location.protocol, 'https:');
+  assert.match(location.hostname, /^[a-z]{20}\.supabase\.co$/);
+  assert.equal(location.pathname, '/auth/v1/authorize');
+  assert.equal(location.searchParams.get('provider'), 'github');
+  assert.equal(location.searchParams.get('redirect_to'), `${api}/v1/auth/github/callback`);
+  assert.equal(location.searchParams.get('code_challenge_method'), 's256');
+  assert.ok(location.searchParams.get('code_challenge'), 'code_challenge');
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   const cookie = response.headers.get('set-cookie') ?? '';
+  assert.ok(cookie.startsWith('__Host-registry-flow='), 'missing __Host-registry-flow cookie');
   for (const flag of ['Secure', 'HttpOnly', 'SameSite=']) assert.ok(cookie.includes(flag), `cookie lacks ${flag}`);
 });
 
 await check('content: an unknown release is not served', async () => {
+  assert.equal(await handshake(host('packages-content'), 'TLSv1.3'), 'TLSv1.3', 'content host is not serving');
   const response = await get(`${content}/v1/releases/sha256:${'0'.repeat(64)}`);
   assert.ok(response.status >= 400 && response.status !== 500, `status ${response.status}`);
 });
