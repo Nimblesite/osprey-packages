@@ -2,7 +2,8 @@
 
 **Osprey package manager:** `osprey-pkg` client, registry API (local folder registry + hosted Cloud Run on Supabase), registry website, VS Code package workspace. 🌐 <https://nimblesite.github.io/osprey-packages/>
 
-- 🗄️ Backend = Osprey + Supabase, ❌ Rust. Prefer SQL triggers/functions; APIs beside Supabase go on GCP
+- 🗄️ Backend = Osprey + Supabase, ❌ Rust. APIs beside Supabase go on GCP
+- 🧱 DB migrations = [DataProvider Migrations](https://dataprovider.tech/docs/migrations/) (`src/manager/supabase/migrations/schema.yaml`); ❌ hand-written SQL, DDL
 - 🔐 Package integrity is the product: hashes, locks and trust checks never fail open
 - 🧠 One memory strategy per app, never a matrix: client = GC, folder + hosted API = ARC, WASM (editor, website) = ARC. `CLI_MEMORY` / `API_MEMORY` / `WASM_MEMORY` in `Makefile`
 - 🧪 `make ci` = every suite once under its app's strategy, then the website check
@@ -17,6 +18,7 @@
 
 ## 🏗️ Toolchain
 - 📦 `make _toolchain` lays the released Osprey at the tag pinned in `scripts/osprey-toolchain.sh` into `target/osprey` (compiler, runtime archives, published `@osprey` packages), SHA-256 pinned there. ❌ ospreylang checkouts in this repo
+- DB migrations = [DataProvider Migrations](https://dataprovider.tech/docs/migrations/); ❌ SQL, DDL
 - 🎯 `make help` first. Entry points = commented make targets in `Makefile`
 - 📌 Need a newer compiler → bump the tag in `scripts/osprey-toolchain.sh` to a released one and pin its digests. ❌ Edit ospreylang files from here
 - 🧾 Specs + plans live in `docs/`; cite their IDs (`// Implements [GROUP-TOPIC]`). Language specs stay in ospreylang
