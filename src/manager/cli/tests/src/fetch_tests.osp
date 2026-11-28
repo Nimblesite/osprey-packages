@@ -10,7 +10,7 @@ import registry_cli::Reports
 /// The `fetch` client against fixture hosts: no network, no disk. The web
 /// fixture answers the folder-registry endpoints from hand-made releases, the
 /// files and tree fixtures record everything the command would write.
-/// Implements [PACKAGE-FOLDER-REGISTRY] client tests (plan 0020, Phase F3).
+/// Implements [PACKAGE-FOLDER-REGISTRY] client tests ([PLAN-STANDUP]).
 module FetchTests {
     let bundleDigestMismatch = "bundle.digest-mismatch"
 
@@ -346,10 +346,7 @@ module FetchTests {
 
     fn offline(release, body) = dispatched([RegistryFixture::webRouteAt(localBase, "/fixture", 200, body)], [digestOf(release), "--bundle", "release.json"])
 
-    fn offlineRelease(root) = Fixture::served("@finch/ledger/2.1", [
-        Release::File { relPath: "osprey.toml", content: "[project]\nname = \"ledger\"\nsource_roots = [\"${root}\"]\n" },
-        Release::File { relPath: "src/main.osp", content: "fn two() = 3\n" }
-    ])
+    fn offlineRelease(root) = Fixture::served("@finch/ledger/2.1", InstallTests::releaseFiles("[project]\nname = \"ledger\"\nsource_roots = [\"${root}\"]\n", "fn two() = 3\n"))
 
     fn offlineBundle() = {
         let release = offlineRelease("src")
