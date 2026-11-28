@@ -222,7 +222,7 @@ _registry-integration-verify:
 _registry-infra-check: export TF_DATA_DIR = $(CURDIR)/target/registry-infra/data
 _registry-infra-check:
 	ruby scripts/packages/check-action-pins.rb
-	shellcheck -S warning src/manager/ops/deploy.sh scripts/packages/test-deploy-main-only.sh
+	shellcheck -S warning src/manager/ops/deploy.sh scripts/packages/check-website-release.sh scripts/packages/test-deploy-main-only.sh
 	scripts/packages/test-deploy-main-only.sh
 	node scripts/packages/test-edge-worker.mjs
 	terraform -chdir=$(REGISTRY_TERRAFORM) fmt -check

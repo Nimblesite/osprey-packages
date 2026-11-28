@@ -62,6 +62,7 @@ output "github_environment" {
     GCP_DEPLOY_SA           = google_service_account.deploy.email
     REGISTRY_IMAGE_REPO     = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.registry.repository_id}"
     REGISTRY_SERVICE        = local.name
+    REGISTRY_WEBSITE_ORIGIN = "https://${var.website_hostname}"
     REGISTRY_API_ORIGIN     = "https://${var.api_hostname}"
     REGISTRY_CONTENT_ORIGIN = "https://${var.content_hostname}"
     PAGES_PROJECT           = cloudflare_pages_project.website.name

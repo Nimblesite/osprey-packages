@@ -101,3 +101,7 @@ jobs:
           mkdir -p target/pages-upload && unzip -q "$archive" -d target/pages-upload
           npx --yes wrangler@4.146.0 pages deploy target/pages-upload \
             --project-name="${{ vars.PAGES_PROJECT }}" --branch=main --commit-hash="${{ github.sha }}"
+      - name: Verify public website redirect and deployed archive bytes
+        env:
+          WEBSITE_ORIGIN: ${{ vars.REGISTRY_WEBSITE_ORIGIN }}
+        run: scripts/packages/check-website-release.sh "$WEBSITE_ORIGIN" target/pages-upload

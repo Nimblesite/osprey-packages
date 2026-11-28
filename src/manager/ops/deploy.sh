@@ -331,6 +331,7 @@ PSQL
 status() { curl -sS -o /dev/null -w '%{http_code}' --max-time 20 "$@" || true; }
 
 step_smoke() {
+  "$ROOT/scripts/packages/check-website-release.sh" "https://$(host packages)"
   local api run; api="https://$(host packages-api)"; run="$(gcloud run services describe "$NAME" --region="$REGION" --project="$GCP_PROJECT_ID" --format='value(status.url)')"
   [[ "$run" == https://*.run.app ]] || die "missing Cloud Run service URL"
   local edge direct web
@@ -365,6 +366,7 @@ step_website() {
   CLOUDFLARE_API_TOKEN="$(tf output -raw pages_token)" CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" \
     npx --yes wrangler@4.146.0 pages deploy "$upload" --project-name="$NAME" --branch=main \
     --commit-hash="$revision" >&2
+  "$ROOT/scripts/packages/check-website-release.sh" "https://$(host packages)" "$upload"
 }
 
 # Operator release of HEAD: image via Cloud Build, Cloud Run rolled to its digest, website uploaded.

@@ -9,6 +9,7 @@ trap 'rm -rf "$work"' EXIT
 
 git clone -q --no-hardlinks "$root" "$work/repo"
 cp "$root/src/manager/ops/deploy.sh" "$work/repo/src/manager/ops/deploy.sh"
+cp "$root/scripts/packages/check-website-release.sh" "$work/repo/scripts/packages/"
 git -C "$work/repo" checkout -q -b not-main
 for step in all local supabase infra github database release ship website; do
   if out="$(cd "$work/repo" && src/manager/ops/deploy.sh production "$step" 2>&1)"; then
@@ -28,21 +29,48 @@ echo https://fixture.run.app
 MOCK
 cat > "$work/bin/curl" <<'MOCK'
 #!/bin/sh
+output=
+previous=
 for url do
+  if [ "$previous" = -o ]; then output=$url; fi
+  previous=$url
   case "$url" in -X|--request|--data*) exit 98;; esac
 done
+if [ -n "${SERVED_SITE:-}" ]; then
+  case "$url" in
+    https://packages.example.test/*)
+      path=${url#https://packages.example.test/}
+      case "$path" in ''|*/) path=${path}index.html;; esac
+      cp "$SERVED_SITE/$path" "$output" || exit 99
+      printf 200
+      exit 0;;
+  esac
+fi
 case "$url" in
   https://packages-api.example.test/v1/packages) printf %s "$CATALOG_STATUS";;
   https://packages.example.test/) printf 200;;
+  https://package.example.test/*) printf %s "$WEBSITE_REDIRECT";;
   https://fixture.run.app/v1/packages) printf 403;;
   https://fixture.supabase.co/rest/v1/*) printf 406;;
   *) exit 98;;
 esac
 MOCK
 chmod +x "$work/bin/"*
-smoke() { (cd "$work/repo" && PATH="$work/bin:$PATH" CATALOG_STATUS="$1" src/manager/ops/deploy.sh production smoke); }
+smoke() { (cd "$work/repo" && PATH="$work/bin:$PATH" CATALOG_STATUS="$1" WEBSITE_REDIRECT="${2-308 https://packages.example.test/upload/?from=registry}" src/manager/ops/deploy.sh production smoke); }
 smoke 200
+if smoke 200 "308 https://packages.example.test/"; then echo "wrong website redirect passed" >&2; exit 1; fi
 if smoke 503; then echo "unavailable catalog passed production smoke" >&2; exit 1; fi
+
+mkdir -p "$work/archive/upload"
+for path in index.html upload/index.html module.mjs style.css site.wasm; do echo "$path" > "$work/archive/$path"; done
+cp -R "$work/archive" "$work/served"
+verify_site() {
+  PATH="$work/bin:$PATH" SERVED_SITE="$work/served" WEBSITE_REDIRECT='308 https://packages.example.test/upload/?from=registry' \
+    "$root/scripts/packages/check-website-release.sh" https://packages.example.test "$work/archive"
+}
+verify_site
+echo stale > "$work/served/site.wasm"
+if verify_site; then echo "stale deployed WASM passed" >&2; exit 1; fi
 
 need() { grep -Fq -- "$2" "$root/$1" || { echo "$1 lost its main-only guard: $2" >&2; exit 1; }; }
 need .github/workflows/deploy.yml 'run: test "$GITHUB_REF" = refs/heads/main'
