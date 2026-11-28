@@ -55,7 +55,8 @@ module PathsTests {
         ], firstFourOnly, Paths::generatedCache)
     ])
 
-    fn zeros(n) = range(0, n) |> map(fn(_i) => 0) |> toList
+    /// `n` zero bytes.
+    fn zeros(n) = Bytes::fromHex(repeat("00", n) ?: "")
     fn zeroDigest() = zeros(32)
     fn entry(path, size, digest) = Source::Entry { path: path, byteLength: size, digest: digest }
     /// An entry of `size` bytes under the all-zero digest: every envelope case but the malformed ones.

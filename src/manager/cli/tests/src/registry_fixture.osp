@@ -96,7 +96,7 @@ module RegistryFixture {
             exists path => if listContains(removed, path) { Success { value: false } } else { Fixture::existsIn(listConcat(latestFirst(written), reads), path) }
             remove path => {
                 removed = listAppend(removed, path)
-                written = filterList(written, fn(w: Fixture::ReadRoute) => w.path != path)
+                written = filterList(written, fn(w) => w.path != path)
                 Success { value: 0 }
             }
             write path content => {
@@ -186,7 +186,7 @@ module RegistryFixture {
     }
 
     /// How many writes hit `path`.
-    export fn writesTo(a: Attempt, path) = length(filterList(a.written, fn(w: Fixture::ReadRoute) => w.path == path))
+    export fn writesTo(a: Attempt, path) = length(filterList(a.written, fn(w) => w.path == path))
 
     /// The process status the run's report answers.
     export fn statusOf(a: Attempt) = a.report.status

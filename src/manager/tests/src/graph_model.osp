@@ -39,7 +39,7 @@ module GraphModel {
     }
 
     fn entry(v) = Resolution::Entry {
-        release: Fixtures::releaseId(JsonRead::field(v, "release")),
+        release: Fixtures::releaseIdOf(JsonRead::field(v, "release")),
         activation: releaseState(JsonRead::field(v, "state")),
         targets: Fixtures::textsOf(v, "targets"),
         capabilities: Fixtures::textsOf(v, "capabilities"),
@@ -55,7 +55,7 @@ module GraphModel {
         target: Fixtures::textOf(v, "target"),
         granted: Fixtures::textsOf(v, "grantedCapabilities"),
         rootDeps: mapList(JsonRead::items(JsonRead::at(v, "root/dependencies")), edge),
-        current: Fixtures::mappedItems(v, "current", Fixtures::releaseId),
+        current: Fixtures::mappedItems(v, "current", Fixtures::releaseIdOf),
         catalog: Fixtures::mappedItems(v, "catalog", entry),
         grants: Fixtures::mappedItems(v, "grants", grant)
     }

@@ -57,12 +57,15 @@ module LoaderTests {
 
     fn loaded() = fixtureFiles()(fn() => fixtureTree()(fn() => catalogOf(Loader::load(root))))
 
+    /// One refused release as the reports spell it: its directory and reason code.
+    fn refusal(dir, code) = "${dir} ${code}"
+
     fn servedDirs(catalog: Release::Catalog) = join(listSort(mapList(catalog.served, fn(s) => ReleasePath::format(s.id))), ",")
 
-    fn refusedRows(catalog: Release::Catalog) = join(listSort(mapList(catalog.refused, fn(r) => "${r.dir} ${r.code}")), ",")
+    fn refusedRows(catalog: Release::Catalog) = join(listSort(mapList(catalog.refused, fn(r) => refusal(r.dir, r.code))), ",")
 
     fn expectedRows(fx) = join(listSort(mapList(Fixtures::itemsOf(fx, "refused"), fn(r) =>
-        "${Fixtures::textOf(r, "dir")} ${Fixtures::textOf(r, "code")}")), ",")
+        refusal(Fixtures::textOf(r, "dir"), Fixtures::textOf(r, "code")))), ",")
 
     fn everyRefusal() = {
         let fx = fixture()

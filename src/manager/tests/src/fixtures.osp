@@ -90,12 +90,15 @@ module Fixtures {
     export fn keyOf(v) = key(textOf(v, "scope"), textOf(v, "name"))
 
     /// The release object `v` (`package`, `epoch`, `ordinal`, `digest`) as the identity it names.
-    export fn releaseId(v) = Identity::ReleaseId {
+    export fn releaseIdOf(v) = Identity::ReleaseId {
         key: keyOf(JsonRead::field(v, "package")),
         epoch: numberOf(v, "epoch"),
         ordinal: numberOf(v, "ordinal"),
         digest: textOf(v, "digest")
     }
+
+    /// The release `@scope/name` at `epoch.rordinal` under `digest`.
+    export fn releaseId(key, epoch, ordinal, digest) = Identity::assemble(Names::parse(key) ?: Names::blank(), [epoch, ordinal], digest)
 
     /// The releases of `items` sorted by `Resolution::sortedBy` and `compare`, each rendered by `display`, joined by one space.
     export fn sortedText(items, compare, missing, display) = join(mapList(Resolution::sortedBy(items, compare, missing), display), " ")

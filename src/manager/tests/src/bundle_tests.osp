@@ -46,8 +46,11 @@ module BundleTests {
     /// The reason code of verifying the bundle `text` against `digest`.
     fn verifyCode(text, digest) = codeOf(Bundle::verify(text, digest))
 
+    /// The source entries of the two files: what `Source::digest` hashes.
+    fn entries() = mapList(twoFiles(), fn(f) => Source::entryOf(f.relPath, Bytes::ofString(f.content)))
+
     fn sourceAgrees() = checkAll("Source::digest matches the independent golden", [
-        (Source::digest(mapList(twoFiles(), fn(f) => Source::entryOf(f.relPath, Bytes::ofString(f.content)))) ?: "") == goldenDigest
+        (Source::digest(entries()) ?: "") == goldenDigest
     ])
 
     /// The golden release invariants every path must produce: identity,

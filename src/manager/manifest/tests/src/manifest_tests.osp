@@ -146,17 +146,24 @@ module ManifestTests {
     /// A documented, `sha256`-hashed asset of `byteLength` bytes and no extra key.
     fn assetAt(path, kind, byteLength) = asset(path, docsKind, kind, byteLength, hexDigest("sha256"), "")
 
+    /// `refused` for the documented `x.md` text asset followed by the `extra` line.
+    fn textAssetPlus(extra, code) = rejected(assetAt("x.md", "text", 1) + extra, code)
+
+    /// The canonical JSON of the manifest `m`, or "serialize failed".
+    fn canonicalOf(m) = ManifestJson::canonical(m) ?: "serialize failed"
+
+    /// The digest of the manifest `m`, or "digest failed".
+    fn digestOf(m) = ManifestJson::digest(m) ?: "digest failed"
+
     fn identityOf(text) = projected(text, publicationKey)
 
     fn acceptsLedger() = {
         let text = readFile(ledger) ?: ""
         let parsed = manifestOf(text)
-        let canonical = orMessage(parsed, fn(m) => ManifestJson::canonical(m) ?: "serialize failed")
-        let digest = orMessage(parsed, fn(m) => ManifestJson::digest(m) ?: "digest failed")
         checkAll("the Package Management spec manifest is accepted and hashes like the fixture", [
             refused(text, "accepted"),
-            canonical == (readFile(canonicalFixture) ?: ""),
-            digest == digestFixture,
+            orMessage(parsed, canonicalOf) == (readFile(canonicalFixture) ?: ""),
+            orMessage(parsed, digestOf) == digestFixture,
             edges(text) == "0:@osprey/http@e2.r17",
             holds(parsed, fn(m) => publicationKey(m) == "@finch/ledger" && join(m.sourceRoots, ",") == "src" && m.projectName == "ledger" && length(m.systemRequirements) == 1)
         ])
@@ -266,14 +273,14 @@ module ManifestTests {
         rejected(sqliteTable(sqliteCapability, "min_revision = 1\nprovider = \"brew\"\n"), "manifest.system.unknown-key at 6:1"),
         rejected(systemTable("a", sqliteCapability, minRevisionOne) + systemTable("b", sqliteCapability, "min_revision = 2\n"), "manifest.system.duplicate at 3:1"),
         ManifestDeps::capabilityOk(sqliteCapability) && ManifestDeps::capabilityOk("zlib") && !ManifestDeps::capabilityOk("") && !ManifestDeps::capabilityOk("/x") && !ManifestDeps::capabilityOk("a/.b") && !ManifestDeps::capabilityOk("${repeat("a", 65) ?: ""}"),
-        rejected(assetAt("x.md", "text", 1) + "mime = \"text/markdown\"\n", "manifest.asset.unknown-key at 9:1"),
+        textAssetPlus("mime = \"text/markdown\"\n", "manifest.asset.unknown-key at 9:1"),
         rejected(assetAt("x.md", "html", 1), "manifest.asset.kind at 6:1"),
         rejected(assetAt("x.html", "text", 1), "manifest.asset.extension at 4:1"),
         rejected(assetAt("../x.md", "text", 1), "manifest.asset.path at 4:1"),
         rejected(assetAt("x.md", "text", -1), "manifest.asset.byte-length at 7:1"),
         rejected(asset("x.md", docsKind, "text", 1, hexDigest("md5"), ""), "digest.algorithm at 8:1"),
         rejected(asset("x.md", "attachment", "text", 1, hexDigest("sha256"), ""), "manifest.asset.role at 5:1"),
-        rejected(assetAt("x.md", "text", 1) + "required_capability = \"asset.read\"\n", "manifest.asset.capability at 5:1"),
+        textAssetPlus("required_capability = \"asset.read\"\n", "manifest.asset.capability at 5:1"),
         rejected(asset("x.json", "runtime-data", "json", 1, hexDigest("sha256"), ""), "manifest.asset.capability at 5:1"),
         rejected(assetAt("x.md", "text", 1) + assetAt("X.md", "text", 1), "path.case-collision at 3:1")
     ])

@@ -1,8 +1,6 @@
 namespace registry_tests;
 import registry::Arithmetic
 import registry::Objective
-import registry::Identity
-import registry::Names
 import registry::Policy
 
 /// [PACKAGE-EVIDENCE-ARITHMETIC] formulas and the [PACKAGE-RESOLUTION] cost tuple.
@@ -84,7 +82,7 @@ module ArithmeticTests {
     }
 
     fn advisory(severity, reach, ms) = Objective::Advisory { severityWeight: severity, reachabilityFactor: reach, overdueMilliseconds: ms }
-    fn id(scope, ordinal, digest) = Identity::ReleaseId { key: Names::Key { scope: scope, name: "p" }, epoch: 1, ordinal: ordinal, digest: digest }
+    fn id(scope, ordinal, digest) = Fixtures::releaseId("@${scope}/p", 1, ordinal, digest)
 
     /// The cost tuple of a table row.
     fn cost(row) = match row {

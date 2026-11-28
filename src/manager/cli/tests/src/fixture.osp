@@ -1,8 +1,8 @@
 namespace registry_tests;
 import registry_host::Host
-import registry::Json
 import registry_cli::Reports
 import registry::Identity
+import registry::Json
 import registry::Manifest
 import registry::ManifestModel
 import registry::Names
@@ -62,10 +62,6 @@ module Fixture {
         Success => answer
         Error => if w.dir == dir { Success { value: Host::Walk { regular: w.files, executable: [], special: [] } } } else { answer }
     })
-
-    /// The content of `path` as a command that wrote `written` earlier in its
-    /// run reads it back, falling back to the fixture's own `reads`.
-    export fn readAfter(written, reads, path) = readFor(listConcat(written, reads), path)
 
     fn pathsUnder(written, dir) = mapList(filterList(written, fn(r) => startsWith(r.path, "${dir}/")),
         fn(r: ReadRoute) => drop(r.path, byteLength(dir) + 1))

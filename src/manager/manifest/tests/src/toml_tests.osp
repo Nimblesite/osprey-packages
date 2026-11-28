@@ -9,11 +9,14 @@ module TomlTests {
     /// The located refusal of a dotted key or table header over a non-table.
     let notATableAt2 = "toml.not-a-table at 2:1"
 
+    /// The comma-joined rendering of each item of a TOML array.
+    fn joined(items) = join(mapList(items, render), ",")
+
     fn render(v) = match v {
         Toml::Str { text } => "\"${text}\""
         Toml::Int { value } => toString(value)
         Toml::Bool { flag } => if flag { "true" } else { "false" }
-        Toml::Arr { items } => "[" + join(mapList(items, render), ",") + "]"
+        Toml::Arr { items } => "[" + joined(items) + "]"
         Toml::Table { pairs } => "{" + join(mapList(pairs, fn(p) => "${p.key}=${render(p.value)}"), ",") + "}"
     }
 

@@ -19,10 +19,11 @@ module TufTests {
         _ => false
     }
 
-    fn roleState(value) = TufCheck::RoleState {
-        version: Fixtures::numberOf(value, "version"),
-        expiresAt: Fixtures::textOf(value, "expiresAt"),
-        metadataDigest: Fixtures::textOf(value, "metadataDigest")
+    /// The role state a vector row records on `side`, its `trusted` or `served` role.
+    fn roleState(case, side) = TufCheck::RoleState {
+        version: Fixtures::numberOf(JsonRead::field(case, side), "version"),
+        expiresAt: Fixtures::textOf(JsonRead::field(case, side), "expiresAt"),
+        metadataDigest: Fixtures::textOf(JsonRead::field(case, side), "metadataDigest")
     }
 
     fn rootCode(case) = TufCheck::rootUpdate(
@@ -34,8 +35,8 @@ module TufTests {
         Fixtures::numberOf(case, "newThreshold"))
 
     fn roleCode(case) = TufCheck::roleUpdate(
-        roleState(JsonRead::field(case, "trusted")),
-        roleState(JsonRead::field(case, "served")),
+        roleState(case, "trusted"),
+        roleState(case, "served"),
         Fixtures::textOf(case, "now"),
         flagOf(JsonRead::field(case, "thresholdMet")),
         Fixtures::numberOf(case, "metaVersion"),

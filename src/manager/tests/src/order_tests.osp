@@ -9,7 +9,11 @@ module OrderTests {
 
     fn cases() = Fixtures::loadItems("order/lists.json", "cases")
 
-    fn caseTest(c) = test("order: ${Fixtures::textOf(c, "why")}", fn() => check(Fixtures::textOf(c, "why"), Fixtures::textOf(c, "code"), verdict(c)))
+    /// One test per order vector, named by the reason it exercises.
+    fn caseTest(c) = {
+        let why = Fixtures::textOf(c, "why")
+        test("order: ${why}", fn() => check(why, Fixtures::textOf(c, "code"), verdict(c)))
+    }
 
     /// One test per order vector.
     export fn run() = forEachList(cases(), caseTest)

@@ -29,7 +29,7 @@ module ConformanceTests {
     ])
 
     fn listed() = {
-        let run = perform Host::Process.run("find ${roots} -type f -not -path '*/.osprey/*'")
+        let run = perform Host::Process.run("git ls-files -- ${roots}")
         if run.status == 0 { filterList(lines(run.stdout), fn(line) => line != "" && !Paths::generatedCache(line)) } else { [] }
     }
 
