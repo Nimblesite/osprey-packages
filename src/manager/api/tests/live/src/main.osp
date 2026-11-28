@@ -140,7 +140,8 @@ fn catalogRequest(port) = andThen(httpCreateClient("http://127.0.0.1:${port}", 5
         let denied = expectLogin(client, edge, false)
         let _closed = httpCloseClient(client)
         let browser = onFixture("if [ \"$REGISTRY_BROWSER_CHECK\" = 1 ]; then node scripts/packages/test-registry-preview.cjs --database-catalog ${port}; fi")
-        if observed && login && binding.status == 0 && denied && browser.status == 0 { Success { value: 0 } } else { catalogFailure(browser.stderr) }
+        let consumed = Consume::check(port, "@atlas/net", "e1.r1", fixtureDigest, "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+        if observed && login && binding.status == 0 && denied && browser.status == 0 && consumed { Success { value: 0 } } else { catalogFailure(browser.stderr) }
 })
 
 fn catalogListener() = {
@@ -464,7 +465,7 @@ fn successfulCallback(client, path, browser) = match httpGetResponse(client, pat
     Success { value } => {
         let cookie = httpResponseHeader(value, "set-cookie") ?: ""
         let safe = httpResponseStatus(value) == 303 && (httpResponseBody(value) ?: "") == ""
-        && (httpResponseHeader(value, "location") ?: "") == fixtureOAuth.websiteOrigin + "/upload/"
+        && (httpResponseHeader(value, "location") ?: "") == fixtureOAuth.websiteOrigin + "/release/"
         && safeResponseHeaders(value)
         let _released = httpResponseFree(value)
         safe && sessionExists(cookie) && sessionJourney(client, browser, cookie)
@@ -505,9 +506,10 @@ fn suites() = {
     test("session issuer libpq connection", sessionIssuerConnection)
     test("first GitHub sign-in registers an account", Registration::check)
     test("a registered person creates an organization and package", Ownership::check)
+    test("an approved version reaches the public catalog", Publication::check)
     test("live browser session expiry and revocation", sessionLifetimeChecks)
     test("browser sessions start closed", fn() => checkAll("browser sessions use forced row security", [answer("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'registry.browser_sessions'::regclass", "t")]))
-    test("frozen upload worker", fn() => ScanWorkerTests::run(seed()))
+    test("frozen release worker", fn() => ScanWorkerTests::run(seed()))
     test("public catalog writer", CatalogWriter::check)
     test("public catalog lists eligible releases", CatalogReleases::check)
     test("verified public catalog", publicCatalog)
