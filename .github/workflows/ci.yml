@@ -44,6 +44,8 @@ jobs:
           terraform_wrapper: false
       - name: Deploy script lint and Terraform validation (no state backend)
         run: make _registry-infra-check
+      - name: "Analysis: --warnings-as-errors, osprey fmt, deslop under 3%"
+        run: make _lint
       - name: Build the package client, the hosted fixture site and the pinned migration tool
         run: make build _registry-website-fixture _registry-migration-tool
       - uses: actions/upload-artifact@v7

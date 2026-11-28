@@ -119,6 +119,15 @@ function withRegistryFixture(body) {
     assert.match(job('ci'), /if: always\(\)/)
   })
 
+  test('phase 1 gates analysis: warnings are errors, sources are formatted, duplication stays under 3%', () => {
+    const build = job('build')
+    assert.ok(build.indexOf('make _lint') >= 0 && build.indexOf('make _lint') < build.indexOf('make build'), 'analysis runs before the build')
+    const lint = makeRecipe('_lint').join('\n')
+    for (const gate of ['--check --warnings-as-errors', 'fmt --check src/manager', 'scripts/deslop.sh']) assert.ok(lint.includes(gate), gate)
+    assert.match(readFileSync('.deslop.toml', 'utf8'), /max_duplication_percent = 3\.0/)
+    assert.doesNotMatch(readFileSync('Makefile', 'utf8'), /--no-warnings/, 'no build silences warnings')
+  })
+
   test('osprey hunt runs from every program entry under GC and ARC in phase 2', () => {
     const hunt = job('hunt')
     assert.match(hunt, /needs: build/)
@@ -182,7 +191,7 @@ function withRegistryFixture(body) {
       assert.deepEqual(invocations.map(seen => seen.argv.slice(0, 2)), expected)
       const builds = invocations.filter(seen => seen.argv[0] === 'build')
       assert.equal(builds.length, process.env.OSPREY_PACKAGE_CLIENT ? 0 : 1)
-      if (builds.length) assert.ok(['src/manager/cli', '--memory=arc', '--no-warnings', resolve('target/registry-tests/osprey-pkg-arc')].every(arg => builds[0].argv.includes(arg)))
+      if (builds.length) assert.ok(['src/manager/cli', '--memory=arc', '--warnings-as-errors', resolve('target/registry-tests/osprey-pkg-arc')].every(arg => builds[0].argv.includes(arg)))
       for (const seen of invocations) {
         assert.equal(seen.OSPREY_E2E_COMPILER, fixture.compiler)
         assert.ok(isAbsolute(seen.OSPREY_E2E_COMPILER), 'selection must stay absolute')

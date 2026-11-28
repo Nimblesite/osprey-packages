@@ -17,11 +17,11 @@ _toolchain $(TOOLCHAIN): scripts/osprey-toolchain.sh
 
 REGISTRY_CLIENT_SOURCES = $(shell find src/manager -type f \( -name '*.osp' -o -name '*.ospml' -o -name 'osprey.toml' \))
 target/osprey-pkg: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/cli --quiet --no-warnings -o $@
+	$(OSPREY) build src/manager/cli --quiet --warnings-as-errors -o $@
 target/osprey-registry: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/api --quiet --no-warnings -o $@
+	$(OSPREY) build src/manager/api --quiet --warnings-as-errors -o $@
 target/package-workspace.wasm: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/editor --target=wasm32 --quiet --no-warnings -o $@
+	$(OSPREY) build src/manager/editor --target=wasm32 --quiet --warnings-as-errors -o $@
 
 ## build: The package client, the folder-registry server and the editor WASM.
 build: target/osprey-pkg target/osprey-registry target/package-workspace.wasm
@@ -40,7 +40,7 @@ canary: $(TOOLCHAIN)
 
 ## ci: Every check this host can run: each suite under GC and ARC with coverage, the hashing and
 ##     website checks, then the per-project coverage gate (scripts/coverage-thresholds.json).
-ci: build
+ci: build _lint
 	rm -rf target/coverage
 	$(MAKE) _test_registry REGISTRY_MEMORY=gc REGISTRY_COVERAGE=target/coverage
 	$(MAKE) _test_registry REGISTRY_MEMORY=arc REGISTRY_COVERAGE=target/coverage
@@ -61,6 +61,15 @@ _hunt: $(TOOLCHAIN)
 	  nice $(OSPREY) hunt src/manager/$$p --memory=$(HUNT_MEMORY) --max-time 120 --input-bytes 8 --quiet \
 	    --out target/hunt/$(HUNT_MEMORY)-$$(echo $$p | tr / -); \
 	done
+
+# _lint: The analysis gate, phase 1: every project compiles with --warnings-as-errors, every source is
+#        osprey-fmt clean, and duplication stays under .deslop.toml's threshold (scripts/deslop.sh).
+LINT_PROJECTS = $(sort $(dir $(shell find src/manager -name osprey.toml -not -path '*/fixtures/*' -not -path '*/sample-registry/*' -not -path '*/e2e/consumer*')))
+.PHONY: _lint
+_lint: $(TOOLCHAIN)
+	set -e; for p in $(LINT_PROJECTS); do [ -d $$p/src ] || continue; nice $(OSPREY) $$p --check --warnings-as-errors --quiet; done
+	$(OSPREY) fmt --check src/manager
+	nice scripts/deslop.sh
 
 # _package-hashing: The package hash rotates machine words with no allocation (the emitted IR of
 #                  bytes.osp, sha256.osp and policy.osp). Expect every unittest to pass.
@@ -113,7 +122,7 @@ _test_registry:
 	@echo "==> Native publication and installed-source integrity regressions..."
 	@if [ "$(REGISTRY_MEMORY)" = arc ] && [ -z "$$OSPREY_PACKAGE_CLIENT" ]; then \
 	  mkdir -p "$(CURDIR)/target/registry-tests" && \
-	  "$(OSPREY)" build src/manager/cli --memory=arc --quiet --no-warnings -o "$(REGISTRY_NATIVE_CLIENT)"; \
+	  "$(OSPREY)" build src/manager/cli --memory=arc --quiet --warnings-as-errors -o "$(REGISTRY_NATIVE_CLIENT)"; \
 	fi
 	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(REGISTRY_NATIVE_CLIENT)}" python3 scripts/packages/test-package-publication.py
 	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(REGISTRY_NATIVE_CLIENT)}" python3 scripts/packages/test-package-interruption.py
@@ -222,7 +231,7 @@ REGISTRY_HOSTED_BINARY ?= target/osprey-registry-hosted
 _registry-hosted-api: $(REGISTRY_HOSTED_BINARY)
 
 $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/api/hosted --quiet --no-warnings -o $@
+	$(OSPREY) build src/manager/api/hosted --quiet --warnings-as-errors -o $@
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
@@ -253,7 +262,7 @@ _registry-website-fixture: export REGISTRY_CONTENT_ORIGIN = https://content.exam
 # _registry-website: Compile the registry website to WASM and render its Cloudflare Pages directory.
 _registry-website _registry-website-fixture _registry-website-archive: $(TOOLCHAIN)
 	@mkdir -p target/registry-site-build
-	$(OSPREY) build $(REGISTRY_WEB)/site --target=wasm32 --quiet --no-warnings -o target/registry-site-build/site.wasm
+	$(OSPREY) build $(REGISTRY_WEB)/site --target=wasm32 --quiet --warnings-as-errors -o target/registry-site-build/site.wasm
 	@set -eu; out=$$(mktemp -d target/registry-site-build/pages.XXXXXX); \
 	  trap 'rm -rf "$$out"' EXIT; \
 	  render() { printf '%s\n' "$$1" | wasmtime target/registry-site-build/site.wasm; }; \
