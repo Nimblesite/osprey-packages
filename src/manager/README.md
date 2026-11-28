@@ -8,13 +8,14 @@ The loopback consumer uses Default-flavor source. Real compiler checks also pass
 
 | Directory | Responsibility |
 | --- | --- |
-| `core/` | Names, identities, canonical JSON/source rules, SHA-256, capability surfaces and the implementation-language gate |
-| `host/` | File, tree, HTTP, process and console effects with native handlers |
+| `core/src/` | Names, identities, canonical JSON/source rules, SHA-256, capability surfaces and the implementation-language gate |
+| `core/host/` | File, tree, HTTP, process and console effects with native handlers |
+| `core/manifest/` | TOML parser and manifest validation |
+| `core/resolver/` | CDCL solver and deterministic package graph/objective selection |
 | `api/` | Startup catalog, pure HTTP router and folder-registry listener; `api/tests` holds its auth, database, governance and hosted suites, `api/tests/live` the live PostgreSQL suite |
 | `cli/` | Manifest/lock commands, verified installation, local overrides, folder publication, build preparation and reports |
-| `manifest/` | TOML parser and manifest validation |
-| `resolver/` | CDCL solver and deterministic package graph/objective selection |
-| `core/tests/`, `cli/tests/` | Core and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
+| `web/`, `web/editor/` | The registry website and the VS Code package workspace, both WASM |
+| `core/tests/`, `cli/tests/` | Core (with manifest and resolver) and client suites, including fixture-driven source, graph, lock, capability and Python-plane checks |
 | `core/fixture-check/` | Schema, canonical-order and specification-reference checks for declarative fixtures |
 | `sample-registry/` | Example release trees |
 | `cli/e2e/` | Loopback server/client demo and Default-flavor consumer |

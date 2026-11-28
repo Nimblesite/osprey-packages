@@ -730,7 +730,7 @@ A dependency with neither a local `path` nor an installed release under `.osprey
 
 ## Package workspace editor `[PACKAGE-EDITOR]`
 
-"Osprey: Manage Packages" in VS Code is an Osprey Native application, `src/osprey/packages/manager/editor`, inside the VSIX shell. The host owns the panel, the WASI process, theme-safe rendering and bounded capabilities, and nothing else.
+"Osprey: Manage Packages" in VS Code is an Osprey Native application, `src/manager/web/editor`, inside the VSIX shell. The host owns the panel, the WASI process, theme-safe rendering and bounded capabilities, and nothing else.
 
 - `[PACKAGE-EDITOR-STORE]` Every piece of application state and every decision is Osprey; the host holds no package state.
 - `[PACKAGE-EDITOR-WORKSPACE]` The workspace is a screen, not a picker: every value shown comes from the canonical graph or the catalog, and an empty findings list is never presented as an audit.
@@ -738,7 +738,7 @@ A dependency with neither a local `path` nor an installed release under `.osprey
 - `[PACKAGE-EDITOR-USAGE-GRAPH]` Source requirements come from the compiler's resolved dependencies, including erased constant reads; no source text is scanned.
 - `[PACKAGE-EDITOR-COMPLETIONS]` Host envelopes carry bounded raw CLI output; semantic success comes only from the CLI report, never from exit code 0.
 
-Verification: `target/release/osprey src/osprey/packages/manager/editor/tests --run --quiet`, and the VSIX host through `OSPREY_TEST_GREP='package workspace|compiled SDK renderer E2E' npm test --prefix src/toolchain/vscode-extension`.
+Verification: `target/release/osprey src/manager/web/editor/tests --run --quiet`, and the VSIX host through `OSPREY_TEST_GREP='package workspace|compiled SDK renderer E2E' npm test --prefix src/toolchain/vscode-extension`.
 
 ## Python interop dependencies through uv `[PACKAGE-PYTHON-UV]`
 

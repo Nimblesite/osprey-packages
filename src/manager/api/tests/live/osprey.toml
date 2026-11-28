@@ -1,6 +1,6 @@
 [project]
 name = "registry-api-live-tests"
-source_roots = ["src", "../../../core/src", "../../../host/src", "../../lib"]
+source_roots = ["src", "../../../core/src", "../../../core/host", "../../lib"]
 default_namespace = "registry_live_tests"
 entry = "src/main.osp"
 

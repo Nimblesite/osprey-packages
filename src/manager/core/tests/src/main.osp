@@ -1,7 +1,7 @@
 namespace registry_tests;
 import registry::Policy
 
-/// The suites over the shared core, the host and the API.
+/// The suites over the shared core, the manifest parser, the resolver, the host and the API.
 fn behaviourSuites() = {
     BytesTests::run()
     NamesTests::run()
@@ -18,6 +18,9 @@ fn behaviourSuites() = {
     BundleTests::run()
     CatalogTests::run()
     RouterTests::run()
+    TomlTests::run()
+    ManifestTests::run()
+    SatTests::run()
 }
 
 /// The suites that interpret the declarative fixtures.

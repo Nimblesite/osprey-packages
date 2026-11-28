@@ -1,6 +1,6 @@
 [project]
 name = "registry-cli-tests"
-source_roots = ["src", "../lib", "../../core/src", "../../host/src", "../../manifest/src", "../../resolver/src"]
+source_roots = ["src", "../lib", "../../core/src", "../../core/host", "../../core/manifest", "../../core/resolver"]
 default_namespace = "registry_tests"
 entry = "src/main.osp"
 

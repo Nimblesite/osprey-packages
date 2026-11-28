@@ -21,7 +21,7 @@ target/osprey-pkg: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 target/osprey-registry: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 	$(OSPREY) build src/manager/api --memory=$(API_MEMORY) --quiet --warnings-as-errors -o $@
 target/package-workspace.wasm: $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
-	$(OSPREY) build src/manager/editor --target=wasm32 --memory=$(WASM_MEMORY) --quiet --warnings-as-errors -o $@
+	$(OSPREY) build src/manager/web/editor --target=wasm32 --memory=$(WASM_MEMORY) --quiet --warnings-as-errors -o $@
 
 ## build: The package client, the folder-registry server and the editor WASM.
 build: target/osprey-pkg target/osprey-registry target/package-workspace.wasm
@@ -81,9 +81,8 @@ _package-hashing: $(TOOLCHAIN)
 # src/manager/core/fixture-check runs first and fails fast: every fixture is data,
 # parses strictly, cites a defined spec section and is indexed, every typed
 # fixture value is schema-valid and canonically ordered, and every registry
-# source cites only defined sections. src/manager/manifest/tests is the TOML
-# parser and manifest-rule suite, a separate program until that code joins
-# core. src/manager/cli/e2e runs last: it starts the
+# source cites only defined sections. src/manager/core/tests also runs the TOML
+# parser, manifest-rule and SAT resolver suites. src/manager/cli/e2e runs last: it starts the
 # server over src/manager/sample-registry on 127.0.0.1:18797, compares every
 # endpoint with the pure router, fetches every release, and builds and runs a
 # consumer project against the fetched sources. Each suite runs once, under the memory strategy of the
@@ -111,9 +110,6 @@ _test_registry:
 	$(if $(REGISTRY_COVERAGE),mkdir -p $(REGISTRY_COVERAGE))
 	@echo "==> Registry fixture and schema validation (fail-fast)..."
 	$(OSPREY) test src/manager/core/fixture-check --memory=$(CLI_MEMORY) $(call registry_coverage,core-fixture-check)
-	@echo "==> Registry manifest (TOML parser and manifest rules) tests..."
-	$(OSPREY) test src/manager/manifest/tests --memory=$(CLI_MEMORY) $(call registry_coverage,manifest-tests)
-	$(OSPREY) test src/manager/resolver/tests --memory=$(CLI_MEMORY) $(call registry_coverage,resolver-tests)
 	@echo "==> Registry CLI (package frontend) tests..."
 	$(OSPREY) test src/manager/cli/tests --memory=$(CLI_MEMORY) $(call registry_coverage,cli-tests)
 	@echo "==> Registry (Osprey package system) tests..."
@@ -122,7 +118,7 @@ _test_registry:
 	$(OSPREY) test src/manager/cli/e2e --memory=$(CLI_MEMORY) $(call registry_coverage,cli-e2e)
 	$(OSPREY) test src/manager/api/tests --memory=$(API_MEMORY) $(call registry_coverage,api-tests)
 	$(OSPREY) test src/manager/web --memory=$(WASM_MEMORY) $(call registry_coverage,web)
-	$(OSPREY) test src/manager/editor/tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-tests)
+	$(OSPREY) test src/manager/web/editor/tests --memory=$(WASM_MEMORY) $(call registry_coverage,web-editor-tests)
 	@echo "==> Native publication and installed-source integrity regressions..."
 	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(CURDIR)/target/osprey-pkg}" python3 scripts/packages/test-package-publication.py
 	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(CURDIR)/target/osprey-pkg}" python3 scripts/packages/test-package-interruption.py
@@ -250,8 +246,7 @@ $(REGISTRY_HOSTED_BINARY): $(TOOLCHAIN) $(REGISTRY_CLIENT_SOURCES)
 
 REGISTRY_HOSTED_IMAGE ?= osprey-registry-hosted:local
 REGISTRY_HOSTED_DOCKERFILE = src/manager/ops/Dockerfile
-REGISTRY_HOSTED_CONTEXT = Makefile scripts/osprey-toolchain.sh src/manager/api src/manager/core \
-	src/manager/host $(REGISTRY_HOSTED_DOCKERFILE)
+REGISTRY_HOSTED_CONTEXT = Makefile scripts/osprey-toolchain.sh src/manager/api src/manager/core $(REGISTRY_HOSTED_DOCKERFILE)
 
 .PHONY: _registry-hosted-image _registry-hosted-image-check _registry-hosted-context
 # _registry-hosted-context: Print the paths the API image is built from (deploy.sh's Cloud Build archive).

@@ -1,6 +1,6 @@
 [project]
 name = "registry-publication-scan"
-source_roots = ["src", "../lib", "../../core/src", "../../host/src"]
+source_roots = ["src", "../lib", "../../core/src", "../../core/host"]
 default_namespace = "registry_api"
 entry = "src/main.osp"
 

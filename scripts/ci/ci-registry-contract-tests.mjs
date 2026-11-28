@@ -36,9 +36,9 @@ function assertRealUv(registry) {
   assert.ok(makeRecipe('ci').includes('$(MAKE) _test_registry REGISTRY_COVERAGE=target/coverage'))
 }
 
-const cliSuites = ['core/fixture-check', 'manifest/tests', 'resolver/tests', 'cli/tests', 'core/tests', 'cli/e2e']
+const cliSuites = ['core/fixture-check', 'cli/tests', 'core/tests', 'cli/e2e']
 const apiSuites = ['api/tests']
-const wasmSuites = ['web', 'editor/tests']
+const wasmSuites = ['web', 'web/editor/tests']
 const registrySuites = [...cliSuites, ...apiSuites, ...wasmSuites]
 const variableOf = (suite) => (cliSuites.includes(suite) ? 'CLI_MEMORY' : apiSuites.includes(suite) ? 'API_MEMORY' : 'WASM_MEMORY')
 const strategyOf = (suite) => (cliSuites.includes(suite) ? 'gc' : 'arc')
@@ -137,7 +137,7 @@ function withRegistryFixture(body) {
     assert.doesNotMatch(hunt, /matrix/)
     assert.ok(hunt.includes('run: make _hunt\n'))
     assert.match(job('ci'), /needs\.hunt\.result/)
-    assert.match(readFileSync(recipes, 'utf8'), /^HUNT_PROGRAMS = cli:\$\(CLI_MEMORY\) api:\$\(API_MEMORY\) api\/hosted:\$\(API_MEMORY\)$/m)
+    assert.match(readFileSync(recipes, 'utf8'), /^HUNT_PROGRAMS = cli:\$\(CLI_MEMORY\) api:\$\(API_MEMORY\) api\/hosted:\$\(API_MEMORY\) api\/scan:\$\(API_MEMORY\)$/m)
     assert.ok(makeRecipe('_hunt').some((line) => line.includes('$(OSPREY) hunt src/manager/$$p --memory=$$memory')))
   })
 
@@ -149,7 +149,7 @@ function withRegistryFixture(body) {
     }
     assert.ok(make.includes('build src/manager/cli --memory=$(CLI_MEMORY) '))
     for (const app of ['api', 'api/hosted']) assert.ok(make.includes(`build src/manager/${app} --memory=$(API_MEMORY) `), app)
-    assert.ok(make.includes('build src/manager/editor --target=wasm32 --memory=$(WASM_MEMORY) '))
+    assert.ok(make.includes('build src/manager/web/editor --target=wasm32 --memory=$(WASM_MEMORY) '))
     assert.ok(make.includes('build $(REGISTRY_WEB)/site --target=wasm32 --memory=$(WASM_MEMORY) '))
     assert.doesNotMatch(make, /--memory=(gc|arc)\b|REGISTRY_MEMORY|HUNT_MEMORY|NATIVE_MEMORY/, 'no target picks a strategy of its own')
     assert.doesNotMatch(readFileSync(workflow, 'utf8'), /matrix\.memory|memory: \[/, 'CI runs each suite once')

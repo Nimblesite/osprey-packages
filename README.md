@@ -49,9 +49,9 @@ A package is **Osprey source, identified by its SHA-256 digest**. A version is n
 |---|---|---|
 | **Client** | [`src/manager/cli`](src/manager/cli) | `osprey-pkg`: `add`, `remove`, `update`, `fetch`, `verify`, `use`, `publish` and `build` |
 | **Registry** | [`src/manager/api`](src/manager/api) | The folder registry and the hosted API listener |
-| **Core** | [`src/manager/core`](src/manager/core), [`resolver`](src/manager/resolver), [`manifest`](src/manager/manifest) | Names, canonical JSON, SHA-256, capability surfaces, the TOML parser and the deterministic solver |
+| **Core** | [`src/manager/core`](src/manager/core) (with `host`, `manifest` and `resolver`) | Names, canonical JSON, SHA-256, capability surfaces, the TOML parser and the deterministic solver |
 | **Website** | [`src/manager/web`](src/manager/web) | The registry site, compiled to WASM and rendered to static pages |
-| **Editor** | [`src/manager/editor`](src/manager/editor) | The VS Code package workspace |
+| **Editor** | [`src/manager/web/editor`](src/manager/web/editor) | The VS Code package workspace |
 | **Model** | [`src/manager/schemas/package-registry.td`](src/manager/schemas/package-registry.td) | The canonical domain model, in [typeDiagram](https://typediagram.dev/) |
 
 The [manager README](src/manager/README.md) covers each part in depth.
