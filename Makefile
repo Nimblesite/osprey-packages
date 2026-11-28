@@ -163,7 +163,13 @@ REGISTRY_TERRAFORM = src/manager/ops/terraform
 REGISTRY_MIGRATOR_REV = 3b4e356522affc61b466d8e87ef5232319c9d7a0
 REGISTRY_MIGRATOR_SHA256 = 87192312ca3a313fa0c786705c2fa2cbafebe76a0afb522b39df82f08aaa740a
 REGISTRY_MIGRATOR_RID := $(subst darwin,osx,$(shell uname -s | tr A-Z a-z))-$(subst x86_64,x64,$(subst aarch64,arm64,$(shell uname -m)))
-REGISTRY_MIGRATOR_DIR = target/registry-tools/$(REGISTRY_MIGRATOR_REV)-$(REGISTRY_MIGRATOR_RID)
+# Until Nimblesite/DataProvider#137 is released the pinned source gets its three-line fix here: the
+# function inspector read owner, search path and public-execute at each other's column ordinals, so
+# no schema with a function could migrate. Delete REGISTRY_MIGRATOR_FIX when the pin moves past it.
+REGISTRY_MIGRATOR_FIX = -e 's/OwnerRole = reader.GetString(10)/OwnerRole = reader.GetString(9)/' \
+  -e 's/IsDBNull(11) ? null : reader.GetString(11)/IsDBNull(10) ? null : reader.GetString(10)/' \
+  -e 's/RevokePublicExecute = reader.GetBoolean(9)/RevokePublicExecute = reader.GetBoolean(11)/'
+REGISTRY_MIGRATOR_DIR = target/registry-tools/$(REGISTRY_MIGRATOR_REV)-137-$(REGISTRY_MIGRATOR_RID)
 REGISTRY_MIGRATOR = $(REGISTRY_MIGRATOR_DIR)/bin/DataProviderMigrate
 
 .PHONY: _registry-migration-tool _registry-migration-check
@@ -176,6 +182,9 @@ $(REGISTRY_MIGRATOR):
 	  curl -fsSL --retry 2 --max-time 120 -o "$$archive" "https://codeload.github.com/Nimblesite/DataProvider/tar.gz/$(REGISTRY_MIGRATOR_REV)"; \
 	  echo "$(REGISTRY_MIGRATOR_SHA256)  $$archive" | shasum -a 256 -c - >/dev/null; \
 	  tar -xzf "$$archive" --strip-components=1 -C $(REGISTRY_MIGRATOR_DIR)/src; \
+	  inspector="$(REGISTRY_MIGRATOR_DIR)/src/Migration/Nimblesite.DataProvider.Migration.Postgres/PostgresSupportSchemaInspector.cs"; \
+	  sed -i.orig $(REGISTRY_MIGRATOR_FIX) "$$inspector"; \
+	  grep -q 'OwnerRole = reader.GetString(9)' "$$inspector"; grep -q 'RevokePublicExecute = reader.GetBoolean(11)' "$$inspector"; \
 	  dotnet publish $(REGISTRY_MIGRATOR_DIR)/src/Migration/DataProviderMigrate -c Release -f net10.0 \
 	    -r $(REGISTRY_MIGRATOR_RID) -p:PublishAot=true -o "$(abspath $(REGISTRY_MIGRATOR_DIR))/bin" >/dev/null; \
 	  test -x "$@"

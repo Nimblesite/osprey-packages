@@ -1,0 +1,252 @@
+namespace registry;
+
+/// `[project]`, `[modules]` and `[package]` as `[PACKAGE-MANIFEST]` and the
+/// canonical-manifest rule of [PACKAGE-TYPE-INVARIANTS] define them. Each
+/// failure is a stable reason code at the offending pair's span, encoded as
+/// `code at line:column` inside `Error` until `Manifest` decodes it.
+module ManifestSections {
+    /// The validated `[project]` table: name, source roots, the optional
+    /// namespace, entry and flavor, test roots, and the Python and TypeScript
+    /// source lists.
+    export type Project = { name: string, sourceRoots: List<string>, defaultNamespace: Maybe::Maybe<string>, entry: Maybe::Maybe<string>, flavor: Maybe::Maybe<ManifestModel::Flavor>, testRoots: List<string>, pythonSources: List<string>, typescriptSources: List<string> }
+
+    let projectKeys = ["name", "source_roots", "default_namespace", "entry", "flavor", "test_roots", "python_sources", "typescript_sources"]
+    let modulesKeys = ["allow_wildcard_imports"]
+    let lintLevels = ["allow", "info", "warn", "deny"]
+    let packageKeys = ["name", "license", "summary", "keywords"]
+    let disciplineKeys = ["name", "checker", "timeout_seconds"]
+    let defaultRoots = ["src"]
+    let summaryMax = 512
+
+    /// `code at line:column`, the one encoding `Toml` and `Manifest::problemOf` share.
+    export fn fail(code, span: Toml::Span) = Error { message: "${code} at ${span.line}:${span.column}" }
+
+    /// The span of a document without a better anchor.
+    export fn rootSpan() = Toml::Span { line: 1, column: 1 }
+
+    /// The pairs of a table value, or none.
+    export fn pairsOf(value) = match value {
+        Toml::Table { pairs } => pairs
+        _ => []
+    }
+
+    /// The pair named `key`, if present.
+    export fn find(pairs, key) = foldList(pairs, Error { message: "absent" }, fn(found, pair: Toml::Pair) => if pair.key == key { Success { value: pair } } else { found })
+
+    /// The span of pair `key`, or `fallback`.
+    export fn spanOf(pairs, key, fallback) = match find(pairs, key) {
+        Success { value } => Toml::pairSpan(value)
+        Error => fallback
+    }
+
+    /// True when pair `key` exists.
+    export fn has(pairs, key) = Checked::succeeded(find(pairs, key))
+
+    fn withPair(pairs, key, missing, present) = match find(pairs, key) {
+        Error => missing
+        Success { value } => present(value)
+    }
+
+    /// The section `key` run through `of`; a missing section is [].
+    export fn optional(pairs, key, of) = withPair(pairs, key, Success { value: [] }, of)
+
+    /// The pair `key`, else `code` at `span`.
+    export fn required(pairs, key, code, span) = withPair(pairs, key, fail(code, span), fn(value) => Success { value: value })
+
+    /// The first pair whose key is not allowed, as `code`.
+    export fn unknownKeys(pairs, allowed, code) = foldList(pairs, Success { value: 0 }, fn(acc, pair: Toml::Pair) => match acc {
+            Error { message } => Error { message: message }
+            Success => if listContains(allowed, pair.key) { Success { value: 0 } } else { fail(code, pair.span) }
+    })
+
+    /// The string of a pair, else `code` at its span.
+    export fn stringOf(pair: Toml::Pair, code) = match pair.value {
+        Toml::Str { text } => Success { value: text }
+        _ => fail(code, pair.span)
+    }
+
+    /// The integer of a pair, else `code` at its span.
+    export fn intOf(pair: Toml::Pair, code) = match pair.value {
+        Toml::Int { value } => Success { value: value }
+        _ => fail(code, pair.span)
+    }
+
+    /// A required string pair; a missing one fails at `span`.
+    export fn requiredString(pairs, key, code, span) = withPair(pairs, key, fail(code, span), fn(value) => stringOf(value, code))
+
+    fn optionalString(pairs, key, code) = withPair(pairs, key, Success { value: Maybe::none() }, fn(value) => Maybe::ofResult(stringOf(value, code)))
+
+    fn stringItems(items, span, code) = Checked::collectAll(items, fn(item) => match item {
+            Toml::Str { text } => Success { value: text }
+            _ => fail(code, span)
+    })
+
+    /// A string array pair, `fallback` when absent.
+    export fn stringList(pairs, key, fallback, code) = withPair(pairs, key, Success { value: fallback }, fn(value) => match Toml::valueOf(value) {
+            Toml::Arr { items } => stringItems(items, Toml::pairSpan(value), code)
+            _ => fail(code, Toml::pairSpan(value))
+    })
+
+    fn allValidPaths(paths) = foldList(paths, true, fn(ok, path) => ok && Checked::succeeded(Paths::validate(path)))
+
+    // Roots follow path rules: exact duplicates and case-fold collisions
+    // both fail ([PACKAGE-SOURCE-CANONICAL]); `check` adds a list's own rule.
+    fn uniqueStrings(xs) = Checked::succeeded(Paths::canonicalSet(xs))
+
+    /// The string list `key` (or `fallback`) once every entry is a valid,
+    /// distinct path and `check` holds; any failure is `code` at the pair.
+    fn rootsWith(check, pairs, key, fallback, code, span) = andThen(stringList(pairs, key, fallback, code), fn(value) =>
+        if allValidPaths(value) && uniqueStrings(value) && check(value) { Success { value: value } } else { fail(code, spanOf(pairs, key, span)) })
+
+    fn roots(pairs, key, fallback, code, span) = rootsWith(fn(_value) => true, pairs, key, fallback, code, span)
+
+    // The fold's initial result keeps the closure's return type concrete for codegen.
+    fn optionalParsed(pairs, key, code, parse) = match optionalString(pairs, key, code) {
+        Error { message } => Error { message: message }
+        Success { value } => Maybe::fold(value, Success { value: Maybe::none() }, fn(text) => parse(text, spanOf(pairs, key, rootSpan())))
+    }
+
+    fn flavorOf(pairs) = optionalParsed(pairs, "flavor", "manifest.project.flavor", flavorNamed)
+
+    fn flavorNamed(text, span) = match ManifestModel::flavorOf(text) {
+        Success { value } => Success { value: Maybe::some(value) }
+        Error { message } => fail(message, span)
+    }
+
+    fn entryOf(pairs) = optionalParsed(pairs, "entry", "manifest.project.entry", entryNamed)
+
+    fn entryNamed(text, span) = match Paths::validate(text) {
+        Success => Success { value: Maybe::some(text) }
+        Error => fail("manifest.project.entry", span)
+    }
+
+    /// `[project]`'s body: each field read in document order, then assembled.
+    fn projectBody(pairs, span) = {
+        use name <- andThen(nonEmpty(pairs, "name", "manifest.project.name", span))
+        use sourceRoots <- andThen(roots(pairs, "source_roots", defaultRoots, "manifest.project.source-roots", span))
+        use ns <- andThen(optionalString(pairs, "default_namespace", "manifest.project.default-ns"))
+        use entry <- andThen(entryOf(pairs))
+        use flavor <- andThen(flavorOf(pairs))
+        use testRoots <- andThen(roots(pairs, "test_roots", [], "manifest.project.test-roots", span))
+        use sources <- andThen(sourcesOf(pairs, span))
+        Success { value: Project {
+                name: name, sourceRoots: sourceRoots, defaultNamespace: ns, entry: entry, flavor: flavor, testRoots: testRoots,
+                pythonSources: sources.python, typescriptSources: sources.typescript } }
+    }
+
+    type FlavorSources = { python: List<string>, typescript: List<string> }
+
+    // Flavor sources are root-confined relative paths with the flavor's
+    // extension ([PACKAGE-MANIFEST], the Osprey TypeScript-flavor spec); the extension
+    // rule shares the roots failure's code and span. `.d.ts` declares types only.
+    fn flavorPath(path, suffix) = endsWith(path, suffix) && !endsWith(path, ".d.ts")
+
+    fn flavorSources(pairs, span, key, suffix, code) = rootsWith(fn(value) => foldList(value, true, fn(ok, path) => ok && flavorPath(path, suffix)), pairs, key, [], code, span)
+
+    fn sourcesOf(pairs, span) = andThen(flavorSources(pairs, span, "python_sources", ".py", "manifest.project.python-sources"), fn(python) => andThen(flavorSources(pairs, span, "typescript_sources", ".ts", "manifest.project.typescript-sources"), fn(typescript) => Success { value: FlavorSources { python: python, typescript: typescript } }))
+
+    /// A section's body once the table holds exactly `allowed` keys; `body`
+    /// gets the pairs and the section's span.
+    fn sectionBody(pair, allowed, unknownCode, body) = match unknownKeys(pairsOf(Toml::valueOf(pair)), allowed, unknownCode) {
+        Error { message } => Error { message: message }
+        Success => body(pairsOf(Toml::valueOf(pair)), Toml::pairSpan(pair))
+    }
+
+    /// `[project]`: required, with validated roots, entry and flavor.
+    fn section(root, key, missing, body) = withPair(pairsOf(root), key, missing, body)
+
+    export fn project(root) = section(root, "project", fail("manifest.project.missing", rootSpan()),
+        fn(value) => sectionBody(value, projectKeys, "manifest.project.unknown-key", projectBody))
+
+    fn nonEmpty(pairs, key, code, span) = andThen(requiredString(pairs, key, code, span), fn(value) => if value == "" { fail(code, spanOf(pairs, key, span)) } else { Success { value: value } })
+
+    fn disciplineBody(pairs, span) = andThen(nonEmpty(pairs, "name", "manifest.discipline.name", span), fn(_) => andThen(nonEmpty(pairs, "checker", "manifest.discipline.checker", span), fn(_) => match find(pairs, "timeout_seconds") {
+                Error => Success { value: 0 }
+                Success { value } => intOf(value, "manifest.discipline.timeout-seconds")
+    }))
+
+    /// `[discipline]`: a type-discipline package's word and checker
+    /// (the compiler's discipline registry). The compiler runs the checker; the
+    /// client only refuses a malformed table.
+    export fn discipline(root) = section(root, "discipline", Success { value: 0 },
+        fn(value) => sectionBody(value, disciplineKeys, "manifest.discipline.unknown-key", disciplineBody))
+
+    fn boolOf(pairs, key, fallback, code) = withPair(pairs, key, Success { value: fallback }, fn(value) => match Toml::valueOf(value) {
+            Toml::Bool { flag } => Success { value: flag }
+            _ => fail(code, Toml::pairSpan(value))
+    })
+
+    /// `[modules]`: the wildcard-import policy.
+    export fn modules(root) = section(root, "modules", Success { value: false }, fn(value) =>
+        match unknownKeys(pairsOf(Toml::valueOf(value)), modulesKeys, "manifest.modules.unknown-key") {
+            Error { message } => Error { message: message }
+            Success => modulesBody(pairsOf(Toml::valueOf(value)))
+    })
+
+    fn modulesBody(pairs) = boolOf(pairs, "allow_wildcard_imports", false, "manifest.modules.allow-wildcard-imports")
+
+    /// `[lints]`: every rule's level is one the compiler reads; the compiler
+    /// checks the rule names.
+    export fn lints(root) = section(root, "lints", Success { value: 0 },
+        fn(value) => foldList(pairsOf(Toml::valueOf(value)), Success { value: 0 }, lintLevel))
+
+    fn lintLevel(acc, pair) = match acc {
+        Error { message } => Error { message: message }
+        Success => match stringOf(pair, "manifest.lints.level") {
+            Error { message } => Error { message: message }
+            Success { value } => if listContains(lintLevels, value) { Success { value: 0 } } else { fail("manifest.lints.level", pair.span) }
+        }
+    }
+
+    fn keywordsOk(keywords, span) = if length(keywords) > Names::keywordMax { fail("manifest.keywords.count", span) }
+    else if !foldList(keywords, true, fn(ok, k) => ok && Names::keywordOk(k)) { fail("manifest.keyword.grammar", span) }
+    else if !Order::strictlyAscending(keywords) { fail("manifest.keywords.order", span) }
+    else { Success { value: keywords } }
+
+    fn summaryOk(summary, span) = if byteLength(summary) > summaryMax { fail("manifest.summary.length", span) }
+    else if !Utf8::wellFormed(summary) || !Utf8::noControls(summary) { fail("manifest.summary.text", span) }
+    else { Success { value: summary } }
+
+    /// `result`'s success, or its failure re-located at `span`: a parsed
+    /// value's own code, at the pair it came from.
+    export fn located(result, span) = match result {
+        Success { value } => Success { value: value }
+        Error { message } => fail(message, span)
+    }
+
+    fn parsedKey(text, span) = located(Names::parse(text), span)
+
+    fn packageName(pairs, span) = {
+        use text <- andThen(requiredString(pairs, "name", "manifest.package.name", span))
+        parsedKey(text, spanOf(pairs, "name", span))
+    }
+
+    /// The SPDX `license` expression, validated; its own refusal is located at the pair.
+    fn license(pairs, span) = {
+        use text <- andThen(requiredString(pairs, "license", "manifest.license", span))
+        located(Spdx::validate(text), spanOf(pairs, "license", span))
+    }
+
+    fn keywords(pairs, span) = if !has(pairs, "keywords") { fail("manifest.keywords.missing", span) }
+    else { andThen(stringList(pairs, "keywords", [], "manifest.keyword.grammar"), fn(value) => keywordsOk(value, spanOf(pairs, "keywords", span))) }
+
+    /// The `summary` and `keywords` of `[package]`, each checked at its own pair.
+    fn discovery(pairs, span) = {
+        use summary <- andThen(requiredString(pairs, "summary", "manifest.summary.missing", span))
+        use _ <- andThen(summaryOk(summary, spanOf(pairs, "summary", span)))
+        use words <- andThen(keywords(pairs, span))
+        Success { value: ManifestModel::Discovery { summary: summary, keywords: words } }
+    }
+
+    /// `[package]`'s body: the key, the license and the discovery, in document order.
+    fn packageBody(pairs, span) = {
+        use key <- andThen(packageName(pairs, span))
+        use licenseText <- andThen(license(pairs, span))
+        use found <- andThen(discovery(pairs, span))
+        Success { value: Maybe::some(ManifestModel::Publication { package: key, licenseExpression: licenseText, discovery: found }) }
+    }
+
+    /// `[package]`: optional for application roots; complete when present.
+    export fn publication(root) = section(root, "package", Success { value: Maybe::none() },
+        fn(value) => sectionBody(value, packageKeys, "manifest.package.unknown-key", packageBody))
+}
