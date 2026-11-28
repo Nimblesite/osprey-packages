@@ -388,7 +388,15 @@ exactTests [
     { name = "removing a direct dependency warns and names the project before confirming", work = removeDirect },
     { name = "installed and workspace security findings stay visible", work = securityFindings },
     { name = "unavailable package data hides counts and keeps the selected project", work = unavailableData },
-    { name = "add waits for verified fetch before refreshing installed packages", work = verifiedFetch }
+    { name = "add waits for verified fetch before refreshing installed packages", work = verifiedFetch },
+    { name = "editor accepts canonical report followed by native status line", work = wire1 },
+    { name = "editor rejects crashed and ambiguous subprocess reports", work = wire2 },
+    { name = "editor rejects loopback hostname prefix spoofs", work = wire3 },
+    { name = "editor never interprets empty findings as audit evidence", work = wire4 },
+    { name = "editor blocks recorded findings even in a local registry", work = wire5 },
+    { name = "editor cannot bypass audit safeguards by promoting a transitive dependency", work = wire6 },
+    { name = "changing package selection cancels the previous confirmation", work = wire7 },
+    { name = "a missing lock leaves installation counts unknown", work = wire8 }
 ]
 
 

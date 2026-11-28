@@ -122,7 +122,6 @@ _test_registry:
 	$(OSPREY) test src/manager/api/tests --memory=$(API_MEMORY) $(call registry_coverage,api-tests)
 	$(OSPREY) test src/manager/web --memory=$(WASM_MEMORY) $(call registry_coverage,web)
 	$(OSPREY) test src/manager/editor/tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-tests)
-	$(OSPREY) test src/manager/editor/wire-tests --memory=$(WASM_MEMORY) $(call registry_coverage,editor-wire-tests)
 	@echo "==> Native publication and installed-source integrity regressions..."
 	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(CURDIR)/target/osprey-pkg}" python3 scripts/packages/test-package-publication.py
 	OSPREY_PACKAGE_CLIENT="$${OSPREY_PACKAGE_CLIENT:-$(CURDIR)/target/osprey-pkg}" python3 scripts/packages/test-package-interruption.py

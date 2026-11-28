@@ -38,7 +38,7 @@ function assertRealUv(registry) {
 
 const cliSuites = ['core/fixture-check', 'manifest/tests', 'cli/tests', 'core/tests', 'cli/e2e']
 const apiSuites = ['api/tests']
-const wasmSuites = ['web', 'editor/tests', 'editor/wire-tests']
+const wasmSuites = ['web', 'editor/tests']
 const registrySuites = [...cliSuites, ...apiSuites, ...wasmSuites]
 const variableOf = (suite) => (cliSuites.includes(suite) ? 'CLI_MEMORY' : apiSuites.includes(suite) ? 'API_MEMORY' : 'WASM_MEMORY')
 const strategyOf = (suite) => (cliSuites.includes(suite) ? 'gc' : 'arc')
