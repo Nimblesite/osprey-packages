@@ -5,5 +5,16 @@ import demo_greeting::Greeting
 /// One line that uses both dependencies.
 module Report {
     /// A greeting for `name` followed by the square and cube of `n`.
+    /// # Examples
+    /// ```osprey
+    /// let checked = handler Arith {
+    ///     overflow _op _lhs _rhs _wrapped => 0
+    ///     remainderByZero _lhs => 0
+    /// }
+    /// print(checked(fn() => Report::line("Ada", 3)))
+    /// ```
+    /// ```output
+    /// Hello, Ada! 3 squared is 9, cubed is 27.
+    /// ```
     export fn line(name, n) = "${Greeting::hello(name)} ${n} squared is ${Maths::square(n)}, cubed is ${Maths::cube(n)}."
 }

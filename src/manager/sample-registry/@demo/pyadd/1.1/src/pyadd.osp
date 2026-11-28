@@ -6,5 +6,16 @@ namespace demo_pyadd;
 /// needs nothing from Python; the plane is what the sample exercises.
 module PyAdd {
     /// `a + b`.
+    /// # Examples
+    /// ```osprey
+    /// let checked = handler Arith {
+    ///     overflow _op _lhs _rhs _wrapped => 0
+    ///     remainderByZero _lhs => 0
+    /// }
+    /// print(checked(fn() => PyAdd::add(2, 3)))
+    /// ```
+    /// ```output
+    /// 5
+    /// ```
     export fn add(a, b) = a + b
 }
