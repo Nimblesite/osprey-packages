@@ -61,6 +61,7 @@ output "github_environment" {
     GCP_WORKLOAD_IDENTITY   = google_iam_workload_identity_pool_provider.github.name
     GCP_DEPLOY_SA           = google_service_account.deploy.email
     REGISTRY_IMAGE_REPO     = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.registry.repository_id}"
+    REGISTRY_SCAN_JOB       = local.release_scanner
     REGISTRY_SERVICE        = local.name
     REGISTRY_WEBSITE_ORIGIN = "https://${var.website_hostname}"
     REGISTRY_API_ORIGIN     = "https://${var.api_hostname}"

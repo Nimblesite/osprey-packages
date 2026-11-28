@@ -368,7 +368,7 @@ step_website() {
 # Operator release of HEAD: image via Cloud Build, Cloud Run rolled to its digest, website uploaded.
 step_ship() {
   local image; image="$(build_image)"
-  gcloud run services update "$NAME" --region="$REGION" --project="$GCP_PROJECT_ID" --image="$image" --quiet >&2
+  "$ROOT/scripts/packages/roll-registry-image.sh" "$NAME" "$REGION" "$GCP_PROJECT_ID" "$(tf output -raw release_scanner)" "$image" >&2
   step_website
 }
 

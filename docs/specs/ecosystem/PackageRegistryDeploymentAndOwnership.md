@@ -263,6 +263,8 @@ Pin external actions referenced in repository workflows and composite actions to
 
 Build a native Osprey API container and static WASM artifact from one reviewed commit, with immutable image/artifact digests and a manifest binding compiler, policy, schema, frontend, API and tests. Deploy the identical artifacts to production, the only environment, with pinned secret versions; a test environment, if one is ever needed, is an exact paused copy of production. Runtime secrets are in Secret Manager and Supabase's provider configuration; deployment uses short-lived federated CI identity with separate deploy/migration/runtime permissions. No secrets enter an image, build argument, log or frontend.
 
+Both operator and workflow image rollouts must update a provisioned scanner job to the same immutable image digest before updating the API. A missing scanner configuration or failed job update stops the rollout.
+
 The release dispatch must bind the workflow to the same main commit used for migration. Watch only the run returned by that dispatch and fail if its identity is unavailable.
 
 Both Pages release paths must install the publisher and its transitive dependencies from the reviewed integrity lockfile with install scripts disabled. The operator must build with a freshly verified release compiler.

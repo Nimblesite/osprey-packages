@@ -155,3 +155,26 @@ resource "google_cloud_run_v2_job_iam_member" "collect_and_scan" {
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.publication["collector"].email}"
 }
+
+locals {
+  release_scanner = var.scan_agent_secret_version == "" ? "disabled" : google_cloud_run_v2_job.scan[0].name
+}
+
+output "release_scanner" {
+  value = local.release_scanner
+}
+
+resource "google_cloud_run_v2_job_iam_member" "deploy_scanner" {
+  count    = length(google_cloud_run_v2_job.scan)
+  location = var.region
+  name     = google_cloud_run_v2_job.scan[0].name
+  role     = "roles/run.developer"
+  member   = "serviceAccount:${google_service_account.deploy.email}"
+}
+
+resource "google_service_account_iam_member" "deploy_scanner" {
+  count              = length(google_cloud_run_v2_job.scan)
+  service_account_id = google_service_account.publication["scanner"].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.deploy.email}"
+}

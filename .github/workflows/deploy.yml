@@ -72,14 +72,14 @@ jobs:
           docker push "$IMAGE"
           digest=$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')
           echo "image=${{ vars.REGISTRY_IMAGE_REPO }}/api@${digest}" >> "$GITHUB_OUTPUT"
-      # Terraform creates the service on bootstrap from this digest; afterwards CI rolls it.
-      - name: Roll the service to the digest
-        run: |
-          if gcloud run services describe "${{ vars.REGISTRY_SERVICE }}" --region="${{ vars.GCP_REGION }}" --format='value(name)' 2>/dev/null; then
-            gcloud run services update "${{ vars.REGISTRY_SERVICE }}" --region="${{ vars.GCP_REGION }}" --image="${{ steps.push.outputs.image }}" --quiet
-          else
-            echo "::notice::No service yet; Terraform creates it from ${{ steps.push.outputs.image }}"
-          fi
+      - name: Roll the scanner and API to the reviewed digest
+        env:
+          SERVICE: ${{ vars.REGISTRY_SERVICE }}
+          SCANNER: ${{ vars.REGISTRY_SCAN_JOB }}
+          REGION: ${{ vars.GCP_REGION }}
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          REVIEWED_IMAGE: ${{ steps.push.outputs.image }}
+        run: scripts/packages/roll-registry-image.sh "$SERVICE" "$REGION" "$PROJECT" "$SCANNER" "$REVIEWED_IMAGE"
 
   website:
     name: Website archive → Cloudflare Pages

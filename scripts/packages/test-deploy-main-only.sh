@@ -4,6 +4,7 @@
 # federates the production deploy identity for refs/heads/main.
 set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
+"$root/scripts/packages/test-roll-registry-image.sh"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
