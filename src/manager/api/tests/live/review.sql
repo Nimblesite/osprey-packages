@@ -136,6 +136,26 @@ DO $$ BEGIN
     OR registry.publication_receipt(md5('3')::uuid)::jsonb->>'status' IS DISTINCT FROM 'pending-scan'
     THEN RAISE EXCEPTION 'incorrect publisher receipt'; END IF;
 END $$;
+SAVEPOINT intent_authority;
+SELECT registry.bind_repository(md5('pkg')::uuid,42,'main','');
+RESET SESSION AUTHORIZATION;
+UPDATE package_permissions SET state='revoked' WHERE id=md5('grant')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
+SELECT pg_temp.require_denied('SELECT registry.request_release(md5(''pkg'')::uuid,repeat(''a'',40),1,4)');
+RESET SESSION AUTHORIZATION;
+UPDATE package_permissions SET state='active', membership_authority_epoch=2 WHERE id=md5('grant')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
+SELECT pg_temp.require_denied('SELECT registry.request_release(md5(''pkg'')::uuid,repeat(''a'',40),1,4)');
+RESET SESSION AUTHORIZATION;
+UPDATE package_permissions SET membership_authority_epoch=1 WHERE id=md5('grant')::uuid;
+SET LOCAL SESSION AUTHORIZATION registry_session_runtime;
+DO $$ BEGIN
+  IF registry.request_release(md5('pkg')::uuid,repeat('a',40),1,4) IS NULL THEN
+    RAISE EXCEPTION 'valid publisher could not reserve the version after denied attempts';
+  END IF;
+END $$;
+ROLLBACK TO intent_authority;
+RELEASE SAVEPOINT intent_authority;
 \ir review_isolation.sql
 SET LOCAL registry.session_provider = 'revoked-identity';
 DO $$ BEGIN

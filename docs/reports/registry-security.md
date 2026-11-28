@@ -8,7 +8,9 @@ The corrected insert policy matches intent ID, publisher, package, epoch and ord
 
 ## Release intent admission and publisher authorization
 
-**Open · [PACKAGE-HOSTED-PUBLISH-FLOW].** The reviewed intent insert policy verifies the session principal and visible repository binding. Its definition lacks an explicit current publish-grant check at reservation time. The collector checks that grant later, after the package/version uniqueness constraint has already reserved the coordinate. The request path also needs independent evidence of the publisher’s signature over this intent. Verify both boundaries in the database-backed publication journey before enabling public writes.
+**High · Fixed on feature branch · [PACKAGE-HOSTED-PUBLISH-FLOW].** A disposable database accepted a new version reservation after the publisher’s grant had been revoked. Release intent insertion now shares the collector’s current-grant check. The database regression exercises revoked and stale-epoch grants and verifies that an authorized publisher can still reserve the same version afterward.
+
+**Open · Publisher signature.** The request path still needs independent evidence of the publisher’s signature over the exact intent. Verify this boundary in the database-backed publication journey before enabling public writes.
 
 ## Production observations
 

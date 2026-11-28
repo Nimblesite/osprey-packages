@@ -250,6 +250,7 @@ tables:
           withCheck: >-
             current_setting('session_authorization') = 'registry_session_runtime' AND requested_at = statement_timestamp()
             AND publisher_id = registry.review_session_principal()
+            AND registry.can_submit_version(publisher_id,package_id)
             AND EXISTS (SELECT 1 FROM registry.package_repositories r WHERE r.package_id = release_intents.package_id AND r.repository_id = release_intents.repository_id)
         - { name: member_sees_intent, permissive: true, operations: [Select], roles: [registry_session_runtime], using: "current_setting('session_authorization') = 'registry_session_runtime' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = release_intents.package_id)" }
         - { name: collector_intents, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "current_setting('session_authorization') = 'registry_publication_collector'" }
@@ -282,6 +283,14 @@ tables:
       forced: true
       policies:
         - { name: admin_grants_own_publication, permissive: true, operations: [Insert], roles: [registry_session_runtime], withCheck: "permission = 'publish-release' AND state = 'active' AND expires_at IS NULL AND membership_id = granted_by_membership_id AND authority_epoch = 1 AND membership_authority_epoch = 1 AND granted_at = statement_timestamp() AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.id = package_id AND p.created_at = statement_timestamp() AND p.admin_membership_id = membership_id) AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = membership_id AND m.principal_id = registry.review_session_principal())" }
+        - name: publisher_sees_own_publish_grant
+          permissive: true
+          operations: [Select]
+          roles: [registry_session_runtime]
+          using: >-
+            permission = 'publish-release' AND state = 'active' AND (expires_at IS NULL OR expires_at > statement_timestamp())
+            AND EXISTS (SELECT 1 FROM registry.memberships m WHERE m.id = package_permissions.membership_id
+            AND m.principal_id = registry.review_session_principal() AND m.state = 'active')
         - { name: collector_package_permissions, permissive: true, operations: [Select], roles: [registry_publication_collector], using: "permission = 'publish-release' AND state = 'active' AND (expires_at IS NULL OR expires_at > statement_timestamp())" }
 
   - name: admin_transfers
@@ -769,7 +778,7 @@ grants:
   - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: memberships, privileges: [INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: packages, privileges: [INSERT], roles: [registry_session_runtime] }
-  - { schema: registry, target: Table, objectName: package_permissions, privileges: [INSERT], roles: [registry_session_runtime] }
+  - { schema: registry, target: Table, objectName: package_permissions, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: package_repositories, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: release_intents, privileges: [SELECT, INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: package_repositories, privileges: [SELECT], roles: [registry_publication_collector] }
@@ -984,7 +993,7 @@ functions:
     name: can_submit_version
     arguments: [{ name: publisher, type: uuid }, { name: pkg, type: uuid }]
     returns: boolean
-    executeRoles: [registry_publication_collector]
+    executeRoles: [registry_session_runtime, registry_publication_collector]
     body: >-
       SELECT EXISTS (SELECT FROM registry.packages p JOIN registry.organizations o ON o.id=p.organization_id
       JOIN registry.package_permissions g ON g.organization_id=o.id AND g.package_id=p.id AND g.authority_epoch=p.authority_epoch
