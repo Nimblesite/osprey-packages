@@ -172,15 +172,22 @@ DO $$ BEGIN
 END $$;
 SELECT pg_temp.require_denied('SELECT pg_temp.approve(1)');
 SELECT pg_temp.require_denied('INSERT INTO release_reviewers VALUES (md5(''alice'')::uuid)');
+SELECT pg_temp.require_denied($cmd$SELECT registry.release_reviewer_candidate('issuer','123')$cmd$);
 SELECT pg_temp.require_denied($cmd$SELECT registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123')$cmd$);
 RESET SESSION AUTHORIZATION;
 DO $$ BEGIN
   IF EXISTS (SELECT FROM pg_roles WHERE rolname LIKE 'registry\_%' AND rolname <> current_user AND rolcanlogin AND
-      (has_function_privilege(oid, 'registry.appoint_release_reviewer(uuid,text,text)', 'execute') OR
+      (has_function_privilege(oid, 'registry.release_reviewer_candidate(text,text)', 'execute') OR
+       has_function_privilege(oid, 'registry.appoint_release_reviewer(uuid,text,text)', 'execute') OR
        has_function_privilege(oid, 'registry.remove_release_reviewer(uuid)', 'execute')))
     THEN RAISE EXCEPTION 'reviewer administration granted to runtime login'; END IF;
+  IF registry.release_reviewer_candidate('issuer','123') IS DISTINCT FROM md5('alice')::uuid
+     OR registry.release_reviewer_candidate('foreign','123') IS NOT NULL THEN
+    RAISE EXCEPTION 'reviewer lookup returned incorrect binding';
+  END IF;
   UPDATE registry.auth_bindings SET state='revoked' WHERE id=md5('binding')::uuid;
-  IF registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS NOT NULL
+  IF registry.release_reviewer_candidate('issuer','123') IS NOT NULL
+     OR registry.appoint_release_reviewer(md5('alice')::uuid,'issuer','123') IS NOT NULL
     THEN RAISE EXCEPTION 'revoked binding enrolled as reviewer'; END IF;
   UPDATE registry.auth_bindings SET state='active' WHERE id=md5('binding')::uuid;
   UPDATE registry.principals SET state='suspended' WHERE id=md5('alice')::uuid;
