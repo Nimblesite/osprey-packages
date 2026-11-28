@@ -37,7 +37,7 @@ const req = (url, headers = {}, tls = 'TLSv1.3') => Object.assign(new Request(ur
 assert.equal((await worker.fetch(req('http://packages-api.ospreylang.dev/v1/packages'), env, ctx)).status, 308);
 assert.equal((await worker.fetch(req('https://packages-api.ospreylang.dev/v1/packages', {}, 'TLSv1.1'), env, ctx)).status, 426);
 
-for (const path of ['/', '/upload/?from=home', '//another.example/path']) {
+for (const path of ['/', '/release/?from=home', '//another.example/path']) {
   const res = await worker.fetch(req('https://' + env.WEBSITE_ALIAS + path), env, ctx);
   assert.equal(res.status, 308);
   assert.equal(res.headers.get('location'), env.WEBSITE_ORIGIN + path);

@@ -107,26 +107,57 @@ async function checkPasskeySignIn({page, website, api, failures}) {
   page.api = api;
   await routeApi(page, website, api, state);
   const {cdp, authenticatorId, credentialId} = await virtualAuthenticator(page, rpId);
-  await page.goto(website + '/upload/');
+  // The auth screens [PACKAGE-HOSTED-AUTH]: signed out, the header offers Sign in and no release action;
+  // register and recover go through GitHub; signing in swaps the header to Release a package everywhere.
+  const bar = page.locator('.prose-desktop-nav');
+  const signInLink = bar.getByRole('link', {name:'Sign in'});
+  const releaseLink = bar.getByRole('link', {name:'Release a package'});
+  for (const [screen, heading, action] of [['register', 'Create your account', 'Continue with GitHub'], ['recover', 'Lost your passkey?', 'Sign in with GitHub']]) {
+    await page.goto(website + '/' + screen + '/');
+    await page.getByRole('heading', {name:heading, level:1}).waitFor();
+    assert.equal(await page.getByRole('link', {name:action}).getAttribute('href'), api + '/v1/auth/github/start');
+    assert.equal(await signInLink.isVisible(), true);
+    assert.equal(await releaseLink.count(), 0, 'no release action while signed out');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+  await page.goto(website + '/signin/');
+  await page.getByRole('heading', {name:'Sign in', level:1}).waitFor();
+  await assertHierarchy(page);
+  const account = page.getByRole('navigation', {name:'Account'});
+  assert.deepEqual(await account.getByRole('link').evaluateAll(links => links.map(link => [link.textContent, link.getAttribute('href')])),
+    [['Create an account', '/register/'], ['Lost your passkey?', '/recover/']]);
+  assert.equal(await signInLink.getAttribute('href'), '/signin/');
+  assert.equal(await releaseLink.count(), 0, 'no release action while signed out');
+  await assertSignedIn(page, state, website, credentialId);
+  assert.equal(await releaseLink.isVisible(), true);
+  assert.equal(await signInLink.count(), 0);
+  await page.goto(website + '/register/');
+  await releaseLink.waitFor();
+  assert.equal(await signInLink.count(), 0, 'a signed-in browser keeps the release action on every page');
+  state.signedIn = false;
+  await page.goto(website + '/recover/');
+  await signInLink.waitFor();
+  assert.equal(await releaseLink.count(), 0, 'an expired session takes the release action away');
+  await page.goto(website + '/release/');
   await assertHierarchy(page);
   for (const [optionsStatus, verifyStatus] of [[503, 204], [429, 204], [200, 400], [200, 401], [200, 503]]) {
     Object.assign(state, {optionsStatus, verifyStatus});
-    await page.goto(website + '/upload/');
+    await page.goto(website + '/release/');
     await assertHierarchy(page);
     await assertFailsClosed(page, state, {...state});
   }
   Object.assign(state, {optionsStatus:200, verifyStatus:204});
   await cdp.send('WebAuthn.setUserVerified', {authenticatorId, isUserVerified:false});
   const verifiedBefore = state.verified.length;
-  await page.goto(website + '/upload/');
+  await page.goto(website + '/release/');
   await assertFailsClosed(page, state, {...state});
   assert.equal(state.verified.length, verifiedBefore, 'a refused ceremony never reaches verify');
   await cdp.send('WebAuthn.setUserVerified', {authenticatorId, isUserVerified:true});
-  await page.goto(website + '/upload/');
+  await page.goto(website + '/release/');
   await assertSignedIn(page, state, website, credentialId);
   state.signedIn = false;
   await page.addInitScript(() => { delete window.PublicKeyCredential; });
-  await page.goto(website + '/upload/');
+  await page.goto(website + '/release/');
   const {passkey, github} = actions(page);
   await github.waitFor();
   assert.equal(await passkey.isVisible(), false, 'without WebAuthn the screen offers GitHub only');

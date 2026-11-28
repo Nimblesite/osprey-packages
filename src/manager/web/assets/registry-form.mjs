@@ -1,9 +1,4 @@
-// Populate a form from a JSON collection and review its values before authorization.
-const form = document.querySelector('[data-collection-form]');
-const select = form.querySelector('select');
-const review = document.getElementById(form.dataset.review);
-const message = form.querySelector('[role=status]');
-
+// The account panel, and on the release page a form populated from a JSON collection and reviewed before authorization.
 function accountRequest(url, options) {
   return fetch(url, {
     ...options, credentials: 'include', cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(10000),
@@ -14,7 +9,15 @@ function accountRequest(url, options) {
 const passkeySupported = () => typeof PublicKeyCredential === 'function'
   && typeof PublicKeyCredential.parseRequestOptionsFromJSON === 'function';
 
+// The header script shows Release a package only for a session this panel verified.
+function report(parts, signedIn) {
+  if (signedIn) localStorage.setItem('registry-session', parts.panel.dataset.sessionUrl);
+  else localStorage.removeItem('registry-session');
+  document.dispatchEvent(new CustomEvent('registry-session', {detail: signedIn}));
+}
+
 function signedOut(parts) {
+  report(parts, false);
   parts.csrfToken = '';
   parts.receipts?.close();
   parts.signOut.hidden = true;
@@ -23,6 +26,7 @@ function signedOut(parts) {
 }
 
 function signedIn(parts, csrfToken) {
+  report(parts, true);
   parts.status.textContent = parts.panel.dataset.active;
   parts.passkey.hidden = true;
   parts.login.hidden = true;
@@ -175,29 +179,35 @@ if (account) {
   bindLogout(parts);
   void showSession(parts);
 }
-try {
-  const response = await fetch(form.dataset.collection, {credentials: 'omit', signal: AbortSignal.timeout(10000)});
-  if (!response.ok) throw Error('Collection unavailable');
-  const items = (await response.json())[select.dataset.collectionKey];
-  if (!Array.isArray(items)) throw Error('Invalid collection');
-  for (const item of items) {
-    const name = item[select.dataset.valueKey];
-    if (typeof name !== 'string') throw Error('Invalid entry');
-    select.add(new Option(name, name));
+const form = document.querySelector('[data-collection-form]');
+if (form) {
+  const select = form.querySelector('select');
+  const review = document.getElementById(form.dataset.review);
+  const message = form.querySelector('[role=status]');
+  try {
+    const response = await fetch(form.dataset.collection, {credentials: 'omit', signal: AbortSignal.timeout(10000)});
+    if (!response.ok) throw Error('Collection unavailable');
+    const items = (await response.json())[select.dataset.collectionKey];
+    if (!Array.isArray(items)) throw Error('Invalid collection');
+    for (const item of items) {
+      const name = item[select.dataset.valueKey];
+      if (typeof name !== 'string') throw Error('Invalid entry');
+      select.add(new Option(name, name));
+    }
+    if (items.length) {
+      form.querySelector('fieldset').disabled = false;
+      message.textContent = '';
+    } else message.textContent = form.dataset.empty;
+  } catch {
+    message.textContent = form.dataset.error;
   }
-  if (items.length) {
-    form.querySelector('fieldset').disabled = false;
-    message.textContent = '';
-  } else message.textContent = form.dataset.empty;
-} catch {
-  message.textContent = form.dataset.error;
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    for (const output of review.querySelectorAll('[data-field]')) {
+      output.textContent = form.elements.namedItem(output.dataset.field).value;
+    }
+    review.hidden = false;
+    review.focus();
+  });
+  form.addEventListener('input', () => { review.hidden = true; });
 }
-form.addEventListener('submit', event => {
-  event.preventDefault();
-  for (const output of review.querySelectorAll('[data-field]')) {
-    output.textContent = form.elements.namedItem(output.dataset.field).value;
-  }
-  review.hidden = false;
-  review.focus();
-});
-form.addEventListener('input', () => { review.hidden = true; });

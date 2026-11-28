@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 
 const [site, docs, key, version] = process.argv.slice(2);
 if (!/^@[a-z0-9-]+\/[a-z0-9-]+$/.test(key) || !/^e\d+\.r\d+$/.test(version)) throw Error('Invalid release identity');
-const shell = readFileSync(join(site, 'upload/index.html'), 'utf8');
+const shell = readFileSync(join(site, 'release/index.html'), 'utf8');
 const header = shell.split('</header>')[0] + '</header>';
 const footer = part(shell, /(<footer[\s\S]*<\/footer>)/, 'footer');
 const packageUrl = '/packages/' + key + '/';

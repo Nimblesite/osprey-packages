@@ -130,7 +130,7 @@ module HostedLogin {
     fn sessionCookie(token) = "${sessionCookieName}=${token}; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax"
 
     fn stored(oauth, token, id) = if Bytes::canonicalUuid(id) {
-        Success { value: Redirect { location: oauth.websiteOrigin + "/upload/", cookie: sessionCookie(token) } }
+        Success { value: Redirect { location: oauth.websiteOrigin + "/release/", cookie: sessionCookie(token) } }
     } else if id == "" { Error { message: unapproved } }
     else { Error { message: sessionUnavailable } }
 

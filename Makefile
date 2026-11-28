@@ -297,7 +297,7 @@ _registry-website _registry-website-fixture _registry-website-archive: $(TOOLCHA
 	  for page in guide publishing; do \
 	    mkdir "$$out/$$page"; render "$$page" > "$$out/$$page/index.html"; \
 	  done; \
-	  mkdir "$$out/upload"; origin="$${REGISTRY_API_ORIGIN:-}"; content="$${REGISTRY_CONTENT_ORIGIN:-}"; \
+	  mkdir "$$out/release"; origin="$${REGISTRY_API_ORIGIN:-}"; content="$${REGISTRY_CONTENT_ORIGIN:-}"; \
 	  if [ "$@" = _registry-website-archive ] && { [ -z "$$origin" ] || [ -z "$$content" ]; }; then echo "Set REGISTRY_API_ORIGIN and REGISTRY_CONTENT_ORIGIN." >&2; exit 1; fi; \
 	  node -e 'const [api, content] = process.argv.slice(1); if (content && (!api || api === content)) process.exit(1); for (const origin of [api, content].filter(Boolean)) { const u = new URL(origin); if (u.protocol !== "https:" || u.origin !== origin || !/^[a-z0-9.-]+$$/.test(u.hostname)) process.exit(1); }' "$$origin" "$$content"; \
 	  script=src/manager/web/assets/registry-form.mjs; adapter="form.$$(shasum -a 256 "$$script" | cut -c1-12).mjs"; \
@@ -307,11 +307,13 @@ _registry-website _registry-website-fixture _registry-website-archive: $(TOOLCHA
 	  printf "%s\n" home "$$origin" "$$catalog" "$$host" "$$guest" "$$content" | wasmtime target/registry-site-build/site.wasm > "$$out/index.html"; \
 	  printf "%s\n" hosted-package "$$origin" "$$catalog" "$$host" "$$guest" "$$content" | wasmtime target/registry-site-build/site.wasm > "$$out/package.html"; \
 	  printf '/packages/* /package 200\n/publishers/* /package 200\n/tags/* /package 200\n' > "$$out/_redirects"; \
-	  printf "%s\n" upload "$$origin" "$$adapter" | wasmtime target/registry-site-build/site.wasm > "$$out/upload/index.html"; \
+	  printf "%s\n" release "$$origin" "$$adapter" | wasmtime target/registry-site-build/site.wasm > "$$out/release/index.html"; \
+	  for page in signin register recover; do mkdir "$$out/$$page"; printf "%s\n" "$$page" "$$origin" "$$adapter" | wasmtime target/registry-site-build/site.wasm > "$$out/$$page/index.html"; done; \
+	  nav="nav.$$(shasum -a 256 $(REGISTRY_WEB)/assets/registry-nav.mjs | cut -c1-12).mjs"; grep -Fq "src=\"/$$nav\"" "$$out/index.html"; cp $(REGISTRY_WEB)/assets/registry-nav.mjs "$$out/$$nav"; \
 	  digest=$$(shasum -a 256 $(REGISTRY_WEB)/assets/registry.css | cut -c1-12); \
 	  asset="registry.$$digest.css"; grep -Fq "href=\"/$$asset\"" "$$out/index.html"; \
 	  cp $(REGISTRY_WEB)/assets/registry.css "$$out/$$asset"; \
-	  cp $(REGISTRY_WEB)/assets/registry-mark.svg $(REGISTRY_WEB)/assets/osprey-mark.svg "$$out/"; \
+	  cp $(REGISTRY_WEB)/assets/registry-mark.svg $(REGISTRY_WEB)/assets/osprey-mark.svg $(REGISTRY_WEB)/assets/favicon.ico "$$out/"; \
 	  sed "s@form-action@script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' $$origin; form-action@;s@form-action 'none'@form-action 'self'@" $(REGISTRY_WEB)/assets/_headers > "$$out/_headers"; \
 	  if [ "$@" = _registry-website-archive ]; then python3 scripts/packages/archive-registry-site.py "$$out" target/registry-artifacts; \
 	  else rsync -a --delete "$$out/" $(if $(filter _registry-website-fixture,$@),target/registry-site-build/hosted-fixture,target/registry-site)/; fi

@@ -112,9 +112,9 @@ Named tests above cover the folder-registry subset. Python publisher-attestation
 
 ## Registry website
 
-The homepage is the catalog. Search by name or description, browse packages by publisher or tag, open a package and download a release. **Upload a package** opens `/upload/`. Hosted publishing requires the authenticated publication-intent API.
+The homepage is the catalog. Search by name or description, browse packages by publisher or tag, open a package and download a release. **Release a package** (shown once signed in) opens `/release/`. Hosted publishing requires the authenticated publication-intent API.
 
-To browse local packages, start `make registry-serve`, then run `make _registry-website-preview` with Wasmtime, jq and yq installed. Run `make _registry-website-serve` and open `http://127.0.0.1:4187/`. The upload page loads package choices from the running registry and lets you review a commit. The preview identifies its source as a local, audit-unverified folder registry.
+To browse local packages, start `make registry-serve`, then run `make _registry-website-preview` with Wasmtime, jq and yq installed. Run `make _registry-website-serve` and open `http://127.0.0.1:4187/`. The release page loads package choices from the running registry and lets you review a commit. The preview identifies its source as a local, audit-unverified folder registry.
 
 `make _registry-website` builds the separate Cloudflare Pages directory at `target/registry-site/`. Its catalog shows an unavailable state until the verified hosted projection is connected. Set `REGISTRY_API_ORIGIN` to the deployed HTTPS API origin when building to connect release preparation and GitHub sign-in. Publication requires the hosted signature and publication-intent routes.
 

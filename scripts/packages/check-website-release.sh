@@ -4,7 +4,7 @@ set -euo pipefail
 origin="${1:?canonical registry website origin required}"
 [[ "$origin" == https://packages.* && "${origin#https://}" != */* ]]
 alias_origin="https://package.${origin#https://packages.}"
-path='/upload/?from=registry'
+path='/release/?from=registry'
 redirect="$(curl -sS --max-time 20 -o /dev/null -w '%{http_code} %{redirect_url}' "$alias_origin$path")"
 [[ "$redirect" == "308 $origin$path" ]] || { echo "Invalid website redirect from $alias_origin$path: $redirect" >&2; exit 1; }
 if [[ $# == 2 ]]; then
@@ -17,7 +17,8 @@ if [[ $# == 2 ]]; then
     [[ "$code" == 200 ]] && cmp -s "$body" "$2" || { echo "Production bytes differ at $origin/$1 (HTTP $code)" >&2; exit 1; }
   }
   verify '' "$site/index.html"
-  verify 'upload/' "$site/upload/index.html"
+  verify 'release/' "$site/release/index.html"
+  verify 'signin/' "$site/signin/index.html"
   for asset in "$site"/*.mjs "$site"/*.css "$site"/*.wasm; do
     verify "${asset##*/}" "$asset"
   done

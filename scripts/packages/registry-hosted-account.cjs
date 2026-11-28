@@ -115,7 +115,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
   });
   for (const code of [401, 503, 200]) {
     await page.route(api + '/v1/auth/session', route => route.fulfill({status:code,headers,json:{authenticated:code === 200,csrfToken}}));
-    await page.goto(website + '/upload/');
+    await page.goto(website + '/release/');
     const osprey = page.locator('footer.prose-footer').getByRole('link', { name: 'A package registry for the Osprey language' });
     assert.equal(await osprey.getAttribute('href'), 'https://www.ospreylang.dev/');
     const mark = await osprey.locator('img').getAttribute('src');
@@ -233,7 +233,7 @@ async function checkPackagedAccount({page, website, api, failures}, livePort) {
 }
 
 const footerColumns = {
-  Packages: [['Browse packages', '/'], ['By publisher', '/publishers/'], ['By tag', '/tags/'], ['Upload a package', '/upload/']],
+  Packages: [['Browse packages', '/'], ['By publisher', '/publishers/'], ['By tag', '/tags/'], ['Release a package', '/release/']],
   Publish: [['Publishing guide', '/publishing/'], ['Package guide', '/guide/'], ['Package manager docs', 'https://www.ospreylang.dev/docs/package-manager/']],
   Osprey: [['Website', 'https://www.ospreylang.dev/'], ['Install', 'https://www.ospreylang.dev/docs/installation/'], ['Documentation', 'https://www.ospreylang.dev/docs/'], ['Specification', 'https://www.ospreylang.dev/spec/']],
   Community: [['Discord', 'https://discord.gg/EGk3XhcGyy'], ['GitHub', 'https://github.com/Nimblesite/osprey-packages'], ['Issues', 'https://github.com/Nimblesite/osprey-packages/issues']],

@@ -129,7 +129,7 @@ async function checkLocalLicense(browser) {
 async function checkCoverGeometry(browser) {
   const base = 'http://127.0.0.1:4187';
   const paths = ['/', '/publishers/', '/publishers/osprey-repository/', '/tags/',
-    '/tags/python-flavor/', '/packages/@osprey/flash-attn/', '/upload/', '/guide/', '/publishing/'];
+    '/tags/python-flavor/', '/packages/@osprey/flash-attn/', '/release/', '/guide/', '/publishing/'];
   for (const width of [320, 390, 768, 1440, 1600]) {
     const page = await browser.newPage({viewport:{width, height:900}});
     let origin;
@@ -169,7 +169,7 @@ async function checkMobileMenu(browser) {
   const menu = page.locator('.prose-bar summary');
   assert.equal(await menu.count(), 1);
   for (const [name, path] of [['By tag', '/tags/'], ['By publisher', '/publishers/'],
-                             ['Upload a package', '/upload/'], ['Browse packages', '/']]) {
+                             ['Sign in', '/signin/'], ['Browse packages', '/']]) {
     const link = page.locator('.prose-bar details').getByRole('link', {name});
     assert.equal(await link.isVisible(), false);
     await menu.tap();
@@ -180,7 +180,8 @@ async function checkMobileMenu(browser) {
   }
   await page.setViewportSize({width:1440, height:900});
   assert.equal(await menu.isVisible(), false);
-  assert.ok(await page.locator('.prose-bar').getByRole('link', {name:'Upload a package'}).isVisible());
+  assert.ok(await page.locator('.prose-bar').getByRole('link', {name:'Sign in'}).isVisible());
+  assert.equal(await page.locator('.prose-bar').getByRole('link', {name:'Release a package'}).count(), 0, 'no release action while signed out');
   await page.close();
 }
 
@@ -238,7 +239,7 @@ async function checkMobileMenu(browser) {
       const cover = await box('.prose-intro');
       await page.evaluate(() => scrollTo(0, 600));
       assert.deepEqual(await box('.prose-bar'), header, 'Header stays anchored while scrolling');
-      for (const path of ['/upload/', '/guide/', '/publishing/', '/tags/', '/publishers/', '/packages/@osprey/express/e1.r1/docs/api/index.html']) {
+      for (const path of ['/release/', '/guide/', '/publishing/', '/tags/', '/publishers/', '/packages/@osprey/express/e1.r1/docs/api/index.html']) {
         await page.goto(new URL(path, page.url()).href);
         assert.deepEqual(await box('.prose-bar'), header, path);
         assert.equal((await box('main')).x, cover.x, path);
@@ -280,16 +281,15 @@ async function checkMobileMenu(browser) {
       assert.equal(bundle.ordinal, 1);
       assert.equal(bundle.digest, await page.locator('[id="e1.r1"] code').textContent());
       assert.ok(bundle.files.some(file => file.path === 'osprey.toml'));
-      if (width <= 720) await page.locator('.prose-bar summary').click();
-      await page.locator('.prose-bar').getByRole('link', { name: 'Upload a package' }).click();
-      await page.getByRole('heading', { name: 'Upload a package' }).waitFor();
+      await page.goto(new URL('/release/', page.url()).href);
+      await page.getByRole('heading', { name: 'Release a package' }).waitFor();
       await page.getByLabel('Package', {exact:true}).selectOption('@osprey/fastapi');
       const commit = 'a'.repeat(40);
       await page.getByLabel('Git commit').fill(commit);
       await page.getByRole('button', {name:'Review release'}).click();
       assert.equal(await page.locator('#review code').innerText(), commit);
       assert.equal(await page.locator('#review strong').innerText(), '@osprey/fastapi');
-      assert.equal(await page.getByText('Public uploads are unavailable.').count(), 1);
+      assert.equal(await page.getByText('Hosted releases are unavailable.').count(), 1);
       await page.getByRole('link', { name: 'Browse packages' }).click();
       await page.getByRole('heading', { name: 'Browse packages' }).waitFor();
       assert.equal(await page.evaluate(() => document.body.scrollWidth <= innerWidth), true);

@@ -109,7 +109,7 @@ module KmsTests {
             let cookie = Bytes::before(value.cookie, ";")
             let raw = drop(cookie, byteLength("__Host-registry="))
             checkAll("only a durable issuance can return a fixed redirect and an opaque cookie", [
-                    value.location == "https://packages.example.test/upload/",
+                    value.location == "https://packages.example.test/release/",
                     startsWith(cookie, "__Host-registry=") && OAuth::challengeCode(raw) == "",
                     endsWith(value.cookie, "; Path=/; Max-Age=43200; Secure; HttpOnly; SameSite=Lax"),
                     !contains(value.cookie, "fixture") && !contains(value.cookie, receipt)

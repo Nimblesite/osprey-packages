@@ -465,7 +465,7 @@ fn successfulCallback(client, path, browser) = match httpGetResponse(client, pat
     Success { value } => {
         let cookie = httpResponseHeader(value, "set-cookie") ?: ""
         let safe = httpResponseStatus(value) == 303 && (httpResponseBody(value) ?: "") == ""
-        && (httpResponseHeader(value, "location") ?: "") == fixtureOAuth.websiteOrigin + "/upload/"
+        && (httpResponseHeader(value, "location") ?: "") == fixtureOAuth.websiteOrigin + "/release/"
         && safeResponseHeaders(value)
         let _released = httpResponseFree(value)
         safe && sessionExists(cookie) && sessionJourney(client, browser, cookie)
@@ -509,7 +509,7 @@ fn suites() = {
     test("an approved version reaches the public catalog", fn() => ScanWorkerTests::withScanPolicy(Publication::check))
     test("live browser session expiry and revocation", sessionLifetimeChecks)
     test("browser sessions start closed", fn() => checkAll("browser sessions use forced row security", [answer("SELECT relrowsecurity AND relforcerowsecurity FROM pg_class WHERE oid = 'registry.browser_sessions'::regclass", "t")]))
-    test("frozen upload worker", fn() => ScanWorkerTests::withScanPolicy(fn() => ScanWorkerTests::run(seed())))
+    test("frozen release worker", fn() => ScanWorkerTests::withScanPolicy(fn() => ScanWorkerTests::run(seed())))
     test("public catalog writer", CatalogWriter::check)
     test("public catalog lists eligible releases", CatalogReleases::check)
     test("verified public catalog", publicCatalog)

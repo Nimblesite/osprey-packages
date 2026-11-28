@@ -55,7 +55,7 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 .prose-search input { margin: 0; flex: 1; min-width: 0 }
 .prose-search button, .prose-bar nav a { padding: .75rem 1rem; border: 0; border-radius: .35rem; background: var(--pine); color: white; font: inherit; font-weight: 650; text-decoration: none }
 .prose-bar nav a { display: inline-block; white-space: nowrap }
-.prose-desktop-nav a + a { margin-left: .5rem }
+.prose-bar nav a[hidden] { display: none }
 .prose-search button:enabled { cursor: pointer }
 .prose-search button:disabled { opacity: .6 }
 .prose-package { padding: 1rem 0; border-top: 1px solid var(--line) }
@@ -92,7 +92,7 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 .prose-package:nth-child(3n + 2) { border-top-color: #a88cc4 }
 .prose-package:nth-child(3n) { border-top-color: #da947c }
 @media (max-width: 45rem) {
-  :root { --registry-gutter: .85rem; --registry-panel-padding: 1.35rem }
+  :root { --registry-gutter: .85rem; --registry-panel-padding: 1.25rem; --registry-panel-offset: 1.1rem; --registry-panel-gap: 1.15rem }
   .prose-bar { gap: .5rem }
   .prose-brand { gap: .4rem; font-size: .875rem }
   .prose-brand img { width: 28px; height: 28px }
@@ -100,13 +100,24 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
   .prose-mobile-menu { display: block; position: relative }
   .prose-mobile-menu summary { display: flex; align-items: center; min-block-size: 2.75rem; padding: .4rem .85rem; border-radius: .35rem; background: var(--pine); color: white; font-weight: 650; cursor: pointer }
   .prose-mobile-menu summary::-webkit-details-marker { display: none }
-  .prose-mobile-menu nav { position: absolute; inset: calc(100% + .5rem) 0 auto auto; display: grid; min-inline-size: 12rem; padding: .35rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--package-card); box-shadow: 0 .35rem 1rem #17292126 }
-  .prose-mobile-menu nav a { background: transparent; color: var(--pine) }
+  .prose-mobile-menu nav { position: absolute; inset: calc(100% + .5rem) 0 auto auto; display: grid; min-inline-size: 12rem; max-inline-size: calc(100vw - 2 * var(--registry-gutter)); padding: .35rem; border: 1px solid var(--line); border-radius: .5rem; background: var(--package-card); box-shadow: 0 .35rem 1rem #17292126 }
+  .prose-mobile-menu nav a { display: flex; align-items: center; min-block-size: 2.75rem; padding: .5rem .85rem; background: transparent; color: var(--pine) }
   .prose-mobile-menu nav a:is(:hover, :focus-visible) { background: #e3eed9 }
   .prose-columns { grid-template-columns: 1fr }
-  .prose-cover::after, .prose-intro::after { inset: 0 0 auto; height: .6rem; clip-path: none; background-size: 2.5rem 3rem }
-  .prose-cover h1, .prose-intro h1, .prose-cover > p, .prose-intro > p { max-width: 100% }
-  .prose-cover h1, .prose-intro h1 { font-size: clamp(2.1rem, 7.5vw, 3.2rem) }
+  .prose-cover, .prose-intro, .prose-publisher { block-size: auto; min-block-size: 0; overflow: hidden; padding: 1.5rem 1.25rem; border-radius: .85rem }
+  .prose-cover::after, .prose-intro::after { inset: 0 0 auto; height: .45rem; clip-path: none; background-size: 2.5rem 3rem }
+  .prose-cover h1, .prose-intro h1, .prose-cover > p, .prose-intro > p, .prose-publisher h1, .prose-publisher p { max-width: 100% }
+  .prose-cover h1, .prose-intro h1, .prose-publisher h1 { font-size: clamp(1.9rem, 8vw, 2.8rem); margin-block: .65rem .5rem }
+  .prose-cover > p, .prose-intro > p, .prose-publisher p { font-size: 1rem }
+  .prose-publisher { background-position: right 1rem bottom 1rem; background-size: 3rem; padding-block-end: 3.5rem }
+  .prose-browse a { display: inline-flex; align-items: center; min-block-size: 2.75rem }
+  .prose-release { grid-template-columns: minmax(0, 1fr) }
+  .prose-download { display: inline-flex; align-items: center; justify-content: center; min-block-size: 2.75rem; inline-size: 100%; text-align: center }
+  [data-collection-form] button, [data-receipt-form] button { inline-size: 100%; justify-self: stretch; min-block-size: 2.75rem }
+}
+@media (max-width: 30rem) {
+  .prose-search { flex-direction: column }
+  .prose-search input, .prose-search button { inline-size: 100%; min-block-size: 2.75rem }
 }
 .prose-publisher { background: #322443 url(/registry-mark.svg?v=b3839fb6decc) no-repeat right 6% center / clamp(3rem, 14vw, 11rem); color: #fff5df }
 .prose-publisher h1 { max-width: 65%; font-size: clamp(2.4rem, 5vw, 5rem); margin: 1.3rem 0 .6rem }
@@ -158,9 +169,9 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 
 .prose-browse { display: flex; flex-wrap: wrap; gap: .65rem; margin-bottom: 1rem }
 .prose-browse a { background: #e9def2; border-radius: .45rem; padding: .45rem .85rem; font-weight: 650 }
-[data-collection-form] fieldset { display: grid; gap: .5rem; max-width: 42rem; margin: 0; padding: 0; border: 0 }
-[data-collection-form] input, [data-collection-form] select { width: 100%; padding: .65rem; font: inherit; border: 1px solid var(--muted); border-radius: .35rem }
-[data-collection-form] button { justify-self: start; margin-top: .6rem; border: 0 }
+[data-collection-form] fieldset, [data-receipt-form] { display: grid; gap: .5rem; max-width: 42rem; margin: 0; padding: 0; border: 0 }
+[data-collection-form] input, [data-collection-form] select, [data-receipt-form] input { width: 100%; padding: .65rem; font: inherit; border: 1px solid var(--muted); border-radius: .35rem }
+[data-collection-form] button, [data-receipt-form] button { justify-self: start; margin-top: .6rem; padding: .65rem 1rem; border: 0; border-radius: .4rem; background: var(--pine); color: white; font: inherit; font-weight: 650; cursor: pointer }
 
 .prose-docs .toc a { display: block; margin-block: .35rem; overflow-wrap: anywhere }
 
@@ -179,7 +190,46 @@ pre { overflow-x: auto; padding: 1rem; background: #e6eae1; border-radius: .35re
 .prose-footer nav { display: flex; flex-direction: column; gap: .55rem }
 .prose-footer h2 { font-family: inherit; font-size: .78rem; font-weight: 650; line-height: 1.2; letter-spacing: .08em; text-transform: uppercase; color: var(--ink); margin: 0 0 .35rem }
 .prose-footer nav a { text-decoration: none }
-@media (max-width: 40rem) { .prose-footer-columns { grid-template-columns: minmax(0, 1fr) } }
+@media (max-width: 40rem) {
+  .prose-footer-columns { grid-template-columns: minmax(0, 1fr); gap: 1.25rem }
+  .prose-footer nav a { padding-block: .25rem }
+}
 .prose-footer p { margin: 0 }
 .prose-footer img { opacity: .45; transition: opacity .2s }
 .prose-footer-mark:is(:hover, :focus-visible) img { opacity: .9 }
+
+.prose-auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); min-block-size: 37rem; overflow: hidden; border: 1px solid var(--line); border-radius: 1.5rem; background: var(--package-card); box-shadow: 0 2rem 4rem -2rem #17292166 }
+.prose-auth-art { position: relative; isolation: isolate; display: flex; flex-direction: column; gap: 1.1rem; padding: clamp(1.75rem, 4vw, 3.5rem); background: var(--package-banner); color: #fcf8ef }
+.prose-auth-art::after { content: ''; position: absolute; z-index: -1; inset: 52% 0 0; background: var(--package-pattern); background-size: 5.3rem 7.9rem; clip-path: polygon(0 72%, 100% 0, 100% 100%, 0 100%) }
+.prose-auth-art img { margin-bottom: .75rem; filter: drop-shadow(0 .5rem 1rem #0006) }
+.prose-auth-art h2 { margin: 0; font-size: clamp(2.3rem, 4.4vw, 3.9rem); letter-spacing: -.05em }
+.prose-auth-art p { max-inline-size: 28ch; margin: 0; color: #deebdc; font-size: 1.1rem }
+.prose-auth-form { display: flex; flex-direction: column; justify-content: center; gap: 1.15rem; padding: clamp(1.75rem, 5vw, 4.5rem) }
+.prose-auth-form h1 { margin: 0; font-size: clamp(2.3rem, 3.8vw, 3.4rem); letter-spacing: -.045em }
+.prose-auth-form p { margin: 0; color: var(--muted) }
+.prose-auth-form p:empty { display: none }
+.prose-auth-form [data-session-url] { display: grid; gap: .8rem }
+.prose-auth-action { display: flex; align-items: center; justify-content: center; gap: .6rem; inline-size: 100%; padding: .7rem 1rem; border: 1.5px solid var(--pine); border-radius: .75rem; background: transparent; color: var(--pine); font: 650 .95rem/1.2 system-ui, sans-serif; text-decoration: none; cursor: pointer; transition: transform .15s, box-shadow .15s, background .15s }
+.prose-auth-action[hidden] { display: none }
+.prose-auth-action:is(:hover, :focus-visible) { background: #e3eed9; transform: translateY(-1px) }
+.prose-auth-primary { padding: 1.05rem 1.25rem; background: var(--pine); color: white; font-size: 1.15rem; font-weight: 700; box-shadow: 0 .75rem 1.5rem -.75rem #163f35cc }
+.prose-auth-primary:is(:hover, :focus-visible) { background: #1d5346; box-shadow: 0 1rem 1.75rem -.75rem #163f35cc }
+.prose-auth-primary:disabled { opacity: .65; cursor: progress }
+.prose-auth-steps { display: grid; gap: .6rem; margin: 0; padding: 0; list-style: none; counter-reset: step }
+.prose-auth-steps li { display: flex; align-items: center; gap: .75rem; font-weight: 600; counter-increment: step }
+.prose-auth-steps li::before { content: counter(step); display: grid; place-items: center; flex: none; inline-size: 1.9rem; block-size: 1.9rem; border-radius: 50%; background: var(--mint); color: var(--pine); font: 700 .9rem var(--mono) }
+.prose-auth-links { display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; margin-top: .5rem; padding-top: 1.15rem; border-top: 1px solid var(--line); font-size: .93rem }
+.prose-auth-links a { color: var(--pine); font-weight: 650 }
+@media (max-width: 45rem) {
+  .prose-auth { grid-template-columns: minmax(0, 1fr); min-block-size: 0; border-radius: 1rem }
+  .prose-auth-art { padding: 1.35rem 1.25rem 2.25rem; gap: .55rem }
+  .prose-auth-art img { width: 44px; height: 44px; margin-bottom: .15rem }
+  .prose-auth-art h2 { font-size: clamp(1.6rem, 6.5vw, 2.2rem) }
+  .prose-auth-art p { font-size: .95rem }
+  .prose-auth-art::after { inset: auto 0 0; block-size: 1.1rem; clip-path: none; background-size: 2.5rem 2.5rem }
+  .prose-auth-form { padding: 1.35rem 1.25rem; gap: .9rem }
+  .prose-auth-form h1 { font-size: clamp(1.75rem, 7vw, 2.3rem) }
+  .prose-auth-action { min-block-size: 2.85rem }
+  .prose-auth-links a { padding-block: .35rem }
+}
+@media (prefers-reduced-motion: reduce) { .prose-auth-action { transition: none } }

@@ -57,16 +57,16 @@ case "$url" in
 esac
 MOCK
 chmod +x "$work/bin/"*
-smoke() { (cd "$work/repo" && PATH="$work/bin:$PATH" CATALOG_STATUS="$1" WEBSITE_REDIRECT="${2-308 https://packages.example.test/upload/?from=registry}" src/manager/ops/deploy.sh production smoke); }
+smoke() { (cd "$work/repo" && PATH="$work/bin:$PATH" CATALOG_STATUS="$1" WEBSITE_REDIRECT="${2-308 https://packages.example.test/release/?from=registry}" src/manager/ops/deploy.sh production smoke); }
 smoke 200
 if smoke 200 "308 https://packages.example.test/"; then echo "wrong website redirect passed" >&2; exit 1; fi
 if smoke 503; then echo "unavailable catalog passed production smoke" >&2; exit 1; fi
 
-mkdir -p "$work/archive/upload" "$work/archive/signin"
-for path in index.html upload/index.html signin/index.html module.mjs style.css site.wasm; do echo "$path" > "$work/archive/$path"; done
+mkdir -p "$work/archive/release" "$work/archive/signin"
+for path in index.html release/index.html signin/index.html module.mjs style.css site.wasm; do echo "$path" > "$work/archive/$path"; done
 cp -R "$work/archive" "$work/served"
 verify_site() {
-  PATH="$work/bin:$PATH" SERVED_SITE="$work/served" WEBSITE_REDIRECT='308 https://packages.example.test/upload/?from=registry' \
+  PATH="$work/bin:$PATH" SERVED_SITE="$work/served" WEBSITE_REDIRECT='308 https://packages.example.test/release/?from=registry' \
     "$root/scripts/packages/check-website-release.sh" https://packages.example.test "$work/archive"
 }
 verify_site
