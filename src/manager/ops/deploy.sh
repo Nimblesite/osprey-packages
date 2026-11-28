@@ -88,14 +88,15 @@ secret_put() { # NAME (value on stdin)
 owner_password() { gcloud secrets versions access latest --secret="$NAME-db-owner" --project="$GCP_PROJECT_ID"; }
 
 # --- Cost guard: one project-wide alert before anything can spend ----------------------------
-BUDGET_USD=50
+BUDGET=50 # in the billing account's own currency (AUD here); the API rejects any other
 
 # Both environments share the project, so the budget is one project singleton, not per-environment Terraform.
 ensure_budget() {
   gcloud services enable billingbudgets.googleapis.com --project="$GCP_PROJECT_ID" >/dev/null
   local existing; existing="$(gcloud billing budgets list --billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" \
     --filter="displayName=osprey-registry" --format='value(name)' 2>/dev/null)"
-  local args=(--billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="${BUDGET_USD}USD")
+  local currency; currency="$(gcloud billing accounts describe "$GCP_BILLING_ACCOUNT" --format='value(currencyCode)')"
+  local args=(--billing-project="$GCP_PROJECT_ID" --billing-account="$GCP_BILLING_ACCOUNT" --budget-amount="$BUDGET$currency")
   if [[ -n "$existing" ]]; then
     gcloud billing budgets update "$existing" "${args[@]}" >/dev/null
   else
@@ -103,7 +104,7 @@ ensure_budget() {
       --filter-projects="projects/$GCP_PROJECT_ID" \
       --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 --threshold-rule=percent=1.0 >/dev/null
   fi
-  log "budget alert US\$$BUDGET_USD/month on $GCP_PROJECT_ID (50/90/100%)"
+  log "budget alert $BUDGET $currency/month on $GCP_PROJECT_ID (50/90/100%)"
 }
 
 # --- Supabase: project, keys, pooler, Auth [PACKAGE-HOSTED-AUTH] ------------------------------
