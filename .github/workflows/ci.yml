@@ -8,6 +8,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # deploy.yml reruns the whole suite at the exact SHA it deploys [PACKAGE-HOSTED-RELEASE].
+  workflow_call:
 
 permissions:
   contents: read
@@ -36,6 +38,12 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.5.7
+          terraform_wrapper: false
+      - name: Deploy script lint and Terraform validation (no state backend)
+        run: make _registry-infra-check
       - name: Build the package client, the hosted fixture site and the pinned migration tool
         run: make build _registry-website-fixture _registry-migration-tool
       - uses: actions/upload-artifact@v7

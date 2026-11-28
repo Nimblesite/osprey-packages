@@ -1,0 +1,93 @@
+name: Deploy
+
+# [PACKAGE-HOSTED-RELEASE] One reviewed commit → one image digest + one website archive.
+# Every deploy reruns the full CI at its exact SHA first; nothing reuses another run's
+# result. GitHub OIDC federates into the environment's deploy service account (no keys).
+# Variables and the Pages token live on the `registry-<environment>` GitHub environment;
+# src/manager/ops/deploy.sh writes them from Terraform outputs.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  api:
+    name: API image → Cloud Run
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: registry-${{ inputs.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE: ${{ vars.REGISTRY_IMAGE_REPO }}/api:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the linux/amd64 image from this exact commit
+        run: make _registry-hosted-image REGISTRY_HOSTED_IMAGE="$IMAGE"
+      - name: Push and resolve the immutable digest
+        id: push
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker push "$IMAGE"
+          digest=$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')
+          echo "image=${{ vars.REGISTRY_IMAGE_REPO }}/api@${digest}" >> "$GITHUB_OUTPUT"
+      # Terraform creates the service on bootstrap from this digest; afterwards CI rolls it.
+      - name: Roll the service to the digest
+        run: |
+          if gcloud run services describe "${{ vars.REGISTRY_SERVICE }}" --region="${{ vars.GCP_REGION }}" --format='value(name)' 2>/dev/null; then
+            gcloud run services update "${{ vars.REGISTRY_SERVICE }}" --region="${{ vars.GCP_REGION }}" --image="${{ steps.push.outputs.image }}" --quiet
+          else
+            echo "::notice::No service yet; Terraform creates it from ${{ steps.push.outputs.image }}"
+          fi
+
+  website:
+    name: Website archive → Cloudflare Pages
+    needs: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: registry-${{ inputs.environment }}
+    env:
+      REGISTRY_API_ORIGIN: ${{ vars.REGISTRY_API_ORIGIN }}
+      REGISTRY_CONTENT_ORIGIN: ${{ vars.REGISTRY_CONTENT_ORIGIN }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: The pinned Osprey toolchain
+        run: make _toolchain
+      - uses: ./.github/actions/setup-wasm
+      - name: Build the content-addressed website archive
+        run: make _registry-website-archive
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Upload the archived bytes as a Direct Upload deployment
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          archive=$(ls target/registry-artifacts/*.zip)
+          test "$(echo "$archive" | wc -l)" -eq 1
+          mkdir -p target/pages-upload && unzip -q "$archive" -d target/pages-upload
+          npx --yes wrangler@4.146.0 pages deploy target/pages-upload \
+            --project-name="${{ vars.PAGES_PROJECT }}" --branch=main --commit-hash="${{ github.sha }}"

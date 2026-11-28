@@ -189,9 +189,18 @@ _registry-integration-verify:
 # _registry-infra-check: Validate pinned registry infrastructure without contacting a state backend.
 _registry-infra-check: export TF_DATA_DIR = $(CURDIR)/target/registry-infra/data
 _registry-infra-check:
+	shellcheck -S warning src/manager/ops/deploy.sh
 	terraform -chdir=$(REGISTRY_TERRAFORM) fmt -check
 	terraform -chdir=$(REGISTRY_TERRAFORM) init -backend=false -lockfile=readonly -input=false
 	terraform -chdir=$(REGISTRY_TERRAFORM) validate
+
+.PHONY: deploy
+## deploy: Stand up or converge a hosted environment: Cloudflare → Cloud Run → Supabase (docs/DEPLOY.md).
+##         make deploy ENV=staging|production [STEP=supabase|infra|github|database|release|smoke]
+ENV ?= staging
+STEP ?= all
+deploy:
+	src/manager/ops/deploy.sh $(ENV) $(STEP)
 
 .PHONY: _registry-hosted-api
 REGISTRY_HOSTED_BINARY ?= target/osprey-registry-hosted
