@@ -97,7 +97,8 @@ Items no agent can complete, because each needs a person or an outside party:
 - [ ] Provision the tool-free NAP agent and run the worker from hosted signed-intent intake against the private quarantine store [PACKAGE-SECURITY-SCAN].
 - [ ] Run the scan on every upload's frozen canonical source before publication; a rejection publishes nothing and `accepted` still runs every other gate [PACKAGE-SECURITY-SCAN] [PACKAGE-HOSTED-PUBLISH].
 - [x] Record each rejection in the immutable `review_scans` ledger linked to the frozen publisher submission. The database receipt returns every finding to an authenticated organization member and hides the row when the identity binding fails [PACKAGE-SECURITY-SCAN-REJECTIONS] [PACKAGE-OWNERSHIP-DATABASE].
-- [ ] Show the publisher every failure message on the upload page and CLI, with resubmission guidance.
+- [x] Show the immutable version, digest, every rejection finding and resubmission guidance on the signed-in upload page. Exercise the reviewer-only approval control and receipt clearing on sign-out in Chromium [PACKAGE-SECURITY-SCAN-APPROVAL].
+- [ ] Show the same private receipt through the authenticated hosted CLI [PACKAGE-SECURITY-SCAN-REJECTIONS].
 - [ ] E2E: accepted, rejected, malformed verdict, timeout and agent-unavailable uploads, asserting the published projection, the rejection records and unchanged publisher standing [PACKAGE-HOSTED-CONFORMANCE].
 - [ ] Open decision: the publisher-warning policy for repeated rejections (threshold, window, effect, display, review and clearing). Nothing is flagged automatically until it is specified [PACKAGE-SECURITY-SCAN-STANDING].
 
