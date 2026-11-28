@@ -80,6 +80,7 @@ tables:
       forced: true
       policies:
         - { name: scan_scope, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.packages p WHERE p.organization_id = organizations.id)" }
+        - { name: catalog_writer_organizations, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
 
   - name: memberships
     schema: registry
@@ -148,6 +149,7 @@ tables:
       forced: true
       policies:
         - { name: scan_package, permissive: true, operations: [Select], roles: [registry_scan_worker], using: "current_setting('session_authorization') = 'registry_scan_worker' AND EXISTS (SELECT 1 FROM registry.review_submissions j WHERE j.package_id = packages.id)" }
+        - { name: catalog_writer_packages, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'active'" }
 
   - name: package_permissions
     schema: registry
@@ -532,6 +534,39 @@ tables:
             AND EXISTS (SELECT 1 FROM registry.release_reviewers r WHERE r.principal_id = reviewer_id)
             AND EXISTS (SELECT 1 FROM registry.review_scans s WHERE s.submission_id = release_approvals.submission_id AND s.verdict = 'accepted')
 
+  # Published releases, the public catalog's only source [PACKAGE-HOSTED-ROUTES-CATALOG]
+  # [PACKAGE-OWNERSHIP-DATABASE]. One row per release digest, immutable but for its activation state;
+  # summary, keywords, warnings and notices are the release manifest's canonical JSON text.
+  - name: releases
+    schema: registry
+    columns:
+      - { name: id, type: Uuid, isNullable: false }
+      - { name: organization_id, type: Uuid, isNullable: false }
+      - { name: package_id, type: Uuid, isNullable: false }
+      - { name: epoch, type: BigInt, isNullable: false, checkConstraint: "epoch > 0" }
+      - { name: ordinal, type: BigInt, isNullable: false, checkConstraint: "ordinal > 0" }
+      - { name: digest, type: Text, isNullable: false, checkConstraint: "digest ~ '^sha256:[0-9a-f]{64}$'" }
+      - { name: publisher_principal_id, type: Uuid, isNullable: false }
+      - { name: publisher_name, type: Text, isNullable: false, checkConstraint: "length(btrim(publisher_name)) BETWEEN 1 AND 128" }
+      - { name: license_expression, type: Text, isNullable: false, checkConstraint: "length(license_expression) BETWEEN 1 AND 256" }
+      - { name: summary, type: Text, isNullable: false, checkConstraint: "length(btrim(summary)) BETWEEN 1 AND 512" }
+      - { name: keywords, type: Text, isNullable: false, checkConstraint: "jsonb_typeof(keywords::jsonb) = 'array' AND jsonb_array_length(keywords::jsonb) <= 12" }
+      - { name: warnings, type: Text, isNullable: false, checkConstraint: "jsonb_typeof(warnings::jsonb) = 'array'" }
+      - { name: notices, type: Text, isNullable: false, checkConstraint: "jsonb_typeof(notices::jsonb) = 'array' AND jsonb_array_length(notices::jsonb) <= 9" }
+      - { name: state, type: Text, isNullable: false, checkConstraint: "state IN ('eligible', 'yanked', 'revoked')" }
+      - { name: published_at, type: DateTimeOffset, isNullable: false }
+    primaryKey: { columns: [id] }
+    uniqueConstraints:
+      - { name: uq_releases_version, columns: [package_id, epoch, ordinal] }
+      - { name: uq_releases_digest, columns: [digest] }
+    foreignKeys:
+      - { columns: [organization_id, package_id], referencedSchema: registry, referencedTable: packages, referencedColumns: [organization_id, id], onDelete: Restrict, onUpdate: Restrict }
+      - { columns: [publisher_principal_id], referencedSchema: registry, referencedTable: principals, referencedColumns: [id], onDelete: Restrict, onUpdate: Restrict }
+    rowLevelSecurity:
+      enabled: true
+      forced: true
+      policies:
+        - { name: catalog_writer_releases, permissive: true, operations: [Select], roles: [], using: "pg_catalog.\"current_user\"() = 'registry_catalog_writer' AND state = 'eligible'" }
 
 # Implements [PACKAGE-OWNERSHIP-RLS]: one restricted login per workload, none with BYPASSRLS or a role
 # membership. Deploy sets each password; the migration owns existence and every privilege, and revokes
@@ -562,5 +597,8 @@ grants:
   - { schema: registry, target: Table, objectName: release_approvals, privileges: [INSERT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_scan_worker] }
   - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_scan_worker] }
+  - { schema: registry, target: Table, objectName: releases, privileges: [SELECT], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: packages, privileges: [SELECT], roles: [registry_catalog_writer] }
+  - { schema: registry, target: Table, objectName: organizations, privileges: [SELECT], roles: [registry_catalog_writer] }
   - { schema: registry, target: Table, objectName: review_submissions, privileges: [SELECT], roles: [registry_session_runtime] }
   - { schema: registry, target: Table, objectName: release_reviewers, privileges: [SELECT], roles: [registry_scan_worker] }
