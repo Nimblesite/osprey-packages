@@ -149,7 +149,7 @@ fn catalogListener() = {
     let created = fixtureRun(setup + ";" + fixtureBrowserBinding())
     let config = "{\"apiHost\":\"api.example.test\",\"websiteOrigin\":\"https://packages.example.test\",\"edgeSecret\":\"fixture-edge-secret-at-least-32-bytes\"}"
     let port = 20000 + random() % 15000
-    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, HostedReview::Operations { approve: fn(_token, _id, _digest) => HostedLogin::unavailable(), receipt: fn(_token, _id) => Error { message: HostedReview::missing }, organize: fn(_token, _slug, _name) => HostedLogin::unavailable(), createPackage: fn(_token, _org, _name) => HostedLogin::unavailable() }, fn() => catalogRequest(port)))
+    let served = andThen(HostedService::config(config), fn(policy) => HostedService::withListeners(policy { allowedHost: "127.0.0.1" }, "content.example.test", "127.0.0.1", port, port + 1, fixtureCatalog, fixtureSource, openLogin, loginCallback, browserSession, HostedReview::Operations { approve: fn(_token, _id, _digest) => HostedLogin::unavailable(), receipt: fn(_token, _id) => Error { message: HostedReview::missing }, organize: fn(_token, _slug, _name) => HostedLogin::unavailable(), createPackage: fn(_token, _org, _name) => HostedLogin::unavailable(), bind: fn(_token, _pkg, _repo, _branch, _dir) => HostedLogin::unavailable(), release: fn(_token, _pkg, _commit, _epoch, _ordinal) => HostedLogin::unavailable() }, fn() => catalogRequest(port)))
     checkAll("restricted PostgreSQL login behind public HTTP ingress", [created.status == 0, (served ?: -1) == 0])
 }
 

@@ -1,0 +1,50 @@
+namespace registry_collect;
+import registry::Bundle
+import registry::Bytes
+import registry::Json
+import registry::JsonRead
+import registry::Release
+import registry::ReleaseFiles
+import registry_api::Forge
+import registry_host::Database
+
+/// The collector [PACKAGE-HOSTED-PUBLISH-FLOW] steps 5 and 6: take the oldest unfrozen release intent,
+/// read exactly its commit from the bound repository, assemble and freeze the canonical bundle into
+/// quarantine, then submit the frozen version under the intent's id. Nothing comes from the publisher.
+module CollectJob {
+    export effect Inputs {
+        query: fn(string) -> Result<string, string>
+        quarantine: fn(string, string, string) -> Result<string, string>
+    }
+
+    fn query(statement, values) = perform Inputs.query(Database::collectorScript(statement, values))
+    fn field(doc, name) = JsonRead::text(JsonRead::field(doc, name))
+    fn refused() = Error { message: "publication.collect-intent" }
+
+    fn submitted(id, doc, digest) = andThen(query("SELECT registry.submit_frozen_version(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + "::uuid,"
+            + Database::decoded(3) + "::bigint," + Database::decoded(4) + "::bigint," + Database::decoded(5) + "," + Database::decoded(6) + "::uuid)",
+            [id, field(doc, "packageId"), field(doc, "epoch"), field(doc, "ordinal"), digest, field(doc, "publisherId")]), fn(_) => Success { value: id })
+
+    fn frozen(id, doc, release) = {
+        let digest = Release::digestOf(release)
+        andThen(Bundle::encode(release), fn(bytes) => andThen(perform Inputs.quarantine(id, digest, bytes), fn(_) => submitted(id, doc, digest)))
+    }
+
+    fn collect(doc) = {
+        let id = field(doc, "id")
+        let commit = field(doc, "commit")
+        let repository = field(doc, "repositoryId")
+        if !Bytes::canonicalUuid(id) || !Forge::commitOk(commit) || !Forge::repositoryOk(repository) { refused() }
+        else { andThen(perform Forge::Repository.files(repository, field(doc, "branch"), commit, field(doc, "subdirectory")), fn(files) =>
+                andThen(ReleaseFiles::assemble(field(doc, "dir"), files), fn(release) => frozen(id, doc, release))) }
+    }
+
+    fn document(raw) = match Json::parse(raw) {
+        Success { value } => Success { value: value }
+        Error => refused()
+    }
+
+    /// Freeze one waiting release intent: its id, or "idle" when none waits.
+    export fn run() = andThen(query("SELECT registry.pending_release_intent()", []),
+        fn(raw) => if raw == "" { Success { value: "idle" } } else { andThen(document(raw), collect) })
+}

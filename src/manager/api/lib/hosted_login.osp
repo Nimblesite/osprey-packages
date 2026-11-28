@@ -231,8 +231,15 @@ module HostedLogin {
         approve: fn(token, id, digest) => approve(config, token, id, digest),
         receipt: fn(token, id) => receipt(config, token, id),
         organize: fn(token, slug, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createOrganization(cookie, issuer, subject, github, slug, name)),
-        createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name))
+        createPackage: fn(token, org, name) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::createPackage(cookie, issuer, subject, github, org, name)),
+        bind: fn(token, pkg, repository, branch, dir) => Forge::closed()(fn() => owned(config, token, fn(cookie, issuer, subject, github) =>
+                bound(cookie, issuer, subject, github, pkg, repository, branch, dir))),
+        release: fn(token, pkg, commit, epoch, ordinal) => owned(config, token, fn(cookie, issuer, subject, github) => BrowserSessions::requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal))
     }
+
+    /// Bind only a repository the forge says this GitHub account administers [PACKAGE-HOSTED-PUBLISH-FLOW].
+    export fn bound(cookie, issuer, subject, github, pkg, repository, branch, dir) = andThen(perform Forge::Repository.admin(repository, github), fn(admin) =>
+        if admin { BrowserSessions::bindRepository(cookie, issuer, subject, github, pkg, repository, branch, dir) } else { Error { message: HostedOwnership::refused } })
 
     export fn nativeSession(config, method, token) = if method == "POST" { BrowserSessions::logout(sessionDigest(token)) }
     else { nativeRead(config, token, BrowserSessions::revalidate) }

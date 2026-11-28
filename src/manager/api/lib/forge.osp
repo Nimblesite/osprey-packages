@@ -1,0 +1,26 @@
+namespace registry_api;
+import registry::Release
+
+/// The GitHub side of [PACKAGE-HOSTED-PUBLISH-FLOW], addressed only by stable numeric repository ID.
+/// `admin` answers whether that GitHub account administers the repository; `files` reads the exact
+/// commit's subdirectory, refusing a commit the branch cannot reach. Nothing else is ever fetched.
+module Forge {
+    export effect Repository {
+        admin: fn(string, string) -> Result<bool, string>
+        files: fn(string, string, string, string) -> Result<List<Release::File>, string>
+    }
+    export let unconfigured = "forge.unconfigured"
+
+    /// Production until the registry's GitHub App is provisioned: every forge call fails closed.
+    export fn closed() = handler Repository {
+        admin _repository _github => Error { message: unconfigured }
+        files _repository _branch _commit _subdirectory => Error { message: unconfigured }
+    }
+
+    fn digit(b) = b >= 48 && b <= 57
+    /// A GitHub repository ID: decimal digits, no leading zero.
+    export fn repositoryOk(text) = byteLength(text) >= 1 && byteLength(text) <= 19 && !startsWith(text, "0") && registry::Bytes::everyByte(text, digit)
+    fn hex(b) = digit(b) || (b >= 97 && b <= 102)
+    /// A full lowercase 40-character commit hash.
+    export fn commitOk(text) = byteLength(text) == 40 && registry::Bytes::everyByte(text, hex)
+}

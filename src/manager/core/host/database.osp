@@ -79,7 +79,9 @@ module Database {
     fn readerScript(query) = "BEGIN READ ONLY; SET LOCAL search_path=pg_catalog; SET LOCAL statement_timeout='3s';\n\\o /dev/null\n" + roleGuard + "SELECT 1/((current_user='registry_catalog_reader')::int);\n\\o\n" + query + "; COMMIT;\n"
     /// `<expires_at unix seconds> <body>`, or an empty line when no row is live.
     export fn timedCatalogScript() = readerScript("SELECT registry.public_catalog_timed()")
-    fn mountedConnection(service) = Connection { service: service, serviceFile: "/run/catalog-service/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
+    /// A dedicated service file mounted at `serviceFile`, verified against the catalog CA.
+    fn serviceConnection(service, serviceFile) = Connection { service: service, serviceFile: serviceFile, passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
+    fn mountedConnection(service) = serviceConnection(service, "/run/catalog-service/pg_service.conf")
 
     export fn timedPublicCatalog() = executed(mountedConnection("catalog"), timedCatalogScript())
     /// Re-attest the public catalog from its eligible releases, as the catalog writer login.
@@ -114,11 +116,17 @@ module Database {
 
     export fn sessionRevoker(source) = executed(mountedConnection("session-revoker"), source)
 
+    /// The collector freezes release intents [PACKAGE-HOSTED-PUBLISH-FLOW]; the first value scopes its job.
+    export fn collectorScript(statement, values) = preAuthScript("registry_publication_collector", ["frozen_job"], [listGet(values, 0) ?: ""], statement, values)
+
+    /// Dedicated service mount for the collector login, with no browser-session credentials.
+    export fn collector(source) = executed(serviceConnection("collector", "/run/registry-collector-db/pg_service.conf"), source)
+
     export fn scanScript(statement, values) = preAuthScript("registry_scan_worker", ["scan_job"], [listGet(values, 0) ?: ""], statement, values)
 
     /// Dedicated service mount, with no browser-session credentials.
     export fn scan(source) = {
-        let connection = Connection { service: "scan", serviceFile: "/run/registry-scan-db/pg_service.conf", passfile: "/dev/null", rootCertificate: "/run/catalog-ca/ca.pem" }
+        let connection = serviceConnection("scan", "/run/registry-scan-db/pg_service.conf")
         executed(connection, source)
     }
 

@@ -1,0 +1,33 @@
+namespace registry_api;
+import registry_collect::CollectJob
+import registry::Digests
+import registry::Policy
+import registry_host::Database
+import registry_host::Host
+import registry_host::Native
+
+/// Create-only: an existing quarantine object counts only when it holds exactly these bytes.
+fn quarantined(id, digest, bytes) = {
+    let dir = "/run/registry-quarantine/" + id
+    let path = dir + "/" + Digests::hexOf(digest) + ".json"
+    match readFile(path) {
+        Success { value } => if value == bytes { Success { value: path } } else { Error { message: "publication.quarantine-conflict" } }
+        Error => andThen(perform Host::Tree.ensure(dir), fn(_) => match writeFile(path, bytes) {
+                Success => Success { value: path }
+                Error => Error { message: "publication.quarantine-write" }
+        })
+    }
+}
+
+fn mounted() = handler CollectJob::Inputs {
+    query script => Database::collector(script)
+    quarantine id digest bytes => quarantined(id, digest, bytes)
+}
+
+/// Freeze one waiting release intent [PACKAGE-HOSTED-PUBLISH-FLOW].
+fn work() = ProviderNative::bounded(120000)(fn() => match Forge::closed()(fn() => CollectJob::run()) {
+        Success => 0
+        Error => 1
+})
+
+fn main() = print("status: ${Policy::guarded(fn() => Native::session(fn() => mounted()(work)))}")

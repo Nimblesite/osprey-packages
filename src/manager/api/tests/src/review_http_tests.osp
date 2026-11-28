@@ -24,7 +24,42 @@ module ReviewHttpTests {
     export fn createPackage(cookie, owner, name) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
     else if owner == org && name == "net" { Success { value: pkg } } else { Error { message: HostedOwnership::refused } }
 
-    export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage }
+    let commit = "0123456789abcdef0123456789abcdef01234567"
+    let intent = "44444444-4444-4444-8444-444444444444"
+
+    export fn bind(cookie, owner, repository, branch, dir) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if owner == pkg && repository == "4242" && branch == "main" && dir == "packages/net" { Success { value: pkg } } else { Error { message: HostedOwnership::refused } }
+
+    export fn release(cookie, owner, sha, epoch, ordinal) = if cookie != token { Error { message: HostedLogin::sessionRequired } }
+    else if owner == pkg && sha == commit && epoch == "1" && ordinal == "2" { Success { value: intent } } else { Error { message: HostedOwnership::refused } }
+
+    export fn operations() = HostedReview::Operations { approve: decide, receipt: receipt, organize: organize, createPackage: createPackage, bind: bind, release: release }
+
+    fn releases(client, cookie, auth) = {
+        let repository = HostedOwnership::packages + pkg + "/repository"
+        let releasing = HostedOwnership::packages + pkg + "/releases"
+        let bound = "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"
+        let named = "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":2}"
+        checkAll("binding a repository and naming a commit need the browser, CSRF token and exact values", [
+                answer(client, repository, json(auth), bound) == "201|{\"id\":\"${pkg}\"}",
+                startsWith(answer(client, repository, json(cookie), bound), "403|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":4242,\"branch\":\"main\",\"subdirectory\":\"\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"0042\",\"branch\":\"main\",\"subdirectory\":\"\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"../main\",\"subdirectory\":\"\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"../etc\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"4242\",\"branch\":\"main\",\"subdirectory\":\"/abs\"}"), "400|"),
+                startsWith(answer(client, repository, json(auth), "{\"repositoryId\":\"9999\",\"branch\":\"main\",\"subdirectory\":\"packages/net\"}"), "409|"),
+                answer(client, releasing, json(auth), named) == "201|{\"id\":\"${intent}\"}",
+                startsWith(answer(client, releasing, json(cookie), named), "403|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"main\",\"epoch\":1,\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":0,\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":\"1\",\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${repeat("A", 40) ?: ""}\",\"epoch\":1,\"ordinal\":2}"), "400|"),
+                startsWith(answer(client, releasing, json(auth), "{\"commit\":\"${commit}\",\"epoch\":1,\"ordinal\":3}"), "409|"),
+                startsWith(answer(client, HostedOwnership::packages + "not-a-uuid/releases", json(auth), named), "400|"),
+                startsWith(answer(client, HostedOwnership::packages + pkg + "/upload", json(auth), named), "403|")
+        ])
+    }
 
     /// `status|body` of one POST.
     fn answer(client, path, headers, body) = match httpPostResponse(client, path, body, headers) {
@@ -82,6 +117,7 @@ module ReviewHttpTests {
             ])
             ListenerTests::receiptChecks(port, edge, cookie, submission)
             ownership(value, origin, cookie, auth)
+            releases(value, cookie, auth)
             let _closed = httpCloseClient(value)
         }
     }

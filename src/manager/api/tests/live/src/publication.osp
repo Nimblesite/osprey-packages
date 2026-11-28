@@ -4,28 +4,45 @@ import registry::PublicCatalog
 import registry::Release
 import registry::ReleaseFiles
 import registry_scan::ScanJob
+import registry_collect::CollectJob
+import registry_api::Forge
 import registry_host::Host
 
 /// A registered publisher's version reaches the public catalog [PACKAGE-HOSTED-PUBLISH-FLOW]: through
-/// the restricted logins alone, the publisher creates an organization and package, the collector
-/// freezes a version, the real scanner accepts it, a release reviewer approves exactly that digest,
+/// the restricted logins alone, the publisher creates an organization and package, binds its GitHub
+/// repository and names a commit; the collector reads exactly that commit from the forge and freezes
+/// it, the real scanner accepts it, a release reviewer approves exactly that digest,
 /// the scanner publishes it from the frozen manifest and the catalog writer lists it. Nothing is
 /// published before approval, a stranger cannot approve, a replay publishes nothing new, and the
 /// scanner cannot write a release the reviewer did not approve. Leaves no rows behind.
 module Publication {
-    let job = "44444444-4444-4444-8444-444444444441"
+    let commit = "0123456789abcdef0123456789abcdef01234567"
     let manifest = "[project]\nname = \"net\"\nsource_roots = [\"src\"]\n[package]\nname = \"@atlas/net\"\nlicense = \"MIT\"\nsummary = \"HTTP tools\"\nkeywords = [\"http\", \"web\"]\n"
-    fn frozen() = ReleaseFiles::assemble("@atlas/net/1.1", [
-            Release::File { relPath: "osprey.toml", content: manifest },
-            Release::File { relPath: "NOTICE.md", content: "Atlas attribution.\n" },
-            Release::File { relPath: "src/main.osp", content: "// scan fixture\nfn main() = 1\n" }
-    ])
-    fn worker(digest, bytes, work) = ScanWorkerTests::mounts(job, digest, bytes)(work)
+    fn files() = [
+        Release::File { relPath: "osprey.toml", content: manifest },
+        Release::File { relPath: "NOTICE.md", content: "Atlas attribution.\n" },
+        Release::File { relPath: "src/main.osp", content: "// scan fixture\nfn main() = 1\n" }
+    ]
+    fn frozen() = ReleaseFiles::assemble("@atlas/net/1.1", files())
+    fn worker(job, digest, bytes, work) = ScanWorkerTests::mounts(job, digest, bytes)(work)
+
+    /// GitHub as the fixture: repository 4242's `main` reaches exactly one commit.
+    fn forge() = handler Forge::Repository {
+        admin repository github => Success { value: repository == "4242" && github == "7201" }
+        files repository branch sha dir => if repository == "4242" && branch == "main" && sha == commit && dir == "" { Success { value: files() } }
+        else { Error { message: "fixture.forge-unreachable" } }
+    }
+    /// The collector's real login, with quarantine accepting only the expected frozen bytes.
+    fn collected(digest, bytes) = handler CollectJob::Inputs {
+        query script => registry_host::Database::completed(CatalogWriter::piped("registry_publication_collector", script), "fixture.pg")
+        quarantine _id pinned frozen => if pinned == digest && frozen == bytes { Success { value: "quarantined" } } else { Error { message: "fixture.quarantine" } }
+    }
+    fn collect(digest, bytes) = forge()(fn() => collected(digest, bytes)(CollectJob::run)) ?: "error"
     fn scanner(call) = {
         let result = Ownership::run(Ownership::psql("registry_scan_worker") + " -c " + Host::shellWord("SELECT " + call))
         if result.status == 0 { trim(result.stdout) } else { "error" }
     }
-    let cleanup = "DELETE FROM registry.public_catalog; DELETE FROM registry.releases; DELETE FROM registry.release_approvals; DELETE FROM registry.release_reviewers; DELETE FROM registry.review_scans; DELETE FROM registry.scan_claims; DELETE FROM registry.review_submissions; DELETE FROM registry.package_permissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.browser_sessions; DELETE FROM registry.auth_bindings WHERE provider_subject IN ('7201','7202','7203'); DELETE FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id);"
+    let cleanup = "DELETE FROM registry.public_catalog; DELETE FROM registry.releases; DELETE FROM registry.release_approvals; DELETE FROM registry.release_reviewers; DELETE FROM registry.review_scans; DELETE FROM registry.scan_claims; DELETE FROM registry.review_submissions; DELETE FROM registry.release_intents; DELETE FROM registry.package_repositories; DELETE FROM registry.package_permissions; DELETE FROM registry.packages; DELETE FROM registry.memberships; DELETE FROM registry.organizations; DELETE FROM registry.browser_sessions; DELETE FROM registry.auth_bindings WHERE provider_subject IN ('7201','7202','7203'); DELETE FROM registry.principals p WHERE NOT EXISTS (SELECT FROM registry.auth_bindings b WHERE b.principal_id=p.id);"
 
     fn listedEntry(entry, digest, adaId) = PublicCatalog::text(entry, "key") == "@atlas/net" && PublicCatalog::text(entry, "summary") == "HTTP tools"
     && join(PublicCatalog::keywords(entry), ",") == "http,web" && match PublicCatalog::field(entry, "releases") {
@@ -53,18 +70,26 @@ module Publication {
         let pkg = Ownership::asSession(ada, "registry.create_package('${org}', 'net')")
         let adaId = trim(Ownership::owner("SELECT ${Ownership::principalOf("7201")}").stdout)
         let reviewer = Ownership::owner("INSERT INTO registry.release_reviewers VALUES (${Ownership::principalOf("7202")})").status == 0
-        let submitted = Ownership::collector("registry.submit_frozen_version('${job}','${pkg}',1,1,'${digest}','${adaId}')") == ""
-        let scanned = (worker(digest, bytes, fn() => ScanWorkerTests::agent("accepted")(fn() => ScanJob::run(job))) ?: "") == job
-        let early = (worker(digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','HTTP tools','[]','[]')") == ""
+        let unbound = Ownership::asSession(ada, "registry.request_release('${pkg}','${commit}',1,1)") == ""
+        let strangerBinds = Ownership::asSession(eve, "registry.bind_repository('${pkg}',4242,'main','')") == ""
+        let bound = Ownership::asSession(ada, "registry.bind_repository('${pkg}',4242,'main','')") == pkg
+        let rebound = Ownership::asSession(ada, "registry.bind_repository('${pkg}',777,'main','')") == ""
+        let strangerRequests = Ownership::asSession(eve, "registry.request_release('${pkg}','${commit}',1,1)") == ""
+        let job = Ownership::asSession(ada, "registry.request_release('${pkg}','${commit}',1,1)")
+        let duplicate = Ownership::asSession(ada, "registry.request_release('${pkg}','${commit}',1,1)") == ""
+        let submitted = collect(digest, bytes) == job && collect(digest, bytes) == "idle"
+        let scanned = (worker(job, digest, bytes, fn() => ScanWorkerTests::agent("accepted")(fn() => ScanJob::run(job))) ?: "") == job
+        let early = (worker(job, digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','HTTP tools','[]','[]')") == ""
         let strangerDenied = Ownership::asSession(eve, "registry.approve_submission('${job}','${digest}')") == ""
         let substituted = Ownership::asSession(rex, "registry.approve_submission('${job}','sha256:${repeat("0", 64) ?: ""}')") == ""
         let approved = Ownership::asSession(rex, "registry.approve_submission('${job}','${digest}')") == job
         let forged = scanner("1; INSERT INTO registry.releases VALUES ('${job}','${org}','${pkg}',1,2,'${digest}','${adaId}','Atlas Engineering','MIT','x','[]','[]','[]','eligible',statement_timestamp())") == "error"
-        let published = (worker(digest, bytes, ScanJob::publish) ?: "") == job
-        let replayed = (worker(digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','Other','[]','[]')") == job
+        let published = (worker(job, digest, bytes, ScanJob::publish) ?: "") == job
+        let replayed = (worker(job, digest, bytes, ScanJob::publish) ?: "") == "idle" && scanner("registry.publish_approved_release('${job}','MIT','Other','[]','[]')") == job
         let listed = CatalogWriter::refreshed() && catalogLists(digest, adaId)
         let clean = Ownership::owner(cleanup).status == 0
-        checkAll("an approved version reaches the public catalog", [ada.digest != "", rex.digest != "", eve.digest != "", reviewer, submitted, scanned,
+        checkAll("an approved version reaches the public catalog", [ada.digest != "", rex.digest != "", eve.digest != "", reviewer, unbound, strangerBinds, bound, rebound,
+                strangerRequests, registry::Bytes::canonicalUuid(job), duplicate, submitted, scanned,
                 early, strangerDenied, substituted, approved, forged, published, replayed, listed, clean])
     }
 

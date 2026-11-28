@@ -95,6 +95,14 @@ module BrowserSessions {
     export fn createPackage(cookie, issuer, subject, github, org, name) = created(cookie, issuer, subject, github,
         "SELECT registry.create_package(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + ")", [org, name])
 
+    export fn bindRepository(cookie, issuer, subject, github, pkg, repository, branch, dir) = created(cookie, issuer, subject, github,
+        "SELECT registry.bind_repository(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + "::bigint," + Database::decoded(3) + "," + Database::decoded(4) + ")",
+        [pkg, repository, branch, dir])
+
+    export fn requestRelease(cookie, issuer, subject, github, pkg, commit, epoch, ordinal) = created(cookie, issuer, subject, github,
+        "SELECT registry.request_release(" + Database::decoded(1) + "::uuid," + Database::decoded(2) + "," + Database::decoded(3) + "::bigint," + Database::decoded(4) + "::bigint)",
+        [pkg, commit, epoch, ordinal])
+
     export fn receipt(cookie, issuer, subject, github, id) = andThen(runtime(identifiedScript(cookie, issuer, subject, github, fn(scope) =>
                 Success { value: Database::sessionRuntimeScript(scope, "SELECT registry.publication_receipt(" + Database::decoded(1) + "::uuid)", [id]) })), fn(body) =>
         if body == "" { Error { message: "publication.unknown-submission" } } else { Success { value: body } })
